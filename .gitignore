@@ -12,6 +12,7 @@ venv/
 # SQLite, локальний Neon's dump тощо
 backend/*.sqlite3
 backend/db.sqlite3
+backend/instance/db.sqlite3
 
 # --- Logs & runtime ---
 *.log
