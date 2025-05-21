@@ -8,7 +8,7 @@ unzip horoscope-app.zip && cd horoscope-app
 # Backend
 python -m venv venv && source venv/bin/activate
 pip install -r backend/requirements.txt
-python - <<'PY'
+cd backend && python - <<'PY'
 from app import db, create_app
 app = create_app()
 app.app_context().push()
