@@ -11,6 +11,10 @@ module.exports = {
     'spin-inner':           'spin 45s linear infinite',
     'spin-inner-reverse':   'spinReverse 120s linear infinite',
   },
+fontFamily: {
+        merienda: ['"Merienda"', 'cursive'],
+        lato: ['"Lato"', 'sans-serif'],
+      },
     },
   },
   plugins: [],

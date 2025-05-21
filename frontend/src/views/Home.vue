@@ -11,7 +11,6 @@
 import { ref } from 'vue'
 import Starfield from '../components/Starfield.vue'
 import ZodiacWheel from '../components/ZodiacWheel.vue'
-import ZodiacModal from '../components/ZodiacModal.vue'
 import data from '../data/zodiac'
 const current = ref(null)
 function open(z){ current.value = z }
