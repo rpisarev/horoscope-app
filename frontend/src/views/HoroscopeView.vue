@@ -6,10 +6,9 @@
     <article class="bg-white/5 rounded-xl p-6 min-h-[160px] animate-fade-in shadow">
       {{ forecastText }}
     </article>
-
     <div class="flex justify-between items-center">
+      <RouterLink :to="mainLink" class="underline">Главная</RouterLink>
       <RouterLink :to="archiveLink" class="underline">Архив</RouterLink>
-      <button class="bg-amber-400 text-black font-medium px-4 py-2 rounded shadow">Want forecast</button>
     </div>
   </main>
 </template>
@@ -22,6 +21,7 @@ import DaySlider from '../components/DaySlider.vue'
 
 const route = useRoute()
 const router = useRouter()
+const isForecastDisabled = ref(true)
 
 const sign = ref(route.params.sign as string)
 const day = ref(route.params.day as string)
@@ -33,4 +33,5 @@ watch([sign, day], ([s,d]) => {
 const forecastText = 'Some static forecast no API calls yet'
 
 const archiveLink = computed(() => `/archive/${sign.value}/${day.value.slice(0,4)}/${day.value.slice(5,7)}`)
+const mainLink = computed(() => '/')
 </script>
