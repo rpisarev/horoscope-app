@@ -8,7 +8,7 @@
     </article>
 
     <div class="flex justify-between items-center">
-      <RouterLink :to="archiveLink" class="underline">Архів</RouterLink>
+      <RouterLink :to="archiveLink" class="underline">Архив</RouterLink>
       <button class="bg-amber-400 text-black font-medium px-4 py-2 rounded shadow">Want forecast</button>
     </div>
   </main>
