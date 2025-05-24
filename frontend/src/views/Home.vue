@@ -3,7 +3,6 @@
   <main class="relative min-h-screen text-center text-white">
     <ZodiacWheel :zodiacs="data" @select="open"/>
     <ZodiacModal :show="!!current" :zodiac="current" @close="current=null">
-      <!--  <HoroscopeCard :sign="current.name" /> -->
     </ZodiacModal>
   </main>
 </template>
