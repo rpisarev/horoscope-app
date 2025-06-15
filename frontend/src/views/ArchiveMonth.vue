@@ -82,11 +82,10 @@ const forecastText = 'Some static forecast no API calls yet'
 
 const archiveLink = computed(() => `/archive/${sign.value}/${day.value.slice(0,4)}/${day.value.slice(5,7)}`)
 const mainLink = computed(() => '/')
-const monthName = computed(() =>
-  dayjs(`${year.value}-${String(month.value).padStart(2, '0')}-01`)
-    .locale('ru')
-    .format('MMMM')
-)
+const monthName = computed(() => {
+  const dt = new Date(year.value, month.value - 1, 1)
+  return new Intl.DateTimeFormat('ru', { month: 'long' }).format(dt)
+})
 
 const years = ref<number[]>([])
 onMounted(async () => {
