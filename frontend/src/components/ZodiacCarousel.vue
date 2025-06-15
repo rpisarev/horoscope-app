@@ -1,7 +1,7 @@
 <template>
   <div class="relative select-none">
     <!-- desktop arrows -->
-    <button class="hidden md:flex absolute left-0 z-10 h-7 items-start pt-1 px-1" @click="prev" aria-label="Prev sign">
+    <button class="md:flex absolute left-0 z-10 h-7 items-start pt-1 px-1" @click="prev" aria-label="Prev sign">
       <ChevronLeft class="w-6 h-6" />
     </button>
 
@@ -22,7 +22,7 @@
       </SwiperSlide>
     </Swiper>
 
-    <button class="hidden md:flex absolute right-0 top-0 z-10 h-7 items-start pt-1 px-1" @click="next" aria-label="Next sign">
+    <button class="md:flex absolute right-0 top-0 z-10 h-7 items-start pt-1 px-1" @click="next" aria-label="Next sign">
       <ChevronRight class="w-6 h-6" />
     </button>
   </div>

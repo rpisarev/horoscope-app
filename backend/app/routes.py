@@ -1,9 +1,9 @@
 from flask import Blueprint, request, abort, jsonify
-from datetime import date
+from datetime import datetime, date
 from .models import Forecast
 from .services import SIGNS, generate_horoscope, save_forecast
 
-bp = Blueprint("api", __name__)
+bp = Blueprint("api", __name__, url_prefix='/api')
 
 @bp.route("/forecast")
 def forecast():
@@ -34,3 +34,8 @@ def forecast():
 def signs():
     from .services import SIGNS
     return jsonify(SIGNS)
+
+@bp.route('/years')
+def years():
+    forecasts_years = [2024, datetime.utcnow().year]
+    return jsonify(forecasts_years)
