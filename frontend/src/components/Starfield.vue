@@ -8,7 +8,9 @@
 import { ref, onMounted } from 'vue'
 const canvas = ref(null)
 const stars = []
-const speed = 120 // px per second
+// Define a speed range for parallax effect (px per second)
+const minSpeed = 100
+const maxSpeed = 140
 
 onMounted(() => {
   const ctx = canvas.value.getContext('2d')
@@ -20,8 +22,10 @@ onMounted(() => {
 
   setInterval(() => {
     stars.push({
-      x: -2, y: Math.random()*innerHeight,
-      r: Math.random()*2+1
+      x: -2,
+      y: Math.random() * innerHeight,
+      r: Math.random() * 2 + 1,
+      speed: minSpeed + Math.round(4*Math.random()) * (maxSpeed - minSpeed)/4
     })
   }, 250)
 
@@ -30,12 +34,15 @@ onMounted(() => {
     const dt = (now-prev)/1000; prev=now
     ctx.fillStyle = '#070b19'
     ctx.fillRect(0,0,innerWidth,innerHeight)
-    for(let i=stars.length-1;i>=0;i--){
-      const s=stars[i]; s.x+=speed*dt
+    for (let i = stars.length - 1; i >= 0; i--) {
+      const s = stars[i]
+      // Move based on individual star speed for parallax effect
+      s.x += s.speed * dt
       if(s.x>innerWidth+4) stars.splice(i,1)
       else{
         ctx.fillStyle='#fff'; ctx.beginPath()
-        ctx.arc(s.x,s.y,s.r,0,Math.PI*2); ctx.fill()
+        ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2)
+        ctx.fill()
       }
     }
     requestAnimationFrame(tick)
