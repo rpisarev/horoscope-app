@@ -126,7 +126,7 @@ const calendarDays = computed(() => {
       key:`d${d}`,
       number:d,
       active,
-      href:`/archiveforecast/${sign.value}/${date.format('YYYY-MM-DD')}`
+      href:`/archive/${sign.value}/${year.value}/${month.value}/${String(d).padStart(2, '0')}`
     })
   }
 
