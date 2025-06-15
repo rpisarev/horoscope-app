@@ -4,6 +4,7 @@ import Home from '../views/Home.vue'
 import Archive from '../pages/Archive.vue'
 import HoroscopeView from '../views/HoroscopeView.vue'
 import ArchiveMonth from '../views/ArchiveMonth.vue'
+import ArchiveForecast from '../views/ArchiveForecast.vue'
 
 const routes = [
   { path: '/', name: 'home', component: Home },
@@ -33,12 +34,10 @@ const routes = [
       return '/archive/gemini/2025/${today}'
     },
   },
-  {
-    path: '/archiveforecast/:sign/:date',
-    name: 'ArchiveForecast',
-    component: () => import('../views/ArchiveForecast.vue'),
-    props: true,
-  }
+  { path: '/archive/:sign/:year/:month/:day',
+    name: 'archive-forecast',
+    component: ArchiveForecast,
+    props: true },
 ]
 
 export default createRouter({
