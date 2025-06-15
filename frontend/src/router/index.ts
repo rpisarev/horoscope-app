@@ -1,16 +1,12 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import type { RouteRecordRaw } from 'vue-router'
 import Home from '../views/Home.vue'
-import Today from '../pages/Today.vue'
-import Tomorrow from '../pages/Tomorrow.vue'
 import Archive from '../pages/Archive.vue'
 import HoroscopeView from '../views/HoroscopeView.vue'
+import ArchiveMonth from '../views/ArchiveMonth.vue'
 
 const routes = [
   { path: '/', name: 'home', component: Home },
-  { path: '/today', component: Today },
-  { path: '/tomorrow', component: Tomorrow },
-  { path: '/archive', component: Archive },
   {
     name: 'horoscope',
     path: '/horoscope/:sign/:day',
@@ -24,6 +20,25 @@ const routes = [
       return `/horoscope/capricorn/${today}`
     },
   },
+  {
+    name: 'ArchiveMonth',
+    path: '/archive/:sign/:year/:month',
+    component: ArchiveMonth,
+    props: true
+  },
+  {
+    path: '/archive',
+    redirect: () => {
+      const today = new Date().toISOString().slice(0, 10)
+      return '/archive/gemini/2025/${today}'
+    },
+  },
+  {
+    path: '/archiveforecast/:sign/:date',
+    name: 'ArchiveForecast',
+    component: () => import('../views/ArchiveForecast.vue'),
+    props: true,
+  }
 ]
 
 export default createRouter({
