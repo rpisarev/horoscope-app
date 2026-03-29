@@ -9,6 +9,7 @@ def create_app():
     app.config.from_object("app.config.Config")
 
     db.init_app(app)
+
     CORS(app, resources={r"/api/*": {"origins": "*"}})
 
     from .routes import bp as api_bp

@@ -63,9 +63,17 @@ async function loadForecast () {
   const y = year.value.toString().padStart(4, '0')
   const m = month.value.toString().padStart(2, '0')
   const d = day.value.toString().padStart(2, '0')
+
   try {
     const res = await fetch(`/api/forecast?sign=${sign.value}&date=${y}-${m}-${d}`)
-    forecastText.value = res.ok ? await res.text() : 'Не вдалося завантажити прогноз'
+
+    if (!res.ok) {
+      forecastText.value = 'Не вдалося завантажити прогноз'
+      return
+    }
+
+    const data = await res.json()
+    forecastText.value = data.text ?? 'Порожній прогноз'
   } catch {
     forecastText.value = 'Помилка завантаження'
   }

@@ -1,9 +1,10 @@
 from flask import Blueprint, request, abort, jsonify
-from datetime import datetime, date
+from datetime import date
+
 from .models import Forecast
 from .services import SIGNS, generate_horoscope, save_forecast
 
-bp = Blueprint("api", __name__, url_prefix='/api')
+bp = Blueprint("api", __name__)
 
 @bp.route("/forecast")
 def forecast():
@@ -11,9 +12,8 @@ def forecast():
     day_str = request.args.get("date")
 
     if sign not in SIGNS:
-        abort(400, f"Unknown sign '{{sign}}'")
+        abort(400, f"Unknown sign '{sign}'")
 
-    day = None
     if day_str:
         try:
             day = date.fromisoformat(day_str)
@@ -23,6 +23,7 @@ def forecast():
         day = date.today()
 
     fc = Forecast.query.filter_by(sign=sign, day=day).first()
+
     if not fc:
         text = generate_horoscope(sign, day)
         save_forecast(sign, day, text)
@@ -32,12 +33,11 @@ def forecast():
 
 @bp.route("/signs")
 def signs():
-    from .services import SIGNS
     return jsonify(SIGNS)
 
-@bp.route('/years')
+@bp.route("/years")
 def years():
     start_year = 2024
-    current_year = datetime.utcnow().year
+    current_year = date.today().year
     forecasts_years = list(range(start_year, current_year + 1))
     return jsonify(forecasts_years)
