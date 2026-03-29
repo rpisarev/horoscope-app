@@ -1,43 +1,61 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import type { RouteRecordRaw } from 'vue-router'
 import Home from '../views/Home.vue'
-import Archive from '../pages/Archive.vue'
 import HoroscopeView from '../views/HoroscopeView.vue'
 import ArchiveMonth from '../views/ArchiveMonth.vue'
 import ArchiveForecast from '../views/ArchiveForecast.vue'
 
+function getTodayParts() {
+  const now = new Date()
+  const day = now.toISOString().slice(0, 10)
+  const year = String(now.getUTCFullYear())
+  const month = String(now.getUTCMonth() + 1).padStart(2, '0')
+
+  return { day, year, month }
+}
+
 const routes = [
-  { path: '/', name: 'home', component: Home },
   {
-    name: 'horoscope',
+    path: '/',
+    name: 'home',
+    component: Home,
+  },
+
+  {
     path: '/horoscope/:sign/:day',
+    name: 'horoscope',
     component: HoroscopeView,
     props: true,
   },
+
   {
     path: '/horoscope',
     redirect: () => {
-      const today = new Date().toISOString().slice(0, 10)
-      return `/horoscope/capricorn/${today}`
+      const { day } = getTodayParts()
+      return `/horoscope/capricorn/${day}`
     },
   },
+
   {
-    name: 'ArchiveMonth',
     path: '/archive/:sign/:year/:month',
+    name: 'archive-month',
     component: ArchiveMonth,
-    props: true
+    props: true,
   },
+
   {
     path: '/archive',
     redirect: () => {
-      const today = new Date().toISOString().slice(0, 10)
-      return '/archive/gemini/2025/${today}'
+      const { year, month } = getTodayParts()
+      return `/archive/capricorn/${year}/${month}`
     },
   },
-  { path: '/archive/:sign/:year/:month/:day',
+
+  {
+    path: '/archive/:sign/:year/:month/:day',
     name: 'archive-forecast',
     component: ArchiveForecast,
-    props: true },
+    props: true,
+  },
 ]
 
 export default createRouter({
@@ -45,4 +63,3 @@ export default createRouter({
   routes,
   scrollBehavior: () => ({ top: 0 }),
 })
-
