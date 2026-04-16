@@ -21,6 +21,7 @@
         v-for="(m, i) in months"
         :key="i"
         class="flex items-center justify-center text-base capitalize"
+        :class="slideClass(i)"
       >
         {{ m }}
       </swiper-slide>
@@ -34,49 +35,81 @@
       <ChevronDown class="w-6 h-6" />
     </button>
   </div>
- </template>
+</template>
 
 <script setup lang="ts">
-import { ref, watch, nextTick } from 'vue';
-import { Swiper, SwiperSlide } from 'swiper/vue';
-import type { Swiper as SwiperInstance } from 'swiper';
-import { ChevronUp, ChevronDown } from 'lucide-vue-next';
-import 'swiper/css';
+import { computed, nextTick, ref, watch } from 'vue'
+import { Swiper, SwiperSlide } from 'swiper/vue'
+import type { Swiper as SwiperInstance } from 'swiper'
+import { ChevronUp, ChevronDown } from 'lucide-vue-next'
+import 'swiper/css'
 
 const months = [
-  'Январь','Февраль','Март','Апрель','Май','Июнь',
-  'Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'
-];
+  'Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
+  'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь',
+]
 
-const props = defineProps({
-  modelValue: { type: Number, required: true }, // 1‑12
-});
-const emit = defineEmits(['update:modelValue']);
+const props = defineProps<{
+  modelValue: number
+}>()
+
+const emit = defineEmits<{
+  (e: 'update:modelValue', value: number): void
+}>()
 
 const swiperRef = ref<SwiperInstance | null>(null)
+const isSyncing = ref(false)
 
-const initialIndex = props.modelValue - 1
+const initialIndex = computed(() => {
+  const idx = props.modelValue - 1
+  return idx >= 0 && idx < months.length ? idx : 0
+})
 
-const setSwiper = (s: SwiperInstance) => {
-  swiperRef.value = s
+function releaseSyncFlag() {
+  setTimeout(() => {
+    isSyncing.value = false
+  }, 0)
+}
+
+function syncToModel() {
+  nextTick(() => {
+    const swiper = swiperRef.value
+    if (!swiper) return
+
+    const idx = props.modelValue - 1
+    if (idx < 0 || idx >= months.length) return
+    if (swiper.activeIndex === idx) return
+
+    isSyncing.value = true
+    swiper.slideTo(idx, 0)
+    releaseSyncFlag()
+  })
+}
+
+function setSwiper(swiper: SwiperInstance) {
+  swiperRef.value = swiper
   syncToModel()
 }
 
 function onSlide(swiper: SwiperInstance) {
-  emit('update:modelValue', swiper.realIndex + 1)
-}
+  const value = swiper.activeIndex + 1
 
-function syncToModel () {
-  nextTick(() => {
-    if (!swiperRef.value) return
-        swiperRef.value.slideToLoop(props.modelValue - 1, 0)
-  })
+  if (isSyncing.value) {
+    isSyncing.value = false
+    return
+  }
+
+  if (value !== props.modelValue) {
+    emit('update:modelValue', value)
+  }
 }
 
 watch(() => props.modelValue, syncToModel)
 
-function slideClass(i) {
-  return (i+1) === props.modelValue ? 'font-bold text-amber-500' : 'text-gray-500 dark:text-white/70';
+function slideClass(i: number) {
+  return i + 1 === props.modelValue
+    ? 'font-bold text-amber-500'
+    : 'text-gray-500 dark:text-white/70'
 }
 
 const slidePrev = () => swiperRef.value?.slidePrev()

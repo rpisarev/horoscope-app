@@ -5,7 +5,7 @@
       @click="slidePrev"
       class="text-xl text-gray-400 hover:text-amber-500 focus:outline-none"
     >
-     <ChevronUp class="w-6 h-6"/>
+      <ChevronUp class="w-6 h-6" />
     </button>
 
     <swiper
@@ -22,7 +22,7 @@
         v-for="y in years"
         :key="y"
         class="flex items-center justify-center text-lg"
-	:class="y === modelValue ? 'font-bold text-amber-500' : 'text-gray-500'"
+        :class="y === modelValue ? 'font-bold text-amber-500' : 'text-gray-500'"
       >
         {{ y }}
       </swiper-slide>
@@ -33,49 +33,80 @@
       @click="slideNext"
       class="text-xl text-gray-400 hover:text-amber-500 focus:outline-none"
     >
-    <ChevronDown class="w-6 h-6"/>
+      <ChevronDown class="w-6 h-6" />
     </button>
   </div>
- </template>
+</template>
 
 <script setup lang="ts">
-import { ref, watch, nextTick } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue'
 import { ChevronUp, ChevronDown } from 'lucide-vue-next'
-import { Swiper, SwiperSlide } from 'swiper/vue';
-import type { Swiper as SwiperInstance } from 'swiper';
-import 'swiper/css';
+import { Swiper, SwiperSlide } from 'swiper/vue'
+import type { Swiper as SwiperInstance } from 'swiper'
+import 'swiper/css'
 
-const props = defineProps({
-  modelValue: { type: Number, required: true },
-  years: { type: Array, required: true },
-});
-const emit = defineEmits(['update:modelValue']);
+const props = defineProps<{
+  modelValue: number
+  years: number[]
+}>()
 
-const swiperRef      = ref<SwiperInstance | null>(null);
-const initialIndex   = props.years.indexOf(props.modelValue);
+const emit = defineEmits<{
+  (e: 'update:modelValue', value: number): void
+}>()
 
-const setSwiper = (s: SwiperInstance) => {
-  swiperRef.value = s;
-  syncToModel();
-};
+const swiperRef = ref<SwiperInstance | null>(null)
+const isSyncing = ref(false)
 
-const slidePrev = () => swiperRef.value?.slidePrev();
-const slideNext = () => swiperRef.value?.slideNext();
+const initialIndex = computed(() => {
+  const idx = props.years.indexOf(props.modelValue)
+  return idx >= 0 ? idx : 0
+})
 
-function onSlide(swiper: SwiperInstance) {
-  const y = props.years[swiper.realIndex];
-  emit('update:modelValue', y);
+function releaseSyncFlag() {
+  setTimeout(() => {
+    isSyncing.value = false
+  }, 0)
 }
 
 function syncToModel() {
   nextTick(() => {
-    if (!swiperRef.value) return;
-    const idx = props.years.indexOf(props.modelValue);
-    if (idx !== -1) swiperRef.value.slideToLoop(idx, 0);
-  });
+    const swiper = swiperRef.value
+    if (!swiper) return
+
+    const idx = props.years.indexOf(props.modelValue)
+    if (idx < 0) return
+    if (swiper.activeIndex === idx) return
+
+    isSyncing.value = true
+    swiper.slideTo(idx, 0)
+    releaseSyncFlag()
+  })
 }
 
-watch(() => props.modelValue, syncToModel);
+function setSwiper(swiper: SwiperInstance) {
+  swiperRef.value = swiper
+  syncToModel()
+}
+
+function onSlide(swiper: SwiperInstance) {
+  const idx = swiper.activeIndex
+  const value = props.years[idx]
+
+  if (isSyncing.value) {
+    isSyncing.value = false
+    return
+  }
+
+  if (typeof value === 'number' && value !== props.modelValue) {
+    emit('update:modelValue', value)
+  }
+}
+
+watch(() => props.modelValue, syncToModel)
+watch(() => props.years, syncToModel, { deep: true })
+
+const slidePrev = () => swiperRef.value?.slidePrev()
+const slideNext = () => swiperRef.value?.slideNext()
 </script>
 
 <style scoped>
