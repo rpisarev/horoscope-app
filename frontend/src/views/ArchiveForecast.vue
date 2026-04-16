@@ -172,11 +172,18 @@ watch(
   { immediate: true }
 )
 
-const mainLink = computed(() => '/')
+const mainLink = computed(() => ({
+  name: 'home',
+}))
 
-const archiveMonthLink = computed(
-  () => `/archive/${sign.value}/${year.value}/${pad(month.value)}`
-)
+const archiveMonthLink = computed(() => ({
+  name: 'archive-month',
+  params: {
+    sign: sign.value,
+    year: String(year.value),
+    month: pad(month.value),
+  },
+}))
 </script>
 
 <style scoped>

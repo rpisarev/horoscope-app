@@ -137,7 +137,22 @@ const calendarDays = computed(() => {
   const daysInMonth = firstDay.daysInMonth()
   const today = dayjs()
 
-  const items: { key: string; number: number; active: boolean; to: string }[] = []
+  const items: {
+  key: string
+  number: number
+  active: boolean
+  to:
+    | string
+    | {
+        name: 'archive-forecast'
+        params: {
+          sign: string
+          year: string
+          month: string
+          day: string
+        }
+      }
+}[] = []
 
   const startIdx = (firstDay.day() + 6) % 7
 
@@ -158,7 +173,15 @@ const calendarDays = computed(() => {
       key: `d${d}`,
       number: d,
       active,
-      to: `/archive/${sign.value}/${date.format('YYYY')}/${date.format('MM')}/${date.format('DD')}`,
+      to: {
+        name: 'archive-forecast',
+        params: {
+          sign: sign.value,
+          year: date.format('YYYY'),
+          month: date.format('MM'),
+          day: date.format('DD'),
+        },
+      },
     })
   }
 
