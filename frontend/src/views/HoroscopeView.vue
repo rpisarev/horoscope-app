@@ -98,9 +98,17 @@ watch(
   { immediate: true }
 )
 
-const archiveLink = computed(
-  () => `/archive/${sign.value}/${day.value.slice(0, 4)}/${day.value.slice(5, 7)}`
-)
+const archiveLink = computed(() => ({
+  name: 'archive-month',
+  params: {
+    sign: sign.value,
+    year: day.value.slice(0, 4),
+    month: day.value.slice(5, 7),
+  },
+}))
 
-const mainLink = computed(() => '/')
+const mainLink = computed(() => ({
+  name: 'home',
+}))
+
 </script>
