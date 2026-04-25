@@ -1,5 +1,14 @@
 <template>
-  <main class="max-w-3xl mx-auto px-4 py-8 flex flex-col gap-8">
+  <NotFound v-if="isRouteInvalid" />
+
+  <main
+    v-else-if="!isYearsLoaded"
+    class="max-w-3xl mx-auto px-4 py-8 text-center"
+  >
+    <p>Загрузка архива...</p>
+  </main>
+
+  <main v-else class="max-w-3xl mx-auto px-4 py-8 flex flex-col gap-8">
     <ZodiacCarousel v-model="sign" />
 
     <div class="flex flex-col md:flex-row w-full max-w-5xl gap-4">
@@ -49,110 +58,151 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import type { RouteLocationRaw } from 'vue-router'
 import dayjs from 'dayjs'
+
 import 'dayjs/locale/ru'
 
 import ZodiacCarousel from '../components/ZodiacCarousel.vue'
 import YearSwiper from '../components/YearSwiper.vue'
 import MonthSwiper from '../components/MonthSwiper.vue'
+import NotFound from './NotFound.vue'
+
+import {
+  isKnownSign,
+  parseMonthParam,
+  parseYearParam,
+  pad2,
+  routeParamToString,
+} from '../utils/routeValidation'
 
 const route = useRoute()
 const router = useRouter()
 
+const fallbackYear = dayjs().year()
+const fallbackMonth = dayjs().month() + 1
+
+const years = ref<number[]>([])
+const isYearsLoaded = ref(false)
+
 function getRouteSign() {
-  return String(route.params.sign || 'capricorn')
+  return routeParamToString(route.params.sign)
 }
 
 function getRouteYear() {
-  return Number(route.params.year) || dayjs().year()
+  return parseYearParam(route.params.year) ?? fallbackYear
 }
 
 function getRouteMonth() {
-  return Number(route.params.month) || dayjs().month() + 1
+  return parseMonthParam(route.params.month) ?? fallbackMonth
 }
 
 const sign = ref(getRouteSign())
 const year = ref(getRouteYear())
 const month = ref(getRouteMonth())
 
-watch(
-  () => [route.params.sign, route.params.year, route.params.month],
-  () => {
-    sign.value = getRouteSign()
-    year.value = getRouteYear()
-    month.value = getRouteMonth()
+const isStaticRouteInvalid = computed(() => (
+  !isKnownSign(route.params.sign) ||
+  parseYearParam(route.params.year) === null ||
+  parseMonthParam(route.params.month) === null
+))
+
+const isYearUnavailable = computed(() => {
+  const routeYear = parseYearParam(route.params.year)
+
+  if (routeYear === null) {
+    return false
   }
-)
 
-watch([sign, year, month], ([s, y, m]) => {
-  const nextSign = String(s)
-  const nextYear = String(y)
-  const nextMonth = String(m).padStart(2, '0')
+  return (
+    isYearsLoaded.value &&
+    years.value.length > 0 &&
+    !years.value.includes(routeYear)
+  )
+})
 
-  if (
-    route.params.sign === nextSign &&
-    route.params.year === nextYear &&
-    route.params.month === nextMonth
-  ) {
+const isRouteInvalid = computed(() => (
+  isStaticRouteInvalid.value ||
+  isYearUnavailable.value
+))
+
+function syncRouteToState() {
+  if (isStaticRouteInvalid.value || isYearUnavailable.value) {
     return
   }
 
-  router.replace({
-    name: 'archive-month',
-    params: {
-      sign: nextSign,
-      year: nextYear,
-      month: nextMonth,
-    },
-  })
-})
+  sign.value = getRouteSign()
+  year.value = getRouteYear()
+  month.value = getRouteMonth()
+}
+
+watch(
+  () => [route.params.sign, route.params.year, route.params.month],
+  syncRouteToState
+)
+
+watch(
+  [sign, year, month, isYearsLoaded],
+  ([s, y, m]) => {
+    if (!isYearsLoaded.value || isRouteInvalid.value) {
+      return
+    }
+
+    const nextSign = String(s)
+    const nextYear = String(y)
+    const nextMonth = pad2(Number(m))
+
+    if (
+      route.params.sign === nextSign &&
+      route.params.year === nextYear &&
+      route.params.month === nextMonth
+    ) {
+      return
+    }
+
+    router.replace({
+      name: 'archive-month',
+      params: {
+        sign: nextSign,
+        year: nextYear,
+        month: nextMonth,
+      },
+    })
+  },
+  { immediate: true }
+)
 
 const monthName = computed(() =>
-  dayjs(`${year.value}-${String(month.value).padStart(2, '0')}-01`)
+  dayjs(`${year.value}-${pad2(month.value)}-01`)
     .locale('ru')
     .format('MMMM')
 )
-
-const years = ref<number[]>([])
 
 onMounted(async () => {
   try {
     const res = await fetch('/api/years')
     years.value = await res.json()
-
-    if (years.value.length && !years.value.includes(year.value)) {
-      year.value = years.value[years.value.length - 1]
-    }
   } catch (err) {
     console.error('Failed to load years list', err)
+  } finally {
+    isYearsLoaded.value = true
+    syncRouteToState()
   }
 })
 
 const weekDays = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Нд']
 
 const calendarDays = computed(() => {
-  const firstDay = dayjs(
-    `${year.value}-${String(month.value).padStart(2, '0')}-01`
-  )
+  const firstDay = dayjs(`${year.value}-${pad2(month.value)}-01`)
   const daysInMonth = firstDay.daysInMonth()
   const today = dayjs()
 
   const items: {
-  key: string
-  number: number
-  active: boolean
-  to:
-    | string
-    | {
-        name: 'archive-forecast'
-        params: {
-          sign: string
-          year: string
-          month: string
-          day: string
-        }
-      }
-}[] = []
+    key: string
+    number: number
+    active: boolean
+    to: RouteLocationRaw
+  }[] = []
 
   const startIdx = (firstDay.day() + 6) % 7
 
@@ -161,10 +211,7 @@ const calendarDays = computed(() => {
   }
 
   for (let d = 1; d <= daysInMonth; d++) {
-    const date = dayjs(
-      `${year.value}-${String(month.value).padStart(2, '0')}-${String(d).padStart(2, '0')}`
-    )
-
+    const date = dayjs(`${year.value}-${pad2(month.value)}-${pad2(d)}`)
     const future = date.isAfter(today, 'day')
     const sameDay = date.isSame(today, 'day')
     const active = !future && !sameDay

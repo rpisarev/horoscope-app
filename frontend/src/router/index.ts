@@ -3,6 +3,7 @@ import Home from '../views/Home.vue'
 import HoroscopeView from '../views/HoroscopeView.vue'
 import ArchiveMonth from '../views/ArchiveMonth.vue'
 import ArchiveForecast from '../views/ArchiveForecast.vue'
+import NotFound from '../views/NotFound.vue'
 
 const routes = [
   {
@@ -27,6 +28,11 @@ const routes = [
     name: 'archive-forecast',
     component: ArchiveForecast,
     props: true,
+  },
+  {
+    path: '/:pathMatch(.*)*',
+    name: 'not-found',
+    component: NotFound,
   },
 ]
 
