@@ -17,7 +17,7 @@
       <article
         class="flex-1 bg-white/5 rounded-xl p-6 min-h-[160px] text-center animate-fade-in shadow"
       >
-        <p v-if="isLoading">Прогноз завантажується...</p>
+        <p v-if="isLoading">Загрузка прогноза...</p>
 
         <p v-else-if="errorText">{{ errorText }}</p>
 
@@ -30,9 +30,9 @@
     <DaySlider v-model="dateISO" class="self-center mt-4" />
 
     <div class="flex justify-between items-center">
-      <RouterLink :to="mainLink" class="underline">Головна</RouterLink>
+      <RouterLink :to="mainLink" class="underline">Главная</RouterLink>
 
-      <RouterLink :to="archiveMonthLink" class="underline">До місяця</RouterLink>
+      <RouterLink :to="archiveMonthLink" class="underline">К месяцу</RouterLink>
     </div>
   </main>
 </template>
@@ -172,17 +172,17 @@ async function loadForecast() {
 
     if (!res.ok) {
       forecastText.value = ''
-      errorText.value = 'Не вдалося завантажити прогноз'
+      errorText.value = 'Не удалось загрузить прогноз'
 
       return
     }
 
     const data = await res.json()
 
-    forecastText.value = data.text ?? 'Порожній прогноз'
+    forecastText.value = data.text ?? 'Прогноз пока пуст'
   } catch (err) {
     forecastText.value = ''
-    errorText.value = 'Помилка завантаження'
+    errorText.value = 'Ошибка загрузки'
 
     console.error('Failed to load forecast', err)
   } finally {
