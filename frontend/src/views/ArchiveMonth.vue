@@ -47,10 +47,20 @@
         </div>
       </div>
 
-      <MonthSwiper
+            <MonthSwiper
         v-model="month"
         class="flex-none mb-4 md:mb-0 order-2 md:order-none"
       />
+    </div>
+
+    <div class="flex justify-between items-center w-full max-w-md mx-auto">
+      <router-link :to="mainLink" class="underline">
+        Главная
+      </router-link>
+
+      <router-link :to="todayForecastLink" class="underline">
+        Прогноз на сегодня
+      </router-link>
     </div>
   </main>
 </template>
@@ -75,6 +85,7 @@ import {
   pad2,
   routeParamToString,
 } from '../utils/routeValidation'
+import { todayIso } from '../constants/zodiac'
 
 const route = useRoute()
 const router = useRouter()
@@ -177,6 +188,18 @@ const monthName = computed(() =>
     .locale('ru')
     .format('MMMM')
 )
+
+const mainLink = computed(() => ({
+  name: 'home',
+}))
+
+const todayForecastLink = computed(() => ({
+  name: 'horoscope',
+  params: {
+    sign: sign.value,
+    day: todayIso(),
+  },
+}))
 
 onMounted(async () => {
   try {
