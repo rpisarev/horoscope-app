@@ -1,23 +1,27 @@
 <template>
-  <Starfield/>
+  <Starfield />
 
   <main class="relative min-h-screen text-center text-white">
-    <ZodiacWheel :zodiacs="HOME_ZODIACS" @select="open"/>
-    <ZodiacModal :show="!!current" :zodiac="current" @close="current=null">
-    </ZodiacModal>
+    <ZodiacWheel :zodiacs="HOME_ZODIACS" @select="goToHoroscope" />
   </main>
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { useRouter } from 'vue-router'
 
 import Starfield from '../components/Starfield.vue'
 import ZodiacWheel from '../components/ZodiacWheel.vue'
-import { HOME_ZODIACS } from '../constants/zodiac'
+import { HOME_ZODIACS, todayIso } from '../constants/zodiac'
 
-const current = ref(null)
+const router = useRouter()
 
-function open(z) {
-  current.value = z
+function goToHoroscope(zodiac) {
+  router.push({
+    name: 'horoscope',
+    params: {
+      sign: zodiac.slug,
+      day: todayIso(),
+    },
+  })
 }
 </script>
