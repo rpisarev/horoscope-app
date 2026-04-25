@@ -7,7 +7,7 @@
     <DaySlider v-model="day" />
 
     <article class="bg-white/5 rounded-xl p-6 min-h-[160px] animate-fade-in shadow">
-      <p v-if="isLoading">Завантаження прогнозу...</p>
+      <p v-if="isLoading">Загрузка прогноза...</p>
 
       <p v-else-if="errorText">{{ errorText }}</p>
 
@@ -83,16 +83,16 @@ async function loadForecast() {
     const res = await fetch(`/api/forecast?sign=${sign.value}&date=${day.value}`)
 
     if (!res.ok) {
-      errorText.value = 'Не вдалося завантажити прогноз'
+      errorText.value = 'Не удалось загрузить прогноз'
       forecastText.value = ''
 
       return
     }
 
     const data = await res.json()
-    forecastText.value = data.text ?? 'Порожній прогноз'
+    forecastText.value = data.text ?? 'Прогноз пока пуст'
   } catch (err) {
-    errorText.value = 'Помилка завантаження'
+    errorText.value = 'Ошибка загрузки'
     forecastText.value = ''
 
     console.error('Failed to load forecast', err)

@@ -190,7 +190,7 @@ onMounted(async () => {
   }
 })
 
-const weekDays = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Нд']
+const weekDays = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']
 
 const calendarDays = computed(() => {
   const firstDay = dayjs(`${year.value}-${pad2(month.value)}-01`)
