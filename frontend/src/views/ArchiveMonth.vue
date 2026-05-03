@@ -1,5 +1,5 @@
 <template>
-  <NotFound v-if="isRouteInvalid" />
+  <NotFound v-if="routeError" :title="routeError.message" />
 
   <main
     v-else-if="!isYearsLoaded"
@@ -47,7 +47,7 @@
         </div>
       </div>
 
-            <MonthSwiper
+      <MonthSwiper
         v-model="month"
         class="flex-none mb-4 md:mb-0 order-2 md:order-none"
       />
@@ -70,20 +70,17 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import type { RouteLocationRaw } from 'vue-router'
 import dayjs from 'dayjs'
-
 import 'dayjs/locale/ru'
-
 import ZodiacCarousel from '../components/ZodiacCarousel.vue'
 import YearSwiper from '../components/YearSwiper.vue'
 import MonthSwiper from '../components/MonthSwiper.vue'
 import NotFound from './NotFound.vue'
-
 import {
-  isKnownSign,
+  pad2,
   parseMonthParam,
   parseYearParam,
-  pad2,
   routeParamToString,
+  validateArchiveMonthRoute,
 } from '../utils/routeValidation'
 import { todayIso } from '../constants/zodiac'
 
@@ -96,15 +93,37 @@ const fallbackMonth = dayjs().month() + 1
 const years = ref<number[]>([])
 const isYearsLoaded = ref(false)
 
+const routeValidation = computed(() => validateArchiveMonthRoute(
+  route.params,
+  years.value,
+  isYearsLoaded.value
+))
+
+const routeError = computed(() => (
+  routeValidation.value.ok ? null : routeValidation.value
+))
+
 function getRouteSign() {
+  if (routeValidation.value.ok) {
+    return routeValidation.value.params.sign
+  }
+
   return routeParamToString(route.params.sign)
 }
 
 function getRouteYear() {
+  if (routeValidation.value.ok) {
+    return routeValidation.value.params.year
+  }
+
   return parseYearParam(route.params.year) ?? fallbackYear
 }
 
 function getRouteMonth() {
+  if (routeValidation.value.ok) {
+    return routeValidation.value.params.month
+  }
+
   return parseMonthParam(route.params.month) ?? fallbackMonth
 }
 
@@ -112,39 +131,14 @@ const sign = ref(getRouteSign())
 const year = ref(getRouteYear())
 const month = ref(getRouteMonth())
 
-const isStaticRouteInvalid = computed(() => (
-  !isKnownSign(route.params.sign) ||
-  parseYearParam(route.params.year) === null ||
-  parseMonthParam(route.params.month) === null
-))
-
-const isYearUnavailable = computed(() => {
-  const routeYear = parseYearParam(route.params.year)
-
-  if (routeYear === null) {
-    return false
-  }
-
-  return (
-    isYearsLoaded.value &&
-    years.value.length > 0 &&
-    !years.value.includes(routeYear)
-  )
-})
-
-const isRouteInvalid = computed(() => (
-  isStaticRouteInvalid.value ||
-  isYearUnavailable.value
-))
-
 function syncRouteToState() {
-  if (isStaticRouteInvalid.value || isYearUnavailable.value) {
+  if (routeError.value || !routeValidation.value.ok) {
     return
   }
 
-  sign.value = getRouteSign()
-  year.value = getRouteYear()
-  month.value = getRouteMonth()
+  sign.value = routeValidation.value.params.sign
+  year.value = routeValidation.value.params.year
+  month.value = routeValidation.value.params.month
 }
 
 watch(
@@ -155,7 +149,7 @@ watch(
 watch(
   [sign, year, month, isYearsLoaded],
   ([s, y, m]) => {
-    if (!isYearsLoaded.value || isRouteInvalid.value) {
+    if (!isYearsLoaded.value || routeError.value) {
       return
     }
 
