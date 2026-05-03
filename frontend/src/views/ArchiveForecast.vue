@@ -1,5 +1,5 @@
 <template>
-  <NotFound v-if="isRouteInvalid" />
+  <NotFound v-if="routeError" :title="routeError.message" />
 
   <main
     v-else-if="!isYearsLoaded"
@@ -40,21 +40,19 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
-
 import ZodiacCarousel from '../components/ZodiacCarousel.vue'
 import YearSwiper from '../components/YearSwiper.vue'
 import MonthSwiper from '../components/MonthSwiper.vue'
 import DaySlider from '../components/DaySlider.vue'
 import NotFound from './NotFound.vue'
-
 import {
   clampArchiveDay,
-  isKnownSign,
   pad2,
   parseArchiveDayParam,
   parseMonthParam,
   parseYearParam,
   routeParamToString,
+  validateArchiveForecastRoute,
 } from '../utils/routeValidation'
 
 const route = useRoute()
@@ -72,19 +70,45 @@ const forecastText = ref('')
 const isLoading = ref(false)
 const errorText = ref('')
 
+const routeValidation = computed(() => validateArchiveForecastRoute(
+  route.params,
+  years.value,
+  isYearsLoaded.value
+))
+
+const routeError = computed(() => (
+  routeValidation.value.ok ? null : routeValidation.value
+))
+
 function getRouteSign() {
+  if (routeValidation.value.ok) {
+    return routeValidation.value.params.sign
+  }
+
   return routeParamToString(route.params.sign)
 }
 
 function getRouteYear() {
+  if (routeValidation.value.ok) {
+    return routeValidation.value.params.year
+  }
+
   return parseYearParam(route.params.year) ?? fallbackYear
 }
 
 function getRouteMonth() {
+  if (routeValidation.value.ok) {
+    return routeValidation.value.params.month
+  }
+
   return parseMonthParam(route.params.month) ?? fallbackMonth
 }
 
 function getRouteDay() {
+  if (routeValidation.value.ok) {
+    return routeValidation.value.params.day
+  }
+
   return parseArchiveDayParam(route.params.day) ?? fallbackDay
 }
 
@@ -93,41 +117,15 @@ const year = ref(getRouteYear())
 const month = ref(getRouteMonth())
 const day = ref(getRouteDay())
 
-const isStaticRouteInvalid = computed(() => (
-  !isKnownSign(route.params.sign) ||
-  parseYearParam(route.params.year) === null ||
-  parseMonthParam(route.params.month) === null ||
-  parseArchiveDayParam(route.params.day) === null
-))
-
-const isYearUnavailable = computed(() => {
-  const routeYear = parseYearParam(route.params.year)
-
-  if (routeYear === null) {
-    return false
-  }
-
-  return (
-    isYearsLoaded.value &&
-    years.value.length > 0 &&
-    !years.value.includes(routeYear)
-  )
-})
-
-const isRouteInvalid = computed(() => (
-  isStaticRouteInvalid.value ||
-  isYearUnavailable.value
-))
-
 function syncRouteToState() {
-  if (!isYearsLoaded.value || isStaticRouteInvalid.value || isYearUnavailable.value) {
+  if (!isYearsLoaded.value || routeError.value || !routeValidation.value.ok) {
     return
   }
 
-  sign.value = getRouteSign()
-  year.value = getRouteYear()
-  month.value = getRouteMonth()
-  day.value = getRouteDay()
+  sign.value = routeValidation.value.params.sign
+  year.value = routeValidation.value.params.year
+  month.value = routeValidation.value.params.month
+  day.value = routeValidation.value.params.day
 }
 
 watch(
@@ -156,7 +154,10 @@ const dateISO = computed<string>({
 })
 
 async function loadForecast() {
-  if (!isYearsLoaded.value || isRouteInvalid.value) {
+  if (!isYearsLoaded.value || routeError.value || !routeValidation.value.ok) {
+    forecastText.value = ''
+    errorText.value = ''
+    isLoading.value = false
     return
   }
 
@@ -173,7 +174,6 @@ async function loadForecast() {
     if (!res.ok) {
       forecastText.value = ''
       errorText.value = 'Не удалось загрузить прогноз'
-
       return
     }
 
@@ -193,11 +193,10 @@ async function loadForecast() {
 watch(
   [sign, year, month, day, isYearsLoaded],
   async ([nextSign, nextYear, nextMonth, nextDay]) => {
-    if (!isYearsLoaded.value || isRouteInvalid.value) {
+    if (!isYearsLoaded.value || routeError.value) {
       forecastText.value = ''
       errorText.value = ''
       isLoading.value = false
-
       return
     }
 
@@ -205,7 +204,6 @@ watch(
 
     if (clampedDay !== nextDay) {
       day.value = clampedDay
-
       return
     }
 
