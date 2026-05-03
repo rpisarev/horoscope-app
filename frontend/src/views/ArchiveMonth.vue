@@ -74,24 +74,6 @@
         </div>
       </section>
 
-      <div class="flex flex-wrap justify-end gap-3">
-        <div
-          class="inline-flex items-center gap-2 rounded-full border border-emerald-300/25
-          bg-emerald-300/10 px-4 py-2 font-lato text-sm text-emerald-100"
-        >
-          <span class="h-2 w-2 rounded-full bg-emerald-300" />
-          Прошедшие дни доступны
-        </div>
-
-        <div
-          class="inline-flex items-center gap-2 rounded-full border border-amber-300/25
-          bg-amber-300/10 px-4 py-2 font-lato text-sm text-amber-100"
-        >
-          <span>✦</span>
-          Сегодня — отдельно
-        </div>
-      </div>
-
       <section
         class="rounded-[2rem] border border-white/10 bg-white/[0.06]
         p-4 shadow-2xl shadow-black/25 backdrop-blur md:p-6"
