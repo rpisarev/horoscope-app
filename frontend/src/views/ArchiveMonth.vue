@@ -2,65 +2,249 @@
   <NotFound v-if="routeError" :title="routeError.message" />
 
   <main
-    v-else-if="!isYearsLoaded"
-    class="max-w-3xl mx-auto px-4 py-8 text-center"
+    v-else
+    class="relative isolate min-h-screen overflow-hidden bg-[#070b19] px-4 py-8 text-white"
   >
-    <p>Загрузка архива...</p>
-  </main>
-
-  <main v-else class="max-w-3xl mx-auto px-4 py-8 flex flex-col gap-8">
-    <ZodiacCarousel v-model="sign" />
-
-    <div class="flex flex-col md:flex-row w-full max-w-5xl gap-4">
-      <YearSwiper
-        v-model="year"
-        :years="years"
-        class="flex-none order-1 md:order-none"
+    <div class="pointer-events-none absolute inset-0" aria-hidden="true">
+      <div
+        class="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(251,191,36,0.10),_transparent_32%),radial-gradient(circle_at_20%_20%,_rgba(56,189,248,0.12),_transparent_30%),linear-gradient(180deg,_#070b19_0%,_#0f172a_48%,_#020617_100%)]"
       />
 
-      <div class="flex-1 flex flex-col items-center order-3 md:order-none">
-        <h2 class="text-2xl mb-4 capitalize">
-          {{ monthName }} {{ year }}
-        </h2>
+      <div
+        class="absolute left-10 top-16 h-1 w-1 rounded-full bg-white/70 shadow-[120px_40px_0_rgba(255,255,255,0.35),260px_90px_0_rgba(255,255,255,0.45),420px_20px_0_rgba(255,255,255,0.25),760px_80px_0_rgba(255,255,255,0.35),980px_40px_0_rgba(255,255,255,0.25)]"
+      />
 
-        <div class="grid grid-cols-7 gap-1 w-full max-w-md">
-          <div v-for="d in weekDays" :key="d" class="text-center font-bold">
-            {{ d }}
+      <div class="absolute bottom-0 left-0 right-0 h-56 bg-gradient-to-t from-black/35 to-transparent" />
+    </div>
+
+    <section
+      v-if="!isYearsLoaded"
+      class="relative z-10 mx-auto flex min-h-[60vh] max-w-3xl items-center justify-center text-center"
+    >
+      <div class="rounded-3xl border border-white/10 bg-white/10 px-8 py-6 shadow-2xl backdrop-blur">
+        <p class="font-lato text-white/75">
+          Загрузка архива...
+        </p>
+      </div>
+    </section>
+
+    <div v-else class="relative z-10 mx-auto flex max-w-6xl flex-col gap-8">
+      <ZodiacCarousel v-model="sign" />
+
+      <section
+        class="relative overflow-hidden rounded-[2rem] border border-amber-200/25
+        bg-slate-950/55 p-6 shadow-2xl shadow-black/30 backdrop-blur md:p-8"
+      >
+        <div
+          class="pointer-events-none absolute inset-0 opacity-80"
+          aria-hidden="true"
+        >
+          <div class="absolute -right-16 -top-20 h-64 w-64 rounded-full bg-amber-300/10 blur-3xl" />
+          <div class="absolute left-1/3 top-10 h-40 w-40 rounded-full bg-sky-300/10 blur-3xl" />
+          <div class="absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-amber-200/50 to-transparent" />
+        </div>
+
+        <div class="relative grid gap-8 md:grid-cols-[1fr_auto] md:items-center">
+          <div>
+            <p class="mb-3 font-lato text-xs font-bold uppercase tracking-[0.35em] text-amber-300">
+              Архив
+            </p>
+
+            <h1 class="font-merienda text-4xl leading-tight text-white md:text-5xl">
+              Архив гороскопов
+            </h1>
+
+            <p class="mt-3 font-merienda text-2xl text-amber-200">
+              {{ zodiacName }} · {{ monthTitle }} {{ year }}
+            </p>
+
+            <p class="mt-4 max-w-2xl font-lato text-base leading-7 text-white/70">
+              Просматривайте дневные прогнозы для {{ zodiacNameGenitive }}.
+              Выберите дату в календаре, чтобы открыть архивный прогноз.
+            </p>
           </div>
 
-          <template v-for="day in calendarDays" :key="day.key">
-            <router-link
-              v-if="day.active"
-              :to="day.to"
-              class="p-2 rounded text-center hover:bg-amber-400/40 transition-colors"
-            >
-              {{ day.number }}
-            </router-link>
+          <div
+            class="flex h-28 w-28 items-center justify-center rounded-full border border-amber-200/35
+            bg-slate-950/60 text-6xl text-amber-200 shadow-[0_0_40px_rgba(251,191,36,0.18)]"
+            aria-hidden="true"
+          >
+            {{ zodiacGlyph }}
+          </div>
+        </div>
+      </section>
 
-            <span
-              v-else
-              class="p-2 rounded text-center text-gray-500 select-none"
-            >
-              {{ day.number || '' }}
-            </span>
-          </template>
+      <div class="flex flex-wrap justify-end gap-3">
+        <div
+          class="inline-flex items-center gap-2 rounded-full border border-emerald-300/25
+          bg-emerald-300/10 px-4 py-2 font-lato text-sm text-emerald-100"
+        >
+          <span class="h-2 w-2 rounded-full bg-emerald-300" />
+          Прошедшие дни доступны
+        </div>
+
+        <div
+          class="inline-flex items-center gap-2 rounded-full border border-amber-300/25
+          bg-amber-300/10 px-4 py-2 font-lato text-sm text-amber-100"
+        >
+          <span>✦</span>
+          Сегодня — отдельно
         </div>
       </div>
 
-      <MonthSwiper
-        v-model="month"
-        class="flex-none mb-4 md:mb-0 order-2 md:order-none"
-      />
-    </div>
+      <section
+        class="rounded-[2rem] border border-white/10 bg-white/[0.06]
+        p-4 shadow-2xl shadow-black/25 backdrop-blur md:p-6"
+      >
+        <div class="grid gap-5 lg:grid-cols-[140px_minmax(0,1fr)_160px]">
+          <aside
+            class="rounded-3xl border border-white/10 bg-slate-950/35 px-4 py-5
+            shadow-inner shadow-white/5"
+          >
+            <p class="mb-4 text-center font-lato text-xs font-bold uppercase tracking-[0.3em] text-amber-300">
+              Год
+            </p>
 
-    <div class="flex justify-between items-center w-full max-w-md mx-auto">
-      <router-link :to="mainLink" class="underline">
-        Главная
-      </router-link>
+            <YearSwiper
+              v-model="year"
+              :years="years"
+              class="mx-auto"
+            />
+          </aside>
 
-      <router-link :to="todayForecastLink" class="underline">
-        Прогноз на сегодня
-      </router-link>
+          <section
+            class="rounded-3xl border border-amber-200/15 bg-slate-950/35 p-4
+            shadow-inner shadow-white/5 md:p-6"
+          >
+            <div class="mb-6 text-center">
+              <p class="font-lato text-xs font-bold uppercase tracking-[0.28em] text-white/40">
+                Календарь архива
+              </p>
+
+              <h2 class="mt-2 font-merienda text-3xl text-amber-100">
+                {{ monthTitle }} {{ year }}
+              </h2>
+            </div>
+
+            <div class="grid grid-cols-7 gap-2">
+              <div
+                v-for="d in weekDays"
+                :key="d"
+                class="pb-2 text-center font-lato text-xs font-bold uppercase tracking-[0.18em]"
+                :class="d === 'Сб' || d === 'Вс' ? 'text-amber-300/80' : 'text-white/45'"
+              >
+                {{ d }}
+              </div>
+
+              <template v-for="day in calendarDays" :key="day.key">
+                <router-link
+                  v-if="day.active"
+                  :to="day.to"
+                  class="group relative flex min-h-12 items-center justify-center rounded-2xl border
+                  border-white/10 bg-white/[0.05] font-lato text-lg font-semibold
+                  transition duration-200 hover:-translate-y-0.5 hover:border-amber-300/55
+                  hover:bg-amber-300/15 hover:text-amber-100 hover:shadow-[0_0_24px_rgba(251,191,36,0.18)]"
+                  :class="day.isWeekend ? 'text-amber-100' : 'text-white'"
+                >
+                  {{ day.number }}
+
+                  <span
+                    class="absolute bottom-1 h-1 w-1 rounded-full bg-emerald-300/80
+                    opacity-70 transition group-hover:bg-amber-200 group-hover:opacity-100"
+                  />
+                </router-link>
+
+                <span
+                  v-else
+                  class="relative flex min-h-12 items-center justify-center rounded-2xl border
+                  font-lato text-lg font-semibold select-none"
+                  :class="[
+                    day.number === null
+                      ? 'border-transparent bg-transparent text-transparent'
+                      : '',
+                    day.isToday
+                      ? 'border-amber-300/45 bg-amber-300/10 text-amber-100 shadow-[0_0_18px_rgba(251,191,36,0.12)]'
+                      : '',
+                    day.number !== null && !day.isToday
+                      ? 'border-white/5 bg-white/[0.025] text-white/25'
+                      : '',
+                  ]"
+                >
+                  {{ day.number || '' }}
+
+                  <span
+                    v-if="day.isToday"
+                    class="absolute bottom-1 font-lato text-[9px] font-bold uppercase tracking-[0.12em] text-amber-300/80"
+                  >
+                    сегодня
+                  </span>
+                </span>
+              </template>
+            </div>
+
+            <div
+              class="mt-6 rounded-2xl border border-white/10 bg-white/[0.04]
+              px-4 py-3 font-lato text-sm leading-6 text-white/65"
+            >
+              <span class="mr-2 text-amber-300">ⓘ</span>
+              Доступны только прошедшие дни. Сегодняшний прогноз открывается отдельно.
+            </div>
+
+            <div class="mt-5 flex flex-wrap gap-x-5 gap-y-2 font-lato text-sm text-white/60">
+              <span class="inline-flex items-center gap-2">
+                <span class="h-2.5 w-2.5 rounded-full bg-emerald-300" />
+                Доступно
+              </span>
+
+              <span class="inline-flex items-center gap-2">
+                <span class="h-2.5 w-2.5 rounded-full border border-amber-300 bg-amber-300/20" />
+                Сегодня
+              </span>
+
+              <span class="inline-flex items-center gap-2">
+                <span class="h-2.5 w-2.5 rounded-full bg-white/20" />
+                Недоступно
+              </span>
+            </div>
+          </section>
+
+          <aside
+            class="rounded-3xl border border-white/10 bg-slate-950/35 px-4 py-5
+            shadow-inner shadow-white/5"
+          >
+            <p class="mb-4 text-center font-lato text-xs font-bold uppercase tracking-[0.3em] text-amber-300">
+              Месяц
+            </p>
+
+            <MonthSwiper
+              v-model="month"
+              class="mx-auto"
+            />
+          </aside>
+        </div>
+      </section>
+
+      <nav class="grid gap-4 md:grid-cols-[minmax(0,280px)_minmax(0,1fr)]">
+        <router-link
+          :to="mainLink"
+          class="inline-flex min-h-14 items-center justify-center rounded-2xl border border-amber-200/25
+          bg-slate-950/45 px-6 font-lato text-base font-semibold text-amber-100
+          shadow-lg shadow-black/20 transition hover:-translate-y-0.5 hover:border-amber-200/50
+          hover:bg-white/10"
+        >
+          ← Главная
+        </router-link>
+
+        <router-link
+          :to="todayForecastLink"
+          class="inline-flex min-h-14 items-center justify-center rounded-2xl border border-amber-200/55
+          bg-amber-300/85 px-6 font-lato text-base font-bold text-slate-950
+          shadow-[0_0_28px_rgba(251,191,36,0.25)] transition hover:-translate-y-0.5
+          hover:bg-amber-200"
+        >
+          Открыть прогноз на сегодня →
+        </router-link>
+      </nav>
     </div>
   </main>
 </template>
@@ -92,6 +276,78 @@ const fallbackMonth = dayjs().month() + 1
 
 const years = ref<number[]>([])
 const isYearsLoaded = ref(false)
+
+const zodiacMeta: Record<string, {
+  name: string
+  genitive: string
+  glyph: string
+}> = {
+  aries: {
+    name: 'Овен',
+    genitive: 'Овна',
+    glyph: '♈',
+  },
+  taurus: {
+    name: 'Телец',
+    genitive: 'Тельца',
+    glyph: '♉',
+  },
+  gemini: {
+    name: 'Близнецы',
+    genitive: 'Близнецов',
+    glyph: '♊',
+  },
+  cancer: {
+    name: 'Рак',
+    genitive: 'Рака',
+    glyph: '♋',
+  },
+  leo: {
+    name: 'Лев',
+    genitive: 'Льва',
+    glyph: '♌',
+  },
+  virgo: {
+    name: 'Дева',
+    genitive: 'Девы',
+    glyph: '♍',
+  },
+  libra: {
+    name: 'Весы',
+    genitive: 'Весов',
+    glyph: '♎',
+  },
+  scorpio: {
+    name: 'Скорпион',
+    genitive: 'Скорпиона',
+    glyph: '♏',
+  },
+  ophiuchus: {
+    name: 'Змееносец',
+    genitive: 'Змееносца',
+    glyph: '⛎',
+  },
+  sagittarius: {
+    name: 'Стрелец',
+    genitive: 'Стрельца',
+    glyph: '♐',
+  },
+  capricorn: {
+    name: 'Козерог',
+    genitive: 'Козерога',
+    glyph: '♑',
+  },
+  aquarius: {
+    name: 'Водолей',
+    genitive: 'Водолея',
+    glyph: '♒',
+  },
+  pisces: {
+    name: 'Рыбы',
+    genitive: 'Рыб',
+    glyph: '♓',
+  },
+}
 
 const routeValidation = computed(() => validateArchiveMonthRoute(
   route.params,
@@ -130,6 +386,18 @@ function getRouteMonth() {
 const sign = ref(getRouteSign())
 const year = ref(getRouteYear())
 const month = ref(getRouteMonth())
+
+const currentZodiacMeta = computed(() => zodiacMeta[sign.value])
+
+const zodiacName = computed(() => currentZodiacMeta.value?.name ?? sign.value)
+
+const zodiacNameGenitive = computed(() => currentZodiacMeta.value?.genitive ?? zodiacName.value)
+
+const zodiacGlyph = computed(() => currentZodiacMeta.value?.glyph ?? '✦')
+
+function capitalize(value: string) {
+  return value.charAt(0).toUpperCase() + value.slice(1)
+}
 
 function syncRouteToState() {
   if (routeError.value || !routeValidation.value.ok) {
@@ -183,6 +451,8 @@ const monthName = computed(() =>
     .format('MMMM')
 )
 
+const monthTitle = computed(() => capitalize(monthName.value))
+
 const mainLink = computed(() => ({
   name: 'home',
 }))
@@ -216,27 +486,43 @@ const calendarDays = computed(() => {
 
   const items: {
     key: string
-    number: number
+    number: number | null
     active: boolean
-    to: RouteLocationRaw
+    isToday: boolean
+    isFuture: boolean
+    isWeekend: boolean
+    to: RouteLocationRaw | string
   }[] = []
 
   const startIdx = (firstDay.day() + 6) % 7
 
   for (let i = 0; i < startIdx; i++) {
-    items.push({ key: `p${i}`, number: 0, active: false, to: '' })
+    items.push({
+      key: `p${i}`,
+      number: null,
+      active: false,
+      isToday: false,
+      isFuture: false,
+      isWeekend: false,
+      to: '',
+    })
   }
 
   for (let d = 1; d <= daysInMonth; d++) {
     const date = dayjs(`${year.value}-${pad2(month.value)}-${pad2(d)}`)
-    const future = date.isAfter(today, 'day')
-    const sameDay = date.isSame(today, 'day')
-    const active = !future && !sameDay
+    const isFuture = date.isAfter(today, 'day')
+    const isToday = date.isSame(today, 'day')
+    const active = !isFuture && !isToday
+    const weekDay = date.day()
+    const isWeekend = weekDay === 0 || weekDay === 6
 
     items.push({
       key: `d${d}`,
       number: d,
       active,
+      isToday,
+      isFuture,
+      isWeekend,
       to: {
         name: 'archive-forecast',
         params: {
