@@ -11,10 +11,8 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "@headlessui/vue": "^1.7.23",
     "dayjs": "^1.11.11",
     "lucide-vue-next": "0.511.0",
-    "pinia": "^2.1.6",
     "swiper": "^11.1.0",
     "vue": "^3.4.20",
     "vue-router": "^4.5.1"
