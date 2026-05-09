@@ -172,22 +172,6 @@
               Доступны только прошедшие дни. Сегодняшний прогноз открывается отдельно.
             </div>
 
-            <div class="mt-5 flex flex-wrap gap-x-5 gap-y-2 font-lato text-sm text-white/60">
-              <span class="inline-flex items-center gap-2">
-                <span class="h-2.5 w-2.5 rounded-full bg-emerald-300" />
-                Доступно
-              </span>
-
-              <span class="inline-flex items-center gap-2">
-                <span class="h-2.5 w-2.5 rounded-full border border-amber-300 bg-amber-300/20" />
-                Сегодня
-              </span>
-
-              <span class="inline-flex items-center gap-2">
-                <span class="h-2.5 w-2.5 rounded-full bg-white/20" />
-                Недоступно
-              </span>
-            </div>
           </section>
 
           <aside
