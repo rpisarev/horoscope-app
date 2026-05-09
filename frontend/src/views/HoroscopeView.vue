@@ -1,14 +1,16 @@
 <template>
-  <NotFound v-if="isRouteInvalid" />
+  <NotFound
+    v-if="routeError"
+    :title="routeError.message"
+    description="Проверьте знак зодиака или дату в адресе страницы."
+  />
 
   <section v-else class="relative min-h-screen overflow-hidden text-slate-100">
     <!-- Page background -->
     <div class="pointer-events-none absolute inset-0 -z-30 bg-slate-950" />
-
     <div
       class="pointer-events-none absolute inset-0 -z-20 bg-[radial-gradient(circle_at_18%_18%,rgba(37,99,235,0.18),transparent_30%),radial-gradient(circle_at_82%_20%,rgba(251,191,36,0.12),transparent_28%),radial-gradient(circle_at_50%_58%,rgba(15,23,42,0.88),rgba(2,6,23,0.98))]"
     />
-
     <div
       class="pointer-events-none absolute inset-0 -z-10 opacity-60"
       style="
@@ -37,7 +39,6 @@
         <div
           class="absolute inset-0 -z-30 bg-[linear-gradient(90deg,rgba(2,6,23,0.96)_0%,rgba(15,23,42,0.88)_42%,rgba(15,23,42,0.72)_66%,rgba(2,6,23,0.94)_100%)]"
         />
-
         <div
           class="absolute inset-0 -z-20 bg-[radial-gradient(circle_at_78%_42%,rgba(251,191,36,0.16),transparent_25%),radial-gradient(circle_at_24%_48%,rgba(59,130,246,0.10),transparent_35%)]"
         />
@@ -149,7 +150,6 @@
         <div
           class="absolute inset-0 -z-20 bg-[radial-gradient(circle_at_92%_10%,rgba(59,130,246,0.08),transparent_25%),linear-gradient(180deg,rgba(15,23,42,0.88),rgba(2,6,23,0.96))]"
         />
-
         <div class="absolute left-6 top-6 h-12 w-px bg-gradient-to-b from-amber-300/80 to-transparent" />
 
         <div class="pl-5">
@@ -206,21 +206,17 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
-
 import ZodiacCarousel from '../components/ZodiacCarousel.vue'
 import DaySlider from '../components/DaySlider.vue'
 import NotFound from './NotFound.vue'
-
 import {
   getZodiacByKey,
   prettifyDate,
   ZODIACS,
 } from '../constants/zodiac'
-
 import {
-  isKnownSign,
-  isRealIsoDate,
   routeParamToString,
+  validateHoroscopeRoute,
 } from '../utils/routeValidation'
 
 /* Illustrations */
@@ -329,17 +325,20 @@ const ZODIAC_ASSETS: Record<ZodiacKey, ZodiacAssets> = {
 }
 
 const FALLBACK_SIGN: ZodiacKey = 'capricorn'
+const FALLBACK_DAY = new Date().toISOString().slice(0, 10)
 
 const route = useRoute()
 const router = useRouter()
 
-const isRouteInvalid = computed(() => (
-  !isKnownSign(route.params.sign) ||
-  !isRealIsoDate(route.params.day)
-))
+const initialRouteValidation = validateHoroscopeRoute(route.params)
 
-const sign = ref(routeParamToString(route.params.sign))
-const day = ref(routeParamToString(route.params.day))
+const routeValidation = computed(() => validateHoroscopeRoute(route.params))
+const routeError = computed(() => {
+  return routeValidation.value.ok ? null : routeValidation.value
+})
+
+const sign = ref(initialRouteValidation.ok ? initialRouteValidation.params.sign : FALLBACK_SIGN)
+const day = ref(initialRouteValidation.ok ? initialRouteValidation.params.day : FALLBACK_DAY)
 
 const forecastText = ref('')
 const isLoading = ref(false)
@@ -353,6 +352,12 @@ function isZodiacKey(value: string): value is ZodiacKey {
 
 function normalizeSign(value: string): ZodiacKey {
   return isZodiacKey(value) ? value : FALLBACK_SIGN
+}
+
+function resetForecastState() {
+  forecastText.value = ''
+  errorText.value = ''
+  isLoading.value = false
 }
 
 const currentSignKey = computed<ZodiacKey>(() => {
@@ -392,31 +397,39 @@ const mainLink = computed(() => ({
 }))
 
 function syncFromRoute() {
-  if (isRouteInvalid.value) {
+  const validation = validateHoroscopeRoute(route.params)
+
+  if (!validation.ok) {
+    resetForecastState()
     return
   }
 
-  sign.value = routeParamToString(route.params.sign)
-  day.value = routeParamToString(route.params.day)
+  sign.value = validation.params.sign
+  day.value = validation.params.day
 }
 
 async function replaceRouteIfNeeded() {
-  if (!isZodiacKey(sign.value) || !isRealIsoDate(day.value)) {
+  const validation = validateHoroscopeRoute({
+    sign: sign.value,
+    day: day.value,
+  })
+
+  if (!validation.ok) {
     return
   }
 
   const currentSign = routeParamToString(route.params.sign)
   const currentDay = routeParamToString(route.params.day)
 
-  if (currentSign === sign.value && currentDay === day.value) {
+  if (currentSign === validation.params.sign && currentDay === validation.params.day) {
     return
   }
 
   await router.replace({
     name: 'horoscope',
     params: {
-      sign: sign.value,
-      day: day.value,
+      sign: validation.params.sign,
+      day: validation.params.day,
     },
   })
 }
@@ -438,10 +451,18 @@ async function readForecastResponse(response: Response) {
 }
 
 async function loadForecast() {
-  if (!isZodiacKey(sign.value) || !isRealIsoDate(day.value)) {
-    forecastText.value = ''
-    errorText.value = ''
-    isLoading.value = false
+  if (routeError.value) {
+    resetForecastState()
+    return
+  }
+
+  const validation = validateHoroscopeRoute({
+    sign: sign.value,
+    day: day.value,
+  })
+
+  if (!validation.ok) {
+    resetForecastState()
     return
   }
 
@@ -452,8 +473,8 @@ async function loadForecast() {
 
   try {
     const query = new URLSearchParams({
-      sign: sign.value,
-      date: day.value,
+      sign: validation.params.sign,
+      date: validation.params.day,
     })
 
     const response = await fetch(`/api/forecast?${query.toString()}`)
@@ -471,6 +492,7 @@ async function loadForecast() {
     if (localRequestId !== requestId) return
 
     console.error('Failed to load forecast', error)
+
     forecastText.value = ''
     errorText.value = 'Не удалось загрузить прогноз'
   } finally {
@@ -490,10 +512,18 @@ watch(
 watch(
   [sign, day],
   async () => {
-    if (isRouteInvalid.value && !isZodiacKey(sign.value)) {
-      forecastText.value = ''
-      errorText.value = ''
-      isLoading.value = false
+    if (routeError.value) {
+      resetForecastState()
+      return
+    }
+
+    const validation = validateHoroscopeRoute({
+      sign: sign.value,
+      day: day.value,
+    })
+
+    if (!validation.ok) {
+      resetForecastState()
       return
     }
 
