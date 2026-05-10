@@ -1,5 +1,6 @@
 <template>
   <main class="min-h-screen flex items-center justify-center px-4 text-white bg-[#070b19]">
+    <CosmicGate404>
     <section
       class="max-w-md text-center rounded-3xl border border-white/15
       bg-white/10 px-8 py-10 shadow-2xl backdrop-blur"
@@ -29,11 +30,14 @@
         На главную
       </RouterLink>
     </section>
+    </CosmicGate404>
+
   </main>
 </template>
 
 <script setup lang="ts">
 import { RouterLink } from 'vue-router'
+import CosmicGate404 from '../components/CosmicGate404.vue'
 
 withDefaults(
   defineProps<{
