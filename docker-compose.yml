@@ -1,18 +1,111 @@
-version: "3.9"
+name: horoscope-app
+
 services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: horoscope
+      POSTGRES_USER: horoscope
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U horoscope -d horoscope"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   backend:
-    build: ./backend
+    build:
+      context: ./backend
+    restart: unless-stopped
+    command: sh -c "python -m app.init_db && python run.py"
     volumes:
       - ./backend:/app
-    env_file:
-      - .env
+    environment:
+      PYTHONUNBUFFERED: "1"
+      FLASK_DEBUG: "1"
+      APP_TIMEZONE: ${APP_TIMEZONE:-Europe/Kyiv}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+
+      POSTGRES_HOST: db
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: horoscope
+      POSTGRES_USER: horoscope
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
     ports:
       - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/signs', timeout=2)",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  scheduler:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    command: python tasks.py
+    volumes:
+      - ./backend:/app
+    environment:
+      PYTHONUNBUFFERED: "1"
+      APP_TIMEZONE: ${APP_TIMEZONE:-Europe/Kyiv}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      SCHEDULE_HOUR: ${SCHEDULE_HOUR:-1}
+      SCHEDULE_MINUTE: ${SCHEDULE_MINUTE:-0}
+      RUN_NIGHTLY_ON_START: ${RUN_NIGHTLY_ON_START:-0}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+
+      POSTGRES_HOST: db
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: horoscope
+      POSTGRES_USER: horoscope
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+    depends_on:
+      backend:
+        condition: service_healthy
+
   frontend:
     image: node:20-alpine
+    restart: unless-stopped
     working_dir: /app
-    command: sh -c "npm install && npm run dev"
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
     volumes:
       - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
+    environment:
+      VITE_API_PROXY_TARGET: http://backend:8000
     ports:
       - "5173:5173"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  frontend_node_modules:
+
+secrets:
+  postgres_password:
+    file: ./secrets/postgres_password.txt
