@@ -2,7 +2,7 @@
 
 Vue + Flask application for daily horoscope generation.
 
-Current development setup uses Docker Compose and runs four services:
+The current local development setup uses Docker Compose and runs four services:
 
 - `frontend` — Vue/Vite dev server
 - `backend` — Flask API
@@ -17,11 +17,18 @@ The app is still in development. Horoscope generation is currently implemented a
 
 ```text
 horoscope-app/
-├── backend/              # Flask backend
-├── frontend/             # Vue frontend
-├── secrets/              # Local Docker secrets, not committed to git
-├── docker-compose.yml    # Local development Compose setup
-├── .env.example          # Optional non-secret local overrides
+├── backend/                 # Flask backend
+│   ├── app/                 # Flask app, models, routes, services
+│   ├── migrations/          # Alembic migration environment
+│   ├── alembic.ini          # Alembic configuration
+│   ├── Dockerfile           # Backend development image
+│   ├── requirements.txt     # Python dependencies
+│   ├── run.py               # Flask dev server entry point
+│   └── tasks.py             # Scheduler entry point
+├── frontend/                # Vue frontend
+├── secrets/                 # Local Docker secrets, not committed to git
+├── docker-compose.yml       # Local development Compose setup
+├── .env.example             # Optional non-secret local overrides
 └── README.md
 ```
 
@@ -42,7 +49,7 @@ docker --version
 docker compose version
 ```
 
-If Docker is not installed, install Docker Engine and the Compose plugin first.
+If Docker is not installed, install Docker Engine and the Docker Compose plugin first.
 
 ---
 
@@ -70,7 +77,7 @@ The file `secrets/postgres_password.txt` is required by `docker-compose.yml`.
 
 It must not be committed to git.
 
-You can verify that it is ignored:
+Verify that it is ignored:
 
 ```bash
 git check-ignore -v secrets/postgres_password.txt
@@ -82,7 +89,7 @@ Expected result: git should report that the file is ignored by `.gitignore`.
 
 ## Optional `.env` file
 
-The project works without a local `.env` file because `docker-compose.yml` has sensible defaults.
+The project works without a local `.env` file because `docker-compose.yml` has defaults.
 
 If you want to override non-secret local settings, copy the example file:
 
@@ -125,6 +132,7 @@ The first launch can take some time because Docker needs to:
 - start the Node/Vite frontend container
 - run `npm install` for the frontend
 - create the PostgreSQL volume
+- run Alembic migrations
 
 After startup, open:
 
@@ -170,12 +178,12 @@ Flask API container.
 On startup it currently runs:
 
 ```bash
-python -m app.init_db && python run.py
+alembic upgrade head && python run.py
 ```
 
-`app.init_db` creates database tables for local development using SQLAlchemy `db.create_all()`.
+This means the backend applies all Alembic migrations before starting the Flask development server.
 
-This is a development helper. In the future it should be replaced with Alembic migrations.
+The old `db.create_all()` workflow is no longer used. `backend/app/init_db.py` now exits with a message telling you to use Alembic.
 
 ### `scheduler`
 
@@ -212,6 +220,8 @@ Then restart the scheduler:
 ```bash
 docker compose restart scheduler
 ```
+
+Current scheduler limitation: the database tables for generation tracking already exist, but the scheduler does not yet create `generation_runs` and `generation_items`. It currently generates placeholder forecasts directly.
 
 ### `frontend`
 
@@ -297,68 +307,222 @@ Warning: `docker compose down -v` deletes the local PostgreSQL data volume.
 
 ---
 
-## Backend API
+## Clean local database start
 
-### Get available signs
+After database schema changes, especially after switching from the old `db.create_all()` flow to Alembic, reset the local development database:
 
 ```bash
-curl http://localhost:8000/api/signs
+docker compose down -v
+docker compose up --build
 ```
 
-Returns a list of supported zodiac sign keys.
+This removes the old PostgreSQL volume and recreates the database from Alembic migrations.
 
-Current signs:
+Use this only for local development.
+
+---
+
+## Alembic migrations
+
+This project now uses Alembic for database migrations.
+
+Migration files live in:
 
 ```text
-aries
-taurus
-gemini
-cancer
-leo
-virgo
-libra
-scorpio
-sagittarius
-capricorn
-aquarius
-pisces
-ophiuchus
+backend/migrations/
 ```
 
-### Get forecast
+Current initial migration:
+
+```text
+backend/migrations/versions/0001_initial_schema.py
+```
+
+The initial migration creates:
+
+```text
+zodiac_signs
+prompt_versions
+forecasts
+generation_runs
+generation_items
+```
+
+The backend container automatically runs:
 
 ```bash
-curl "http://localhost:8000/api/forecast?sign=aries&date=2026-05-10"
+alembic upgrade head
 ```
 
-Parameters:
+before starting Flask.
 
-- `sign` — zodiac sign key
-- `date` — optional date in `YYYY-MM-DD` format
-
-If no forecast exists yet, the backend currently generates and saves a placeholder forecast.
-
-Example response shape:
-
-```json
-{
-  "id": 1,
-  "sign": "aries",
-  "day": "2026-05-10",
-  "text": "Для Aries цей день (2026-05-10) обіцяє успіх і нові можливості.",
-  "model_version": "stub"
-}
-```
-
-### Get years
+Run migrations manually from the backend container:
 
 ```bash
-curl http://localhost:8000/api/years
+docker compose exec backend alembic upgrade head
 ```
 
-Currently returns a simple year range from 2024 to the current year.
+Check current migration version:
 
-This endpoint should later be changed to return years that actually exist in the forecasts table.
+```bash
+docker compose exec backend alembic current
+```
+
+Show migration history:
+
+```bash
+docker compose exec backend alembic history
+```
+
+Create a new autogenerated migration after changing SQLAlchemy models:
+
+```bash
+docker compose exec backend alembic revision --autogenerate -m "Describe change"
+```
+
+Then review the generated migration file manually before applying it.
+
+---
+
+## Current database schema
+
+### `zodiac_signs`
+
+Stores zodiac sign metadata.
+
+Important fields:
+
+```text
+key
+name_ru
+name_uk
+name_en
+glyph
+start_month
+start_day
+end_month
+end_day
+sort_order
+is_enabled
+created_at
+updated_at
+```
+
+The initial migration seeds 13 signs, including `ophiuchus`.
+
+### `prompt_versions`
+
+Stores prompt version metadata for future LLM generation.
+
+Important fields:
+
+```text
+id
+key
+locale
+forecast_type
+system_prompt
+user_prompt_template
+output_schema
+model_name
+is_active
+created_at
+updated_at
+```
+
+The initial migration seeds one prompt version:
+
+```text
+daily-ru-v1
+```
+
+### `forecasts`
+
+Stores generated or manually edited forecasts.
+
+Important fields:
+
+```text
+id
+sign_key
+target_date
+locale
+forecast_type
+title
+text
+payload
+status
+source
+model_name
+prompt_version_id
+generation_item_id
+created_at
+updated_at
+generated_at
+published_at
+```
+
+Unique constraint:
+
+```text
+sign_key + target_date + locale + forecast_type
+```
+
+This means one sign can have only one forecast for the same date, locale and forecast type.
+
+### `generation_runs`
+
+Stores one generation run, for example a scheduled nightly generation for all signs.
+
+Important fields:
+
+```text
+id
+run_type
+target_date
+locale
+forecast_type
+status
+started_at
+finished_at
+total_items
+success_items
+failed_items
+skipped_items
+error_message
+created_at
+```
+
+The table exists, but the scheduler does not fully use it yet.
+
+### `generation_items`
+
+Stores one generated item inside a generation run, usually one sign for one date.
+
+Important fields:
+
+```text
+id
+run_id
+sign_key
+target_date
+locale
+forecast_type
+status
+forecast_id
+prompt_version_id
+provider
+model_name
+request_payload
+response_payload
+raw_response
+error_message
+started_at
+finished_at
+created_at
+```
+
+The table exists, but the scheduler does not fully use it yet.
 
 ---
 
@@ -374,7 +538,10 @@ Useful SQL commands:
 
 ```sql
 \dt
-select * from forecasts limit 10;
+select key, name_ru, sort_order from zodiac_signs order by sort_order;
+select key, is_active from prompt_versions;
+select id, sign_key, target_date, status, source from forecasts order by id desc limit 10;
+select * from alembic_version;
 ```
 
 Exit `psql`:
@@ -385,51 +552,94 @@ Exit `psql`:
 
 ---
 
-## Recreate local database
+## Backend API
 
-If you need to fully reset the local development database:
+### Get available signs
 
 ```bash
-docker compose down -v
-docker compose up --build
+curl http://localhost:8000/api/signs
 ```
 
-This deletes the `postgres_data` volume and creates a fresh database.
+Returns a frontend-compatible list of supported zodiac sign keys.
 
-Use this only for local development.
+Current response shape:
 
----
-
-## Current database model
-
-Current `forecasts` table is minimal:
-
-```text
-id
-sign
-day
-text
-model_version
-created_at
+```json
+[
+  "aries",
+  "taurus",
+  "gemini",
+  "cancer",
+  "leo",
+  "virgo",
+  "libra",
+  "scorpio",
+  "sagittarius",
+  "capricorn",
+  "aquarius",
+  "pisces",
+  "ophiuchus"
+]
 ```
 
-There is a unique constraint on:
+Note: the database now has a `zodiac_signs` table with richer metadata, but `/api/signs` intentionally keeps the old response shape for frontend compatibility.
 
-```text
-sign + day
+### Get forecast
+
+```bash
+curl "http://localhost:8000/api/forecast?sign=aries&date=2026-05-12"
 ```
 
-This model is expected to evolve.
+Parameters:
 
-Planned backend improvements:
+- `sign` — zodiac sign key
+- `date` — optional date in `YYYY-MM-DD` format
+- `locale` — optional, defaults to `ru`
+- `type` — optional forecast type, defaults to `daily`
 
-- add Alembic migrations
-- extend forecast metadata
-- add locale and forecast type
-- add generation status
-- add generation run logs
-- add prompt versioning
-- replace placeholder generation with real LLM generation
+If no forecast exists yet, the backend currently generates and saves a placeholder forecast.
+
+Example response shape:
+
+```json
+{
+  "id": 1,
+  "sign": "aries",
+  "sign_key": "aries",
+  "day": "2026-05-12",
+  "date": "2026-05-12",
+  "locale": "ru",
+  "forecast_type": "daily",
+  "title": null,
+  "text": "Для Aries этот день (2026-05-12) обещает новые возможности, спокойные решения и полезные совпадения.",
+  "forecast": "Для Aries этот день (2026-05-12) обещает новые возможности, спокойные решения и полезные совпадения.",
+  "payload": null,
+  "status": "published",
+  "source": "stub",
+  "model_version": "stub",
+  "model_name": "stub",
+  "prompt_version": "daily-ru-v1"
+}
+```
+
+The response intentionally includes both old and new field names, for example `sign` and `sign_key`, `day` and `date`, `text` and `forecast`.
+
+### Get years
+
+```bash
+curl http://localhost:8000/api/years
+```
+
+Optional filters:
+
+```bash
+curl "http://localhost:8000/api/years?sign=aries"
+curl "http://localhost:8000/api/years?sign=aries&locale=ru&type=daily"
+```
+
+The endpoint tries to return years that exist in the `forecasts` table for published forecasts.
+
+If there are no forecasts yet, it falls back to a simple year range from 2024 to the current year.
 
 ---
 
@@ -446,7 +656,7 @@ cd backend
 python3 -m venv ../venv
 source ../venv/bin/activate
 pip install -r requirements.txt
-python -m app.init_db
+alembic upgrade head
 python run.py
 ```
 
@@ -464,7 +674,9 @@ Open:
 http://localhost:5173
 ```
 
-Manual mode uses the backend configuration fallback. If no `DATABASE_URL` or `POSTGRES_*` variables are set, the backend falls back to SQLite.
+Manual backend mode uses the backend configuration fallback. If no `DATABASE_URL` or `POSTGRES_*` variables are set, the backend falls back to SQLite.
+
+Important: if you run manual mode with SQLite, Alembic and the current migration were primarily prepared for PostgreSQL. The recommended path is Docker Compose with PostgreSQL.
 
 ---
 
@@ -584,18 +796,70 @@ docker compose up --build
 
 Warning: this deletes local database data.
 
+### Alembic says a table already exists
+
+This usually means the local PostgreSQL volume was created before the Alembic initial schema and still contains old tables.
+
+Reset the local dev database:
+
+```bash
+docker compose down -v
+docker compose up --build
+```
+
+### `python -m app.init_db` no longer works
+
+That is expected. The project now uses Alembic migrations.
+
+Use:
+
+```bash
+alembic upgrade head
+```
+
+or, inside Docker:
+
+```bash
+docker compose exec backend alembic upgrade head
+```
+
 ---
 
-## Notes for future backend work
+## Current backend status
+
+Done:
+
+- Docker Compose local development environment
+- PostgreSQL development database
+- Docker Compose secret for PostgreSQL password
+- Alembic migration environment
+- Initial database schema migration
+- Expanded SQLAlchemy models
+- Frontend-compatible `/api/signs`
+- Backward-compatible `/api/forecast` response
+- Basic `/api/years` based on existing published forecasts, with fallback
+
+Still to do:
+
+- update scheduler to create `generation_runs` and `generation_items`
+- split backend service layer into smaller modules
+- implement real prompt building and LLM provider calls
+- store request/response payloads for generation attempts
+- add backend tests
+- add admin/manual generation endpoints later
+- prepare separate production deployment configuration later
+
+---
+
+## Notes for future production deployment
 
 The current Docker Compose setup is a development environment, not a production deployment.
 
-Next backend steps:
+For production, the project should later use:
 
-1. Add Alembic or Flask-Migrate.
-2. Replace `db.create_all()` with migrations.
-3. Expand the `Forecast` model.
-4. Add generation run tracking.
-5. Add prompt versioning.
-6. Replace placeholder horoscope generation with a real LLM provider.
-7. Add production deployment configuration separately.
+- backend served by Gunicorn or another WSGI server
+- frontend static build served by nginx/caddy or another web server
+- PostgreSQL backups
+- production-grade secret management
+- a separate migration step before starting web containers
+- separate production Compose or deployment configuration
