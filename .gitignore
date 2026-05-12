@@ -9,10 +9,13 @@ backend/.pytest_cache/
 backend/venv/
 venv/
 *.py[cod]
-# SQLite, локальний Neon's dump тощо
+
+# SQLite, local dumps etc
 backend/*.sqlite3
 backend/db.sqlite3
 backend/instance/db.sqlite3
+*.sqlite3
+*.db
 
 # --- Logs & runtime ---
 *.log
@@ -24,9 +27,11 @@ backend/instance/db.sqlite3
 .env.local
 frontend/.env
 
-# --- Docker ---
+secrets/*
+!secrets/.gitkeep
+
+# --- Docker local artifacts ---
 *.tar
-**/.dockerignore
 
 # --- IDE/OS ---
 .vscode/
