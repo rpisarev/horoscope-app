@@ -24,7 +24,7 @@ services:
     build:
       context: ./backend
     restart: unless-stopped
-    command: sh -c "python -m app.init_db && python run.py"
+    command: sh -c "alembic upgrade head && python run.py"
     volumes:
       - ./backend:/app
     environment:
