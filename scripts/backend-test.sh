@@ -17,7 +17,11 @@ fi
 docker compose up -d db
 
 docker compose exec -T db sh -lc '
-  until pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"; do
+  if [ -n "${POSTGRES_PASSWORD_FILE:-}" ] && [ -f "$POSTGRES_PASSWORD_FILE" ]; then
+    export PGPASSWORD="$(cat "$POSTGRES_PASSWORD_FILE")"
+  fi
+
+  until pg_isready -h 127.0.0.1 -p 5432 -U "$POSTGRES_USER" -d "$POSTGRES_DB"; do
     sleep 1
   done
 '
@@ -28,14 +32,47 @@ cleanup() {
     return 0
   fi
 
-  docker compose exec -T db sh -lc "dropdb --force -U \"\$POSTGRES_USER\" --if-exists \"$TEST_DB_NAME\"" || true
+  docker compose exec -T db sh -lc "
+    if [ -n \"\${POSTGRES_PASSWORD_FILE:-}\" ] && [ -f \"\$POSTGRES_PASSWORD_FILE\" ]; then
+      export PGPASSWORD=\"\$(cat \"\$POSTGRES_PASSWORD_FILE\")\"
+    fi
+
+    dropdb \
+      --force \
+      --if-exists \
+      -h 127.0.0.1 \
+      -p 5432 \
+      -U \"\$POSTGRES_USER\" \
+      \"$TEST_DB_NAME\"
+  " || true
 }
 
 trap cleanup EXIT
 
-docker compose exec -T db sh -lc "dropdb --force -U \"\$POSTGRES_USER\" --if-exists \"$TEST_DB_NAME\""
-docker compose exec -T db sh -lc "createdb -U \"\$POSTGRES_USER\" \"$TEST_DB_NAME\""
+docker compose exec -T db sh -lc "
+  if [ -n \"\${POSTGRES_PASSWORD_FILE:-}\" ] && [ -f \"\$POSTGRES_PASSWORD_FILE\" ]; then
+    export PGPASSWORD=\"\$(cat \"\$POSTGRES_PASSWORD_FILE\")\"
+  fi
+
+  dropdb \
+    --force \
+    --if-exists \
+    -h 127.0.0.1 \
+    -p 5432 \
+    -U \"\$POSTGRES_USER\" \
+    \"$TEST_DB_NAME\"
+
+  createdb \
+    -h 127.0.0.1 \
+    -p 5432 \
+    -U \"\$POSTGRES_USER\" \
+    \"$TEST_DB_NAME\"
+"
 
 docker compose run --rm \
   -e POSTGRES_DB="$TEST_DB_NAME" \
-  backend sh -c "alembic upgrade head && pytest -q"
+  backend sh -c "
+    set -e
+    alembic upgrade head
+    pytest -q
+  "
