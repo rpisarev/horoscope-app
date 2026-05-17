@@ -34,11 +34,8 @@ jobs:
       - name: Build backend image
         run: docker compose build backend
 
-      - name: Start database
-        run: docker compose up -d --wait db
-
-      - name: Run Alembic migrations and backend tests
-        run: docker compose run --rm backend sh -c "alembic upgrade head && pytest -q"
+      - name: Run backend tests against isolated database
+        run: bash scripts/backend-test.sh
 
       - name: Show Docker Compose logs on failure
         if: failure()
