@@ -1,0 +1,48 @@
+name: Backend tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-tests:
+    name: Run backend tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Create local Docker secrets
+        run: |
+          mkdir -p secrets
+          openssl rand -base64 32 > secrets/postgres_password.txt
+          chmod 600 secrets/postgres_password.txt
+
+      - name: Validate Docker Compose config
+        run: docker compose config --quiet
+
+      - name: Build backend image
+        run: docker compose build backend
+
+      - name: Run backend tests against isolated database
+        run: bash scripts/backend-test.sh
+
+      - name: Show Docker Compose logs on failure
+        if: failure()
+        run: |
+          docker compose ps
+          docker compose logs --no-color
+
+      - name: Stop Docker Compose services
+        if: always()
+        run: docker compose down -v --remove-orphans

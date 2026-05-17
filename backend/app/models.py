@@ -5,14 +5,12 @@ from sqlalchemy.dialects.postgresql import JSONB
 
 from . import db
 
-
 json_type = JSONB().with_variant(db.JSON(), "sqlite")
 
 
 def _iso(value):
     if value is None:
         return None
-
     return value.isoformat()
 
 
@@ -34,18 +32,14 @@ class ZodiacSign(TimestampMixin, db.Model):
     __tablename__ = "zodiac_signs"
 
     key = db.Column(db.String(32), primary_key=True)
-
     name_ru = db.Column(db.String(64), nullable=False)
     name_uk = db.Column(db.String(64), nullable=True)
     name_en = db.Column(db.String(64), nullable=True)
-
     glyph = db.Column(db.String(8), nullable=True)
-
     start_month = db.Column(db.SmallInteger, nullable=True)
     start_day = db.Column(db.SmallInteger, nullable=True)
     end_month = db.Column(db.SmallInteger, nullable=True)
     end_day = db.Column(db.SmallInteger, nullable=True)
-
     sort_order = db.Column(db.SmallInteger, nullable=False, unique=True)
     is_enabled = db.Column(db.Boolean, nullable=False, server_default=db.text("true"))
 
@@ -77,15 +71,12 @@ class PromptVersion(TimestampMixin, db.Model):
     __tablename__ = "prompt_versions"
 
     id = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
-
     key = db.Column(db.String(64), nullable=False, unique=True)
     locale = db.Column(db.String(8), nullable=False, server_default="ru")
     forecast_type = db.Column(db.String(32), nullable=False, server_default="daily")
-
     system_prompt = db.Column(db.Text, nullable=False)
     user_prompt_template = db.Column(db.Text, nullable=False)
     output_schema = db.Column(json_type, nullable=True)
-
     model_name = db.Column(db.String(128), nullable=True)
     is_active = db.Column(db.Boolean, nullable=False, server_default=db.text("false"))
 
@@ -100,7 +91,6 @@ class Forecast(TimestampMixin, db.Model):
     __tablename__ = "forecasts"
 
     id = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
-
     sign_key = db.Column(
         db.String(32),
         db.ForeignKey("zodiac_signs.key", name="fk_forecasts_sign_key_zodiac_signs"),
@@ -108,19 +98,14 @@ class Forecast(TimestampMixin, db.Model):
         index=True,
     )
     target_date = db.Column(db.Date, nullable=False, default=date.today, index=True)
-
     locale = db.Column(db.String(8), nullable=False, server_default="ru")
     forecast_type = db.Column(db.String(32), nullable=False, server_default="daily")
-
     title = db.Column(db.String(255), nullable=True)
     text = db.Column(db.Text, nullable=False)
     payload = db.Column(json_type, nullable=True)
-
     status = db.Column(db.String(32), nullable=False, server_default="draft", index=True)
     source = db.Column(db.String(32), nullable=False, server_default="stub")
-
     model_name = db.Column(db.String(128), nullable=True)
-
     prompt_version_id = db.Column(
         db.BigInteger,
         db.ForeignKey(
@@ -137,7 +122,6 @@ class Forecast(TimestampMixin, db.Model):
         ),
         nullable=True,
     )
-
     generated_at = db.Column(db.DateTime(timezone=True), nullable=True)
     published_at = db.Column(db.DateTime(timezone=True), nullable=True)
 
@@ -165,7 +149,6 @@ class Forecast(TimestampMixin, db.Model):
 
     def to_dict(self):
         target_date = self.target_date.isoformat()
-
         return {
             "id": self.id,
             "sign": self.sign_key,
@@ -194,28 +177,22 @@ class GenerationRun(db.Model):
     __tablename__ = "generation_runs"
 
     id = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
-
     run_type = db.Column(db.String(32), nullable=False)
     target_date = db.Column(db.Date, nullable=False, index=True)
     locale = db.Column(db.String(8), nullable=False, server_default="ru")
     forecast_type = db.Column(db.String(32), nullable=False, server_default="daily")
-
     status = db.Column(db.String(32), nullable=False, server_default="running", index=True)
-
     started_at = db.Column(
         db.DateTime(timezone=True),
         nullable=False,
         server_default=func.now(),
     )
     finished_at = db.Column(db.DateTime(timezone=True), nullable=True)
-
     total_items = db.Column(db.Integer, nullable=False, server_default="0")
     success_items = db.Column(db.Integer, nullable=False, server_default="0")
     failed_items = db.Column(db.Integer, nullable=False, server_default="0")
     skipped_items = db.Column(db.Integer, nullable=False, server_default="0")
-
     error_message = db.Column(db.Text, nullable=True)
-
     created_at = db.Column(
         db.DateTime(timezone=True),
         nullable=False,
@@ -233,7 +210,6 @@ class GenerationItem(db.Model):
     __tablename__ = "generation_items"
 
     id = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
-
     run_id = db.Column(
         db.BigInteger,
         db.ForeignKey(
@@ -244,7 +220,6 @@ class GenerationItem(db.Model):
         nullable=False,
         index=True,
     )
-
     sign_key = db.Column(
         db.String(32),
         db.ForeignKey(
@@ -256,9 +231,7 @@ class GenerationItem(db.Model):
     target_date = db.Column(db.Date, nullable=False)
     locale = db.Column(db.String(8), nullable=False, server_default="ru")
     forecast_type = db.Column(db.String(32), nullable=False, server_default="daily")
-
     status = db.Column(db.String(32), nullable=False, server_default="pending", index=True)
-
     forecast_id = db.Column(
         db.BigInteger,
         db.ForeignKey(
@@ -275,19 +248,14 @@ class GenerationItem(db.Model):
         ),
         nullable=True,
     )
-
     provider = db.Column(db.String(64), nullable=True)
     model_name = db.Column(db.String(128), nullable=True)
-
     request_payload = db.Column(json_type, nullable=True)
     response_payload = db.Column(json_type, nullable=True)
     raw_response = db.Column(db.Text, nullable=True)
-
     error_message = db.Column(db.Text, nullable=True)
-
     started_at = db.Column(db.DateTime(timezone=True), nullable=True)
     finished_at = db.Column(db.DateTime(timezone=True), nullable=True)
-
     created_at = db.Column(
         db.DateTime(timezone=True),
         nullable=False,
@@ -298,7 +266,60 @@ class GenerationItem(db.Model):
     zodiac_sign = db.relationship("ZodiacSign")
     prompt_version = db.relationship("PromptVersion", foreign_keys=[prompt_version_id])
     forecast = db.relationship("Forecast", foreign_keys=[forecast_id])
+    attempts = db.relationship(
+        "GenerationAttempt",
+        back_populates="item",
+        cascade="all, delete-orphan",
+        order_by="GenerationAttempt.attempt_no",
+    )
 
     __table_args__ = (
         db.Index("ix_generation_items_sign_date", "sign_key", "target_date"),
+    )
+
+
+class GenerationAttempt(db.Model):
+    __tablename__ = "generation_attempts"
+
+    id = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
+    item_id = db.Column(
+        db.BigInteger,
+        db.ForeignKey(
+            "generation_items.id",
+            name="fk_generation_attempts_item_id_generation_items",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+        index=True,
+    )
+    attempt_no = db.Column(db.Integer, nullable=False)
+    status = db.Column(db.String(32), nullable=False, server_default="running", index=True)
+    provider = db.Column(db.String(64), nullable=False)
+    model_name = db.Column(db.String(128), nullable=True)
+    request_payload = db.Column(json_type, nullable=True)
+    response_payload = db.Column(json_type, nullable=True)
+    raw_response = db.Column(db.Text, nullable=True)
+    error_type = db.Column(db.String(128), nullable=True)
+    error_message = db.Column(db.Text, nullable=True)
+    started_at = db.Column(
+        db.DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    finished_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    created_at = db.Column(
+        db.DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+    item = db.relationship("GenerationItem", back_populates="attempts")
+
+    __table_args__ = (
+        db.UniqueConstraint(
+            "item_id",
+            "attempt_no",
+            name="uq_generation_attempts_item_attempt_no",
+        ),
+        db.Index("ix_generation_attempts_item_status", "item_id", "status"),
     )
