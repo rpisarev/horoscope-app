@@ -6,10 +6,10 @@ The current local development setup uses Docker Compose and runs four services:
 
 - `frontend` — Vue/Vite dev server
 - `backend` — Flask API
-- `scheduler` — separate APScheduler process for scheduled horoscope generation
+- `scheduler` — separate APScheduler process for scheduled horoscope generation and retries
 - `db` — PostgreSQL database
 
-The app is still in development. Horoscope generation is currently implemented as a placeholder in `backend/app/services.py`.
+The app is still in development. The backend already has generation lifecycle tracking, but the horoscope provider is still `stub` by default. Real LLM/OpenAI generation is planned for a later step.
 
 ---
 
@@ -18,7 +18,9 @@ The app is still in development. Horoscope generation is currently implemented a
 ```text
 horoscope-app/
 ├── backend/              # Flask backend
-│   ├── app/              # Flask app, models, routes, services
+│   ├── app/              # Flask app, models, routes, providers, services
+│   │   ├── providers/    # Horoscope provider abstraction; stub provider exists now
+│   │   └── services/     # Forecast, sign, prompt, and generation services
 │   ├── migrations/       # Alembic migration environment
 │   ├── tests/            # Backend pytest test suite
 │   ├── alembic.ini       # Alembic configuration
@@ -97,7 +99,7 @@ If you want to override non-secret local settings, copy the example file:
 cp .env.example .env
 ```
 
-Available options:
+Common options:
 
 ```env
 APP_TIMEZONE=Europe/Kyiv
@@ -105,10 +107,21 @@ LOG_LEVEL=INFO
 
 SCHEDULE_HOUR=1
 SCHEDULE_MINUTE=0
-
 RUN_NIGHTLY_ON_START=0
 
-# Future LLM integration
+# Provider selection. Current implemented provider: stub.
+HOROSCOPE_PROVIDER=stub
+
+# Generation lifecycle tuning.
+GENERATION_MAX_ATTEMPTS=3
+GENERATION_STALE_HOURS=2
+RETRY_MISSING_ENABLED=1
+RETRY_INTERVAL_MINUTES=30
+RETRY_WINDOW_START_HOUR=1
+RETRY_WINDOW_END_HOUR=6
+MAX_RETRY_RUNS_PER_DAY=3
+
+# Future LLM integration.
 # OPENAI_API_KEY=your_openai_api_key_here
 ```
 
@@ -200,6 +213,15 @@ By default it schedules daily generation at:
 ```
 
 The scheduler uses the same backend code and the same PostgreSQL database as the API.
+
+Current scheduler behavior:
+
+- starts scheduled daily generation using `run_daily_generation()`;
+- creates `generation_runs`, `generation_items`, and `generation_attempts`;
+- skips signs that already have a published forecast for the target date;
+- records success, failed, skipped, and interrupted statuses;
+- retries missing forecasts during the configured retry window;
+- closes stale running generation runs after the configured stale timeout.
 
 To force generation on scheduler startup, set:
 
@@ -349,12 +371,19 @@ They verify:
 - `save_forecast()` create/update behavior
 - config secret-file helpers
 - scheduler module import smoke test
+- generation lifecycle success, skip, retryable failure, retry-missing, coverage, and stale-run scenarios
 
 Run tests from the repository root:
 
 ```bash
 docker compose up -d db
 docker compose run --rm backend sh -c "alembic upgrade head && pytest -q"
+```
+
+Run only generation lifecycle tests:
+
+```bash
+docker compose run --rm backend sh -c "alembic upgrade head && pytest -q tests/test_generation_service.py"
 ```
 
 A clean full test run:
@@ -370,8 +399,9 @@ Warning: tests clean mutable backend tables:
 
 ```text
 forecasts
-generation_runs
+generation_attempts
 generation_items
+generation_runs
 ```
 
 Seed/reference tables are kept:
@@ -438,7 +468,7 @@ Parameters:
 - `locale` — optional, defaults to `ru`
 - `type` — optional forecast type, defaults to `daily`
 
-If no forecast exists yet, the backend currently generates and saves a placeholder forecast.
+If no forecast exists yet, the backend currently generates and saves a placeholder forecast through the same forecast service used by the generation lifecycle.
 
 Example response shape:
 
@@ -498,6 +528,9 @@ select * from alembic_version;
 select key, name_ru, sort_order from zodiac_signs order by sort_order;
 select key, is_active from prompt_versions;
 select id, sign_key, target_date, status, source from forecasts;
+select id, run_type, target_date, status, total_items, success_items, skipped_items, failed_items from generation_runs order by id desc;
+select id, run_id, sign_key, target_date, status, forecast_id from generation_items order by id desc;
+select id, item_id, attempt_no, status, provider, model_name, error_type from generation_attempts order by id desc;
 ```
 
 Exit `psql`:
@@ -525,7 +558,7 @@ Use this only for local development.
 
 ## Current database schema
 
-The current initial schema is managed by Alembic.
+The current schema is managed by Alembic.
 
 Main tables:
 
@@ -535,6 +568,7 @@ prompt_versions
 forecasts
 generation_runs
 generation_items
+generation_attempts
 ```
 
 ### `zodiac_signs`
@@ -587,15 +621,126 @@ sign_key + target_date + locale + forecast_type
 
 ### `generation_runs`
 
-Reserved for tracking scheduled/manual generation runs.
+Tracks one scheduled/manual/retry generation run.
 
-The table exists, but scheduler lifecycle logic is not implemented yet.
+Important fields:
+
+```text
+id
+run_type
+target_date
+locale
+forecast_type
+status
+started_at
+finished_at
+total_items
+success_items
+failed_items
+skipped_items
+error_message
+created_at
+```
+
+Typical statuses:
+
+```text
+running
+success
+partial_failed
+failed
+interrupted
+```
 
 ### `generation_items`
 
-Reserved for tracking generation of each sign inside a generation run.
+Tracks generation of one sign inside a generation run.
 
-The table exists, but scheduler lifecycle logic is not implemented yet.
+Important fields:
+
+```text
+id
+run_id
+sign_key
+target_date
+locale
+forecast_type
+status
+forecast_id
+prompt_version_id
+provider
+model_name
+request_payload
+response_payload
+raw_response
+error_message
+started_at
+finished_at
+created_at
+```
+
+Typical statuses:
+
+```text
+pending
+running
+success
+failed
+skipped
+interrupted
+```
+
+### `generation_attempts`
+
+Tracks provider attempts for a generation item.
+
+Important fields:
+
+```text
+id
+item_id
+attempt_no
+status
+provider
+model_name
+request_payload
+response_payload
+raw_response
+error_type
+error_message
+started_at
+finished_at
+created_at
+```
+
+Typical statuses:
+
+```text
+running
+success
+failed_retryable
+failed
+```
+
+---
+
+## Generation lifecycle
+
+The scheduler uses `run_daily_generation()` for daily generation and `run_retry_for_missing_forecasts()` for retrying missing forecasts.
+
+Current lifecycle:
+
+1. close stale `running` generation runs;
+2. skip creating a new run if an active run already exists for the same date/locale/type;
+3. create a `generation_run`;
+4. create a `generation_item` for each enabled sign or for each missing sign during retry;
+5. skip items that already have a published forecast;
+6. create `generation_attempts` for provider calls;
+7. save successful provider results as published `forecasts`;
+8. record provider errors and retry retryable failures up to `GENERATION_MAX_ATTEMPTS`;
+9. finalize run counters and status.
+
+The default provider is `stub`, so no external API call is required for local development.
 
 ---
 
@@ -756,12 +901,23 @@ Warning: this deletes local database data.
 
 The current Docker Compose setup is a development environment, not a production deployment.
 
+Completed backend foundation:
+
+- Docker Compose dev environment
+- PostgreSQL dev database
+- Docker Compose secrets
+- Alembic migrations
+- expanded database schema
+- service layer split
+- provider abstraction
+- generation lifecycle
+- backend pytest baseline
+- generation lifecycle tests
+
 Next backend steps:
 
-1. Implement generation lifecycle in the scheduler.
-2. Use `generation_runs` and `generation_items` during scheduled generation.
-3. Split `services.py` into smaller service modules.
-4. Add prompt pipeline.
-5. Replace placeholder horoscope generation with a real LLM provider.
-6. Add GitHub Actions workflow for backend tests.
-7. Add production deployment configuration separately.
+1. Add GitHub Actions workflow for backend tests.
+2. Add prompt-building pipeline around `prompt_versions`.
+3. Replace the stub provider with a real OpenAI/LLM provider.
+4. Add admin/manual generation endpoints later.
+5. Add production deployment configuration separately.
