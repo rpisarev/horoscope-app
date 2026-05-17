@@ -6,17 +6,18 @@ from typing import Iterable
 
 from .constants import DEFAULT_FORECAST_TYPE, DEFAULT_LOCALE
 from .forecast_service import get_published_forecast, save_forecast
-from .prompt_service import get_prompt_version
+from .forecast_validation_service import find_forbidden_forecast_terms
+from .prompt_service import build_provider_request, get_prompt_version
 from .sign_service import get_enabled_sign_keys
 from .. import db
 from ..models import Forecast, GenerationAttempt, GenerationItem, GenerationRun, PromptVersion
 from ..providers import (
     GenerationProviderError,
     HoroscopeProvider,
-    ProviderRequest,
     ProviderResult,
     get_horoscope_provider,
 )
+
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +41,7 @@ def close_stale_running_runs(stale_after_hours: int = 2) -> int:
     )
 
     closed_count = 0
+
     for run in stale_runs:
         run.status = "interrupted"
         run.finished_at = utcnow()
@@ -82,6 +84,7 @@ def run_daily_generation(
         forecast_type=forecast_type,
         status="running",
     ).first()
+
     if active_run:
         logger.info(
             "Generation skipped: active run already exists for %s locale=%s type=%s run_id=%s",
@@ -93,6 +96,7 @@ def run_daily_generation(
         return active_run
 
     sign_keys = list(signs) if signs is not None else get_enabled_sign_keys()
+
     run = GenerationRun(
         run_type=run_type,
         target_date=target_date,
@@ -138,8 +142,10 @@ def run_daily_generation(
     db.session.commit()
 
     item_ids = [item.id for item in items]
+
     for item_id in item_ids:
         item = db.session.get(GenerationItem, item_id)
+
         try:
             _process_generation_item(
                 item=item,
@@ -159,6 +165,7 @@ def run_daily_generation(
     run = db.session.get(GenerationRun, run.id)
     _finalize_run(run)
     db.session.commit()
+
     return run
 
 
@@ -192,6 +199,7 @@ def run_retry_for_missing_forecasts(
         locale=locale,
         forecast_type=forecast_type,
     )
+
     if not missing_signs:
         return None
 
@@ -230,6 +238,7 @@ def get_missing_forecast_signs(
     signs: Iterable[str] | None = None,
 ) -> list[str]:
     sign_keys = list(signs) if signs is not None else get_enabled_sign_keys()
+
     if not sign_keys:
         return []
 
@@ -245,6 +254,7 @@ def get_missing_forecast_signs(
         .all()
     )
     published = {row.sign_key for row in published_rows}
+
     return [sign_key for sign_key in sign_keys if sign_key not in published]
 
 
@@ -257,10 +267,12 @@ def _validate_preflight(
 ) -> None:
     if not sign_keys:
         raise ValueError("No enabled zodiac signs found for generation.")
+
     if not prompt_version:
         raise ValueError(
             f"No active prompt version found for locale={run.locale}, forecast_type={run.forecast_type}."
         )
+
     if max_attempts < 1:
         raise ValueError("max_attempts must be at least 1.")
 
@@ -278,6 +290,7 @@ def _process_generation_item(
         locale=item.locale,
         forecast_type=item.forecast_type,
     )
+
     if existing_forecast:
         item.status = "skipped"
         item.forecast_id = existing_forecast.id
@@ -296,30 +309,34 @@ def _process_generation_item(
     db.session.flush()
 
     last_error: Exception | None = None
+
     for attempt_no in range(1, max_attempts + 1):
+        provider_request = build_provider_request(
+            prompt_version=prompt_version,
+            sign_key=item.sign_key,
+            target_date=item.target_date,
+            locale=item.locale,
+            forecast_type=item.forecast_type,
+        )
+
         attempt = GenerationAttempt(
             item_id=item.id,
             attempt_no=attempt_no,
             status="running",
             provider=provider.name,
             model_name=provider.model_name,
-            request_payload=_request_payload(item, prompt_version),
+            request_payload=provider_request.to_payload(),
             started_at=utcnow(),
         )
         db.session.add(attempt)
         db.session.flush()
 
         try:
-            result = provider.generate(
-                ProviderRequest(
-                    target_date=item.target_date,
-                    locale=item.locale,
-                    forecast_type=item.forecast_type,
-                    prompt_version=prompt_version,
-                )
-            )
-            _validate_provider_result(result)
+            result = provider.generate(provider_request)
+            _record_provider_result_payload(attempt, result)
+            _validate_provider_result(result, locale=item.locale)
             _mark_attempt_success(attempt, result)
+
             forecast = save_forecast(
                 sign=item.sign_key,
                 day=item.target_date,
@@ -335,11 +352,12 @@ def _process_generation_item(
                 generation_item_id=item.id,
                 commit=False,
             )
+
             item.status = "success"
             item.forecast_id = forecast.id
             item.provider = result.provider or provider.name
             item.model_name = result.model_name or provider.model_name
-            item.request_payload = result.request_payload
+            item.request_payload = result.request_payload or attempt.request_payload
             item.response_payload = result.response_payload
             item.raw_response = result.raw_response
             item.error_message = None
@@ -349,6 +367,7 @@ def _process_generation_item(
             last_error = exc
             will_retry = exc.retryable and attempt_no < max_attempts
             _mark_attempt_failed(attempt, exc, retryable=will_retry)
+
             if not exc.retryable:
                 break
         except Exception as exc:
@@ -361,18 +380,28 @@ def _process_generation_item(
     item.finished_at = utcnow()
 
 
-def _validate_provider_result(result: ProviderResult) -> None:
+def _record_provider_result_payload(
+    attempt: GenerationAttempt,
+    result: ProviderResult,
+) -> None:
+    attempt.provider = result.provider or attempt.provider
+    attempt.model_name = result.model_name or attempt.model_name
+    attempt.request_payload = result.request_payload or attempt.request_payload
+    attempt.response_payload = result.response_payload
+    attempt.raw_response = result.raw_response
+
+
+def _validate_provider_result(result: ProviderResult, *, locale: str) -> None:
     if not result.text or not result.text.strip():
         raise GenerationProviderError("Provider returned an empty forecast text.", retryable=True)
 
-
-def _request_payload(item: GenerationItem, prompt_version: PromptVersion | None) -> dict:
-    return {
-        "target_date": item.target_date.isoformat(),
-        "locale": item.locale,
-        "forecast_type": item.forecast_type,
-        "prompt_version": prompt_version.key if prompt_version else None,
-    }
+    violations = find_forbidden_forecast_terms(result.text, locale=locale)
+    if violations:
+        terms = ", ".join(violation.term for violation in violations[:5])
+        raise GenerationProviderError(
+            "Provider returned forecast text with forbidden zodiac terms: " f"{terms}.",
+            retryable=True,
+        )
 
 
 def _mark_attempt_success(attempt: GenerationAttempt, result: ProviderResult) -> None:
@@ -415,12 +444,14 @@ def _fail_run(run: GenerationRun, exc: Exception) -> None:
 
 def _finalize_run(run: GenerationRun) -> None:
     _refresh_run_counters(run)
+
     if run.failed_items == 0:
         run.status = "success"
     elif run.success_items + run.skipped_items > 0:
         run.status = "partial_failed"
     else:
         run.status = "failed"
+
     run.finished_at = utcnow()
 
 

@@ -17,6 +17,10 @@ class ProviderRequest:
     locale: str
     forecast_type: str
     prompt_version: Any | None = None
+    messages: list[dict[str, str]] = field(default_factory=list)
+    output_schema: dict[str, Any] | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+    prompt_variables: dict[str, Any] = field(default_factory=dict)
 
     def to_payload(self) -> dict[str, Any]:
         return {
@@ -24,6 +28,11 @@ class ProviderRequest:
             "locale": self.locale,
             "forecast_type": self.forecast_type,
             "prompt_version": self.prompt_version.key if self.prompt_version else None,
+            "model_name": self.prompt_version.model_name if self.prompt_version else None,
+            "messages": self.messages,
+            "output_schema": self.output_schema,
+            "metadata": self.metadata,
+            "prompt_variables": self.prompt_variables,
         }
 
 
@@ -43,5 +52,4 @@ class HoroscopeProvider(Protocol):
     name: str
     model_name: str
 
-    def generate(self, request: ProviderRequest) -> ProviderResult:
-        ...
+    def generate(self, request: ProviderRequest) -> ProviderResult: ...
