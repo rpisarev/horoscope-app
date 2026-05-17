@@ -15,6 +15,7 @@ def test_alembic_schema_tables_exist(app):
     assert "forecasts" in table_names
     assert "generation_runs" in table_names
     assert "generation_items" in table_names
+    assert "generation_attempts" in table_names
 
 
 def test_initial_zodiac_signs_seed_exists(app):

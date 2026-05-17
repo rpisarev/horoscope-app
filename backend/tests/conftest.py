@@ -1,6 +1,6 @@
 import pytest
-from sqlalchemy import text
 
+from sqlalchemy import text
 from app import create_app, db
 
 
@@ -18,6 +18,7 @@ def _clean_mutable_tables() -> None:
                 """
                 TRUNCATE TABLE
                     forecasts,
+                    generation_attempts,
                     generation_items,
                     generation_runs
                 RESTART IDENTITY CASCADE
@@ -27,6 +28,8 @@ def _clean_mutable_tables() -> None:
     else:
         db.session.execute(text("UPDATE forecasts SET generation_item_id = NULL"))
         db.session.execute(text("UPDATE generation_items SET forecast_id = NULL"))
+
+        db.session.execute(text("DELETE FROM generation_attempts"))
         db.session.execute(text("DELETE FROM generation_items"))
         db.session.execute(text("DELETE FROM generation_runs"))
         db.session.execute(text("DELETE FROM forecasts"))
