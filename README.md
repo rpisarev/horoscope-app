@@ -1,84 +1,132 @@
 # Horoscope App
 
-Vue + Flask application for a dynamic horoscope website.
+Vue + Flask application for sign-agnostic daily forecast generation.
 
-The frontend/UI is mostly formed. The current development focus is backend lifecycle: PostgreSQL storage, Alembic migrations, scheduled forecast generation, provider abstraction, generation audit logs, retry-friendly status handling, and future OpenAI/local-LLM integration.
-
-Current branch context:
+Current working branch:
 
 ```text
 feature/lifecycle
 ```
 
-## Current development setup
+Current backend focus:
 
-The local development environment runs through Docker Compose.
+```text
+Docker Compose dev environment
+PostgreSQL
+Alembic migrations
+Generation lifecycle
+Provider abstraction
+Prompt-building pipeline
+Generation attempts / audit trail
+Backend tests + GitHub Actions CI
+```
 
-Services:
+The frontend/UI is treated as mostly formed for now. The main active work is backend generation infrastructure.
+
+---
+
+## Current state summary
+
+The app now runs locally through Docker Compose instead of separate manual backend/frontend terminal sessions.
+
+Docker Compose services:
 
 ```text
 frontend   Vue/Vite dev server
 backend    Flask API
-scheduler  APScheduler process for forecast generation
+scheduler  APScheduler process for daily generation
 db         PostgreSQL 17 Alpine
 ```
 
-Start the app:
-
-```bash
-docker compose up --build
-```
-
-After startup:
+Default local URLs:
 
 ```text
 frontend: http://localhost:5173
 backend:  http://localhost:8000
 ```
 
-Useful commands:
+Generation is currently implemented through a **stub provider**, but the code already has a provider abstraction so future providers can be added behind the same pipeline:
+
+```text
+stub
+openai       planned
+local-LLM    planned
+```
+
+Important product rule:
+
+```text
+Forecast text is sign-agnostic.
+```
+
+The zodiac sign key is used for database routing, API compatibility and frontend display, but the generation prompt/provider does not receive the sign name as a creative instruction. Forecast copy should address the reader directly: `Вы`, `Вам`, `Вас`.
+
+---
+
+## Project structure
+
+```text
+horoscope-app/
+├── backend/
+│   ├── app/
+│   │   ├── providers/                 # provider abstraction: stub now, OpenAI/local later
+│   │   ├── services/                  # split service layer
+│   │   │   ├── constants.py
+│   │   │   ├── forecast_service.py
+│   │   │   ├── forecast_validation_service.py
+│   │   │   ├── generation_service.py
+│   │   │   ├── prompt_service.py
+│   │   │   └── sign_service.py
+│   │   ├── config.py
+│   │   ├── models.py
+│   │   └── routes.py
+│   ├── migrations/                    # Alembic environment and versions
+│   ├── tests/                         # backend pytest suite
+│   ├── alembic.ini
+│   ├── Dockerfile
+│   ├── requirements.txt
+│   ├── run.py
+│   └── tasks.py                       # scheduler entry point
+├── frontend/
+├── secrets/
+├── scripts/
+│   └── backend-test.sh                # isolated backend test DB runner
+├── .github/workflows/
+├── .env.example
+├── docker-compose.yml
+└── README.md
+```
+
+---
+
+## Requirements
+
+Recommended local development setup:
+
+```text
+Linux shell
+Docker Engine
+Docker Compose plugin
+```
+
+Check installation:
 
 ```bash
-docker compose ps
-docker compose logs -f
-docker compose logs -f backend
-docker compose logs -f scheduler
-docker compose logs -f db
-docker compose down
-docker compose down -v
+docker --version
+docker compose version
 ```
 
-`docker compose down -v` removes the local PostgreSQL volume and therefore deletes the local dev database.
+---
 
-## PostgreSQL dev database
+## Initial local setup
 
-The app uses PostgreSQL in Docker for local development.
+From the repository root:
 
-The database container uses a named volume:
-
-```text
-postgres_data
+```bash
+cd /home/user/horoscope_project/1/horoscope-app
 ```
 
-Inside Docker network, backend and scheduler connect to PostgreSQL through:
-
-```text
-db:5432
-```
-
-From the host machine PostgreSQL is exposed as:
-
-```text
-localhost:5432
-```
-
-if the port is not already occupied.
-
-## Local secrets
-
-The PostgreSQL password is stored as a Docker secret-style file and must not be committed.
-
-Create local secret:
+Create the local secrets directory and PostgreSQL password file:
 
 ```bash
 mkdir -p secrets
@@ -88,56 +136,199 @@ chmod 700 secrets
 chmod 600 secrets/postgres_password.txt
 ```
 
-Expected git behavior:
+The file below is required locally but must not be committed:
 
 ```text
-committed:     secrets/.gitkeep
-not committed: secrets/postgres_password.txt
-not committed: .env
+secrets/postgres_password.txt
 ```
 
-Check ignore rule:
+Verify that it is ignored:
 
 ```bash
 git check-ignore -v secrets/postgres_password.txt
 ```
 
-## Backend configuration
+Expected: git reports that the file is ignored by `.gitignore`.
 
-Backend config resolves database connection in this order:
+---
 
-1. use `DATABASE_URL` if it is set;
-2. otherwise build PostgreSQL URI from:
-   - `POSTGRES_HOST`
-   - `POSTGRES_PORT`
-   - `POSTGRES_DB`
-   - `POSTGRES_USER`
-   - `POSTGRES_PASSWORD_FILE`
-3. fallback to local SQLite:
+## Optional `.env`
 
-```text
-sqlite:///db.sqlite3
+The app can run without `.env` because `docker-compose.yml` defines defaults.
+
+To override local non-secret settings:
+
+```bash
+cp .env.example .env
 ```
 
-In Docker Compose development mode, PostgreSQL with secret file is the expected path.
+Useful settings:
 
-## Migrations
+```env
+APP_TIMEZONE=Europe/Kyiv
+LOG_LEVEL=INFO
 
-Database schema is managed by Alembic.
+SCHEDULE_HOUR=1
+SCHEDULE_MINUTE=0
+RUN_NIGHTLY_ON_START=0
 
-Backend container applies migrations before starting Flask:
+HOROSCOPE_PROVIDER=stub
+GENERATION_MAX_ATTEMPTS=3
+GENERATION_STALE_HOURS=2
+
+RETRY_MISSING_ENABLED=1
+RETRY_INTERVAL_MINUTES=30
+RETRY_WINDOW_START_HOUR=1
+RETRY_WINDOW_END_HOUR=6
+MAX_RETRY_RUNS_PER_DAY=3
+```
+
+Do not commit `.env`.
+
+---
+
+## Run the app
+
+Start all services:
+
+```bash
+docker compose up --build
+```
+
+Open:
+
+```text
+http://localhost:5173
+```
+
+Backend API:
+
+```text
+http://localhost:8000
+```
+
+Show service status:
+
+```bash
+docker compose ps
+```
+
+Show logs:
+
+```bash
+docker compose logs -f
+docker compose logs -f backend
+docker compose logs -f scheduler
+docker compose logs -f db
+docker compose logs -f frontend
+```
+
+Stop services but keep DB volume:
+
+```bash
+docker compose down
+```
+
+Stop services and delete DB volume:
+
+```bash
+docker compose down -v
+```
+
+Warning: `docker compose down -v` deletes the local PostgreSQL data volume.
+
+---
+
+## Docker services
+
+### `db`
+
+PostgreSQL database.
+
+Default local settings:
+
+```text
+host inside Docker network: db
+port inside Docker network: 5432
+host port on laptop: 5432
+database: horoscope
+user: horoscope
+password: read from secrets/postgres_password.txt
+volume: postgres_data
+```
+
+### `backend`
+
+Flask API container.
+
+Startup command:
 
 ```bash
 alembic upgrade head && python run.py
 ```
 
-The old `db.create_all()` flow is no longer the working schema-management path.
+The old `db.create_all()` workflow is no longer used. Schema changes must go through Alembic migrations.
 
-Current migrations:
+### `scheduler`
+
+Separate APScheduler process.
+
+Startup command:
+
+```bash
+python tasks.py
+```
+
+By default it schedules daily forecast generation at:
 
 ```text
-0001_initial_schema
-0002_add_generation_attempts
+01:00 Europe/Kyiv
+```
+
+It uses the same Flask app code and the same PostgreSQL database as the API.
+
+To force generation when the scheduler starts, set:
+
+```env
+RUN_NIGHTLY_ON_START=1
+```
+
+Then start/restart the scheduler.
+
+### `frontend`
+
+Vue/Vite dev server.
+
+Available at:
+
+```text
+http://localhost:5173
+```
+
+Inside Docker, Vite proxies API requests to:
+
+```text
+http://backend:8000
+```
+
+---
+
+## Database and migrations
+
+The project uses Alembic.
+
+Migration files live in:
+
+```text
+backend/migrations/versions/
+```
+
+Current migration chain:
+
+```text
+<base> -> 0001_initial_schema
+0001_initial_schema -> 0002_add_generation_attempts
+0002_add_generation_attempts -> 0003_prompt_pipeline
 ```
 
 Check current migration:
@@ -146,10 +337,10 @@ Check current migration:
 docker compose exec backend alembic current
 ```
 
-Expected current head:
+Expected after current migrations:
 
 ```text
-0002_add_generation_attempts (head)
+0003_prompt_pipeline (head)
 ```
 
 Show migration history:
@@ -158,53 +349,79 @@ Show migration history:
 docker compose exec backend alembic history
 ```
 
-Expected history:
+Apply migrations manually:
 
-```text
-0001_initial_schema -> 0002_add_generation_attempts (head), add generation attempts
-<base> -> 0001_initial_schema, initial schema
+```bash
+docker compose exec backend alembic upgrade head
 ```
 
-## Database schema overview
+Create a new migration after model changes:
 
-Main tables:
-
-```text
-zodiac_signs
-prompt_versions
-forecasts
-generation_runs
-generation_items
-generation_attempts
+```bash
+docker compose exec backend alembic revision --autogenerate -m "Describe change"
 ```
+
+Always review autogenerated migrations manually before applying them.
+
+---
+
+## Current database schema
 
 ### `zodiac_signs`
 
-Stores zodiac metadata used by backend and future API improvements.
+Stores zodiac sign metadata.
 
-The current seed includes 13 signs, including:
+Important fields:
 
 ```text
-ophiuchus
+key
+name_ru
+name_uk
+name_en
+glyph
+start_month
+start_day
+end_month
+end_day
+sort_order
+is_enabled
+created_at
+updated_at
 ```
 
-Important note: signs are important for routing, DB uniqueness, archive display, and frontend pages. They are intentionally not passed into the text generation provider as prompt content.
+The initial migration seeds 13 signs including `ophiuchus`.
 
 ### `prompt_versions`
 
-Stores prompt templates and metadata.
+Stores prompt versions for forecast generation.
 
-Current initial prompt version:
+Important fields:
+
+```text
+id
+key
+locale
+forecast_type
+system_prompt
+user_prompt_template
+output_schema
+model_name
+is_active
+created_at
+updated_at
+```
+
+Seeded active prompt:
 
 ```text
 daily-ru-v1
 ```
 
-The prompt is sign-agnostic: it instructs the generator to create a universal daily forecast and not mention any zodiac sign.
+The current prompt is sign-agnostic and date-agnostic in rendered message content. Date/sign metadata may exist in request metadata for audit/debugging, but the user-facing prompt content should not instruct the model to generate for a specific sign.
 
 ### `forecasts`
 
-Stores published or non-published forecast records.
+Stores published or non-published forecasts.
 
 Important fields:
 
@@ -234,30 +451,32 @@ Unique constraint:
 sign_key + target_date + locale + forecast_type
 ```
 
-This means there is one current forecast slot for one sign, one date, one locale, and one forecast type.
+This gives one current forecast slot per sign/date/locale/type.
 
 ### `generation_runs`
 
-One generation run represents one scheduled, manual, retry, or on-start generation process.
+One generation run, such as a scheduled nightly generation or manual run.
 
 Important fields:
 
 ```text
+id
 run_type
- target_date
- locale
- forecast_type
- status
- started_at
- finished_at
- total_items
- success_items
- failed_items
- skipped_items
- error_message
+target_date
+locale
+forecast_type
+status
+started_at
+finished_at
+total_items
+success_items
+failed_items
+skipped_items
+error_message
+created_at
 ```
 
-Typical run statuses:
+Common statuses:
 
 ```text
 running
@@ -269,11 +488,12 @@ interrupted
 
 ### `generation_items`
 
-One generation item represents one sign/date/locale/type slot inside a run.
+One item inside a run, usually one sign/date/locale/type slot.
 
 Important fields:
 
 ```text
+id
 run_id
 sign_key
 target_date
@@ -290,9 +510,10 @@ raw_response
 error_message
 started_at
 finished_at
+created_at
 ```
 
-Typical item statuses:
+Common statuses:
 
 ```text
 pending
@@ -303,15 +524,14 @@ skipped
 interrupted
 ```
 
-`skipped` means a published forecast already exists and the provider was not called.
-
 ### `generation_attempts`
 
-One generation attempt represents one actual provider call attempt for a generation item.
+One provider call attempt for a generation item.
 
 Important fields:
 
 ```text
+id
 item_id
 attempt_no
 status
@@ -324,164 +544,159 @@ error_type
 error_message
 started_at
 finished_at
+created_at
 ```
 
-This table is intended to make production troubleshooting easier once OpenAI or a local LLM provider is added.
+This table is the detailed audit trail for provider calls. Skipped items should not create attempts.
 
-## Service layer
+---
 
-The backend service layer is split into a package:
+## Generation architecture
 
-```text
-backend/app/services/
-```
+The generation pipeline is split into several layers.
 
-Current service modules:
+### Provider abstraction
 
-```text
-constants.py
-forecast_service.py
-generation_service.py
-prompt_service.py
-sign_service.py
-__init__.py
-```
-
-`services/__init__.py` keeps compatibility exports for the current routes, including:
-
-```text
-SIGNS
-generate_horoscope
-get_forecast
-save_forecast
-run_daily_generation
-run_retry_for_missing_forecasts
-has_generation_coverage
-```
-
-## Provider abstraction
-
-Forecast text generation is behind a provider abstraction:
+Provider code lives in:
 
 ```text
 backend/app/providers/
 ```
 
-Current provider modules:
-
-```text
-base.py
-factory.py
-stub.py
-__init__.py
-```
-
-Current working provider:
+Current provider:
 
 ```text
 stub
 ```
 
-Configured but not implemented yet:
+Planned providers:
 
 ```text
 openai
-local
-local-llm
-local_llm
+local-LLM
 ```
 
-The provider request is intentionally sign-agnostic. The generator receives:
+Provider factory:
 
 ```text
-target_date
+backend/app/providers/factory.py
+```
+
+The scheduler selects provider by:
+
+```env
+HOROSCOPE_PROVIDER=stub
+```
+
+### Service layer
+
+Service code lives in:
+
+```text
+backend/app/services/
+```
+
+Main responsibilities:
+
+```text
+sign_service.py                 enabled sign lookup
+prompt_service.py               prompt variables/rendering/provider request building
+forecast_service.py             forecast read/write compatibility helpers
+forecast_validation_service.py  forbidden zodiac term checks
+generation_service.py           run/item/attempt lifecycle, retry, coverage checks
+```
+
+### Sign-agnostic generation
+
+The generation text must not depend on the zodiac sign.
+
+The sign key is still stored in:
+
+```text
+forecasts.sign_key
+generation_items.sign_key
+```
+
+But the provider-facing generation request is designed so the creative instruction does not ask for a specific sign.
+
+This allows the site to display forecasts per sign while keeping the actual text universal.
+
+### Prompt pipeline
+
+The prompt layer builds:
+
+```text
+system prompt
+user prompt
+messages
+output schema
+prompt variables
+metadata
+```
+
+Supported prompt variables are intentionally limited. Current variables include:
+
+```text
 locale
 forecast_type
-prompt_version
+output_language
+address_style
+sentence_count
 ```
 
-It does not receive:
+Unsupported placeholders should fail early rather than silently generating invalid prompts.
+
+### Forecast validation
+
+Generated text is validated before publishing.
+
+Current validation includes:
 
 ```text
-sign_key
+non-empty text
+forbidden zodiac terms check
 ```
 
-This is intentional. Product logic treats horoscope text as universal. The sign key is only for DB slotting and frontend routing/display.
+If a provider returns a text containing zodiac sign names/terms, the attempt is treated as retryable failure.
+
+---
 
 ## Generation lifecycle
 
-The scheduler and manual generation use the same lifecycle service.
-
-Main lifecycle entry point:
-
-```python
-run_daily_generation(...)
-```
-
-Expected flow:
+A daily generation run works like this:
 
 ```text
-1. close stale running runs
-2. avoid duplicate active running run for the same date/locale/type
-3. create generation_run
-4. resolve provider
-5. resolve active prompt version
-6. create generation_items for signs
-7. for each item:
-   - if published forecast exists: mark item as skipped
-   - otherwise call provider
-   - create generation_attempt
-   - validate provider result
-   - save/update forecast
-   - mark item as success or failed
-8. finalize run counters
-9. set run status: success / partial_failed / failed
+1. Close stale running runs if needed.
+2. Check that there is no active running run for the same date/locale/type.
+3. Create generation_run with status=running.
+4. Resolve enabled signs.
+5. Resolve active prompt version.
+6. Create generation_items for signs.
+7. For each item:
+   - if published forecast already exists, mark item skipped;
+   - otherwise create generation_attempt;
+   - build provider request;
+   - call provider;
+   - validate result;
+   - save/update forecast as published;
+   - mark item success or failed.
+8. Recalculate counters.
+9. Finalize run as success / partial_failed / failed.
 ```
 
-Coverage is based on published forecasts, not merely on the existence of a row in `forecasts`.
-
-This means a forecast with:
+Coverage is based on published forecasts:
 
 ```text
-status = failed
+A sign/date/locale/type is complete only if a published forecast exists.
 ```
 
-is treated as missing and can be regenerated in a later run.
+If a forecast row exists but its status is `failed`, the next generation run treats it as missing and can regenerate that slot.
 
-## Scheduler
+---
 
-Scheduler container runs:
+## Runtime checks used during development
 
-```bash
-python tasks.py
-```
-
-Main environment variables:
-
-```text
-APP_TIMEZONE=Europe/Kyiv
-SCHEDULE_HOUR=1
-SCHEDULE_MINUTE=0
-RUN_NIGHTLY_ON_START=0
-HOROSCOPE_PROVIDER=stub
-GENERATION_MAX_ATTEMPTS=3
-GENERATION_STALE_HOURS=2
-RETRY_MISSING_ENABLED=1
-RETRY_INTERVAL_MINUTES=30
-RETRY_WINDOW_START_HOUR=1
-RETRY_WINDOW_END_HOUR=6
-MAX_RETRY_RUNS_PER_DAY=3
-```
-
-Default scheduled generation time:
-
-```text
-01:00 Europe/Kyiv
-```
-
-### Run generation manually
-
-Manual runtime test from backend container:
+Manual generation command:
 
 ```bash
 docker compose exec -T backend python - <<'PY'
@@ -510,7 +725,7 @@ with app.app_context():
 PY
 ```
 
-Expected first clean result:
+Expected first run on an empty date:
 
 ```text
 status: success
@@ -520,7 +735,7 @@ skipped: 0
 failed: 0
 ```
 
-Expected second result for the same date:
+Expected second run for the same date:
 
 ```text
 status: success
@@ -530,23 +745,133 @@ skipped: 13
 failed: 0
 ```
 
-## API compatibility
+If one forecast is manually marked failed:
 
-The current frontend-compatible API remains intentionally conservative.
+```sql
+update forecasts set status='failed' where id=3;
+```
+
+Expected next run:
+
+```text
+status: success
+total: 13
+success: 1
+skipped: 12
+failed: 0
+```
+
+This confirms failed forecast recovery and no unnecessary provider attempts for skipped items.
+
+---
+
+## Useful SQL checks
+
+Open psql:
+
+```bash
+docker compose exec db psql -U horoscope -d horoscope
+```
+
+Migration version:
+
+```sql
+select * from alembic_version;
+```
+
+Recent runs:
+
+```sql
+select id, run_type, target_date, status, total_items, success_items, skipped_items, failed_items, started_at, finished_at
+from generation_runs
+order by id desc
+limit 5;
+```
+
+Items for a run:
+
+```sql
+select id, run_id, sign_key, target_date, status, forecast_id, provider, model_name, error_message
+from generation_items
+where run_id = 1
+order by id;
+```
+
+Attempts for a run:
+
+```sql
+select a.id, a.item_id, i.sign_key, i.run_id, a.attempt_no, a.status, a.provider, a.error_type, a.error_message
+from generation_attempts a
+join generation_items i on i.id = a.item_id
+where i.run_id = 1
+order by a.id;
+```
+
+Forecasts:
+
+```sql
+select id, sign_key, target_date, locale, forecast_type, status, source, model_name, generation_item_id
+from forecasts
+order by id desc
+limit 20;
+```
+
+Exit psql:
+
+```sql
+\q
+```
+
+---
+
+## Backend API
+
+The API remains frontend-compatible.
 
 ### `GET /api/signs`
 
-Still returns the old format:
-
-```json
-["aries", "taurus", "gemini"]
+```bash
+curl http://localhost:8000/api/signs
 ```
 
-The DB already has `zodiac_signs`, but the frontend contract is not changed yet.
+Current response shape is still a list of sign keys:
 
-### `GET /api/forecast?sign=aries&date=YYYY-MM-DD`
+```json
+[
+  "aries",
+  "taurus",
+  "gemini",
+  "cancer",
+  "leo",
+  "virgo",
+  "libra",
+  "scorpio",
+  "sagittarius",
+  "capricorn",
+  "aquarius",
+  "pisces",
+  "ophiuchus"
+]
+```
 
-Returns backward-compatible fields:
+The database has richer sign metadata in `zodiac_signs`, but `/api/signs` intentionally keeps the old response shape for frontend compatibility.
+
+### `GET /api/forecast`
+
+```bash
+curl "http://localhost:8000/api/forecast?sign=aries&date=2026-05-17"
+```
+
+Parameters:
+
+```text
+sign    required zodiac sign key
+date    optional YYYY-MM-DD, defaults to current date
+locale  optional, defaults to ru
+type    optional forecast type, defaults to daily
+```
+
+Response includes both old and new aliases:
 
 ```json
 {
@@ -564,215 +889,201 @@ Returns backward-compatible fields:
 }
 ```
 
-The frontend can keep reading either:
-
-```text
-text
-forecast
-```
-
 ### `GET /api/years`
 
-Returns years based on published forecasts when available.
+```bash
+curl http://localhost:8000/api/years
+```
 
-If there are no published forecasts, it falls back to:
+Current behavior:
 
 ```text
-2024..current_year
+If published forecasts exist, returns years from DB.
+If there are no forecasts yet, falls back to 2024..current_year.
 ```
 
-## Runtime verification status
+---
 
-The current lifecycle was manually verified in Docker with PostgreSQL.
+## Backend tests
 
-Confirmed:
+Backend tests run against an isolated PostgreSQL database.
 
-```text
-Alembic current head: 0002_add_generation_attempts
-manual generation run: success
-13 generation_items: success
-13 generation_attempts: success
-13 forecasts: published
-repeated run: 13 skipped, 0 provider attempts
-failed forecast recovery: works
-forecast upsert by unique slot: works
-/api/forecast smoke test: works
-sign-agnostic stub text: confirmed
-```
-
-A tested failed-forecast recovery scenario:
-
-```sql
-update forecasts set status='failed' where id=3;
-```
-
-Next manual run produced:
-
-```text
-total: 13
-success: 1
-skipped: 12
-failed: 0
-```
-
-The `gemini` forecast was restored to:
-
-```text
-status = published
-```
-
-and only one new generation attempt was created for the regenerated item.
-
-## Useful DB inspection commands
-
-Generation runs:
+Main command:
 
 ```bash
-docker compose exec db sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "
-select id, run_type, target_date, status, total_items, success_items, skipped_items, failed_items, started_at, finished_at
-from generation_runs
-order by id desc
-limit 5;
-"'
+bash scripts/backend-test.sh
 ```
 
-Generation items:
+What it does:
+
+```text
+1. Starts db service.
+2. Waits until PostgreSQL accepts connections.
+3. Drops test DB if it exists.
+4. Creates test DB.
+5. Runs backend container with POSTGRES_DB=horoscope_test.
+6. Applies Alembic migrations.
+7. Runs pytest.
+8. Drops test DB on cleanup unless KEEP_TEST_DB=1.
+```
+
+Keep test DB for debugging:
 
 ```bash
-docker compose exec db sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "
-select id, run_id, sign_key, target_date, status, forecast_id, provider, model_name, error_message
-from generation_items
-order by id desc
-limit 20;
-"'
+KEEP_TEST_DB=1 bash scripts/backend-test.sh
 ```
 
-Generation attempts:
+Use another test DB name:
 
 ```bash
-docker compose exec db sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "
-select id, item_id, attempt_no, status, provider, model_name, error_type, error_message
-from generation_attempts
-order by id desc
-limit 20;
-"'
+TEST_DB_NAME=horoscope_test_local bash scripts/backend-test.sh
 ```
 
-Forecasts:
+Safety guard: the script refuses to run against the default development DB name `horoscope`.
 
-```bash
-docker compose exec db sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "
-select id, sign_key, target_date, locale, forecast_type, status, source, model_name, generation_item_id
-from forecasts
-order by id desc
-limit 20;
-"'
-```
+---
 
-Check one forecast through API:
+## GitHub Actions CI
 
-```bash
-curl "http://localhost:8000/api/forecast?sign=aries&date=2026-05-17"
-```
+The repository has backend CI that runs the backend test script.
 
-## Design notes
-
-### Sign-agnostic generation
-
-The project intentionally does not generate different text based on the zodiac sign.
-
-The generated text should address the reader directly:
+Current CI expectation:
 
 ```text
-Вы
-Вам
-Вас
+alembic upgrade head
+pytest -q
 ```
 
-and should not contain sign names like:
+The CI flow was fixed to avoid PostgreSQL Unix socket issues while preparing the isolated test database. Test DB setup should use explicit TCP host/port inside the db container.
+
+---
+
+## Current confirmed status
 
 ```text
-aries
-Овен
-Телец
-Gemini
+Docker Compose dev              done
+PostgreSQL dev                  done
+Docker secrets                  done
+Backend config                  done
+Alembic environment             done
+0001 initial schema             done
+0002 generation_attempts        done
+0003 prompt pipeline            done
+Models expanded                 done
+Service layer split             done
+Provider abstraction            done
+Stub provider                   done
+Sign-agnostic generation        done
+Prompt-building pipeline        done
+Forecast validation             done
+Generation lifecycle            done
+Generation runs/items/attempts  done
+Skipped behavior                confirmed
+Failed forecast recovery        confirmed
+Retry missing forecasts         implemented and covered by tests
+Stale running run cleanup       implemented and covered by tests
+Backend pytest baseline         done
+GitHub Actions backend CI       done
+API compatibility               preserved
+README                          this file reflects current lifecycle state
+OpenAI provider                 not implemented yet
+Local LLM provider              not implemented yet
+Production deploy               not implemented yet
 ```
 
-The sign key remains important for:
-
-```text
-DB uniqueness
-frontend routing
-archive pages
-zodiac carousel/pages
-```
-
-but not for prompt content.
-
-### Forecast status and coverage
-
-A forecast is considered ready only if:
-
-```text
-status = published
-```
-
-Rows with other statuses, including:
-
-```text
-failed
-draft
-```
-
-are not considered coverage-complete and may be regenerated.
-
-### Skipped items
-
-If a published forecast already exists, the lifecycle creates a `generation_item` with:
-
-```text
-status = skipped
-```
-
-No `generation_attempt` is created for skipped items.
+---
 
 ## Known limitations / next work
 
-Current limitations:
+### 1. OpenAI provider
+
+The next logical backend step is to implement an OpenAI provider behind the existing provider factory.
+
+The provider should use the already existing pipeline:
 
 ```text
-OpenAI provider is not implemented yet
-local LLM provider is not implemented yet
-backend tests are not added yet
-production deployment setup is not ready yet
-admin/manual API for generation is not implemented yet
-retry provider-failure scenarios still need explicit tests
+ProviderRequest
+messages
+output_schema
+request_payload
+response_payload
+raw_response
+GenerationAttempt
+validation
+retry
 ```
 
-Recommended next steps:
+### 2. Local LLM provider
+
+A local provider can later be added behind the same provider interface.
+
+### 3. Admin/manual generation API
+
+Manual generation is currently possible from Python commands. A future admin endpoint could trigger:
 
 ```text
-1. Smoke-test /api/signs and /api/years after lifecycle changes.
-2. Test retry_missing_forecasts explicitly.
-3. Add backend tests for generation lifecycle.
-4. Add provider failure tests with a controlled failing provider.
-5. Implement OpenAI provider behind the existing provider factory.
-6. Add production deploy setup later: gunicorn, frontend build, nginx/caddy, secrets, backups, healthchecks.
+manual generation for date
+retry missing forecasts
+regenerate one sign/date slot
+inspect run/item/attempt status
 ```
 
-## Production notes for later
+This should not be exposed publicly without authentication.
 
-Current Docker Compose setup is for development, not production.
+### 4. API archive improvements
 
-Future production setup should include:
+Possible future endpoint:
 
 ```text
-backend served by gunicorn
-frontend built statically and served by nginx/caddy
-migrations as explicit deploy step
-production-grade secrets
-PostgreSQL backup strategy
+GET /api/archive?sign=aries&year=2026&month=05
+```
+
+This would let the frontend query available published days from the DB.
+
+### 5. `/api/signs/meta`
+
+`/api/signs` intentionally remains a simple key list. A future endpoint can expose richer DB metadata:
+
+```text
+GET /api/signs/meta
+```
+
+### 6. Production deploy
+
+Current Docker Compose setup is for development.
+
+Production still needs:
+
+```text
+gunicorn or another production WSGI server
+frontend build + nginx/caddy/static hosting
+migration deploy step
+production secrets
+backup strategy
 healthchecks
-observability/logging
-provider quota/error monitoring
+monitoring/logging
 ```
+
+---
+
+## Development notes
+
+Use clean local DB reset after schema experiments:
+
+```bash
+docker compose down -v
+docker compose up --build
+```
+
+Use this only for local development because it deletes the PostgreSQL volume.
+
+Do not commit:
+
+```text
+.env
+secrets/postgres_password.txt
+PostgreSQL data volumes
+node_modules
+frontend build artifacts
+```
+
