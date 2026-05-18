@@ -5,7 +5,7 @@ Vue + Flask application for sign-agnostic daily forecast generation.
 Current working branch:
 
 ```text
-feature/lifecycle
+feature/openai-provider
 ```
 
 Current backend focus:
@@ -16,6 +16,7 @@ PostgreSQL
 Alembic migrations
 Generation lifecycle
 Provider abstraction
+OpenAI provider
 Prompt-building pipeline
 Generation attempts / audit trail
 Backend tests + GitHub Actions CI
@@ -27,7 +28,7 @@ The frontend/UI is treated as mostly formed for now. The main active work is bac
 
 ## Current state summary
 
-The app now runs locally through Docker Compose instead of separate manual backend/frontend terminal sessions.
+The app runs locally through Docker Compose.
 
 Docker Compose services:
 
@@ -45,12 +46,17 @@ frontend: http://localhost:5173
 backend:  http://localhost:8000
 ```
 
-Generation is currently implemented through a **stub provider**, but the code already has a provider abstraction so future providers can be added behind the same pipeline:
+Generation providers:
 
 ```text
-stub
-openai       planned
-local-LLM    planned
+stub    default local/dev provider
+openai  implemented provider for real model generation
+```
+
+Planned future providers:
+
+```text
+local-LLM
 ```
 
 Important product rule:
@@ -59,7 +65,26 @@ Important product rule:
 Forecast text is sign-agnostic.
 ```
 
-The zodiac sign key is used for database routing, API compatibility and frontend display, but the generation prompt/provider does not receive the sign name as a creative instruction. Forecast copy should address the reader directly: `Вы`, `Вам`, `Вас`.
+The zodiac sign key is used for database routing, API compatibility and frontend display, but the generation prompt/provider must not receive the sign name as a creative instruction.
+
+Forecast copy should address the reader directly:
+
+```text
+Вы / Вам / Вас / Ваш / Ваши
+```
+
+Forbidden in generated text:
+
+```text
+Овен, Телец, Близнецы...
+Овнов, Тельцам, Рыбам...
+представители знака
+люди этого знака
+для вашего знака
+ваш знак
+знак зодиака
+дата
+```
 
 ---
 
@@ -69,8 +94,12 @@ The zodiac sign key is used for database routing, API compatibility and frontend
 horoscope-app/
 ├── backend/
 │   ├── app/
-│   │   ├── providers/                 # provider abstraction: stub now, OpenAI/local later
-│   │   ├── services/                  # split service layer
+│   │   ├── providers/
+│   │   │   ├── base.py
+│   │   │   ├── factory.py
+│   │   │   ├── openai_provider.py
+│   │   │   └── stub.py
+│   │   ├── services/
 │   │   │   ├── constants.py
 │   │   │   ├── forecast_service.py
 │   │   │   ├── forecast_validation_service.py
@@ -80,17 +109,17 @@ horoscope-app/
 │   │   ├── config.py
 │   │   ├── models.py
 │   │   └── routes.py
-│   ├── migrations/                    # Alembic environment and versions
-│   ├── tests/                         # backend pytest suite
+│   ├── migrations/
+│   ├── tests/
 │   ├── alembic.ini
 │   ├── Dockerfile
 │   ├── requirements.txt
 │   ├── run.py
-│   └── tasks.py                       # scheduler entry point
+│   └── tasks.py
 ├── frontend/
 ├── secrets/
 ├── scripts/
-│   └── backend-test.sh                # isolated backend test DB runner
+│   └── backend-test.sh
 ├── .github/workflows/
 ├── .env.example
 ├── docker-compose.yml
@@ -156,7 +185,7 @@ Expected: git reports that the file is ignored by `.gitignore`.
 
 The app can run without `.env` because `docker-compose.yml` defines defaults.
 
-To override local non-secret settings:
+To override local settings:
 
 ```bash
 cp .env.example .env
@@ -173,14 +202,13 @@ SCHEDULE_MINUTE=0
 RUN_NIGHTLY_ON_START=0
 
 HOROSCOPE_PROVIDER=stub
-GENERATION_MAX_ATTEMPTS=3
-GENERATION_STALE_HOURS=2
 
-RETRY_MISSING_ENABLED=1
-RETRY_INTERVAL_MINUTES=30
-RETRY_WINDOW_START_HOUR=1
-RETRY_WINDOW_END_HOUR=6
-MAX_RETRY_RUNS_PER_DAY=3
+# For real OpenAI generation:
+# HOROSCOPE_PROVIDER=openai
+# OPENAI_API_KEY=your_openai_api_key_here
+# OPENAI_MODEL=gpt-5.2
+# OPENAI_TIMEOUT_SECONDS=30
+# OPENAI_MAX_OUTPUT_TOKENS=500
 ```
 
 Do not commit `.env`.
@@ -417,7 +445,9 @@ Seeded active prompt:
 daily-ru-v1
 ```
 
-The current prompt is sign-agnostic and date-agnostic in rendered message content. Date/sign metadata may exist in request metadata for audit/debugging, but the user-facing prompt content should not instruct the model to generate for a specific sign.
+The current prompt is sign-agnostic and date-agnostic in rendered message content.
+
+Date/sign metadata may exist in request metadata for audit/debugging, but user-facing prompt content should not instruct the provider to generate for a specific sign or date.
 
 ### `forecasts`
 
@@ -547,7 +577,9 @@ finished_at
 created_at
 ```
 
-This table is the detailed audit trail for provider calls. Skipped items should not create attempts.
+This table is the detailed audit trail for provider calls.
+
+Skipped items should not create attempts.
 
 ---
 
@@ -563,17 +595,11 @@ Provider code lives in:
 backend/app/providers/
 ```
 
-Current provider:
+Current providers:
 
 ```text
 stub
-```
-
-Planned providers:
-
-```text
 openai
-local-LLM
 ```
 
 Provider factory:
@@ -588,6 +614,59 @@ The scheduler selects provider by:
 HOROSCOPE_PROVIDER=stub
 ```
 
+or:
+
+```env
+HOROSCOPE_PROVIDER=openai
+```
+
+### OpenAI provider
+
+The OpenAI provider lives in:
+
+```text
+backend/app/providers/openai_provider.py
+```
+
+It is intentionally a thin adapter:
+
+```text
+ProviderRequest
+  -> OpenAI Responses API call
+  -> structured JSON parsing
+  -> ProviderResult
+```
+
+The provider does not:
+
+```text
+build prompts
+insert sign names
+insert dates into prompt messages
+write forecasts to the database
+decide whether a forecast is published
+```
+
+Those responsibilities stay in:
+
+```text
+prompt_service.py
+generation_service.py
+forecast_validation_service.py
+forecast_service.py
+```
+
+The provider uses:
+
+```env
+OPENAI_API_KEY
+OPENAI_MODEL
+OPENAI_TIMEOUT_SECONDS
+OPENAI_MAX_OUTPUT_TOKENS
+```
+
+Default local provider remains `stub`, so normal development and CI do not require OpenAI credentials.
+
 ### Service layer
 
 Service code lives in:
@@ -599,11 +678,11 @@ backend/app/services/
 Main responsibilities:
 
 ```text
-sign_service.py                 enabled sign lookup
-prompt_service.py               prompt variables/rendering/provider request building
-forecast_service.py             forecast read/write compatibility helpers
-forecast_validation_service.py  forbidden zodiac term checks
-generation_service.py           run/item/attempt lifecycle, retry, coverage checks
+sign_service.py                  enabled sign lookup
+prompt_service.py                prompt variables/rendering/provider request building
+forecast_service.py              forecast read/write compatibility helpers
+forecast_validation_service.py   forbidden zodiac term checks
+generation_service.py            run/item/attempt lifecycle, retry, coverage checks
 ```
 
 ### Sign-agnostic generation
@@ -615,11 +694,10 @@ The sign key is still stored in:
 ```text
 forecasts.sign_key
 generation_items.sign_key
+generation_attempts.request_payload.metadata.sign_key
 ```
 
-But the provider-facing generation request is designed so the creative instruction does not ask for a specific sign.
-
-This allows the site to display forecasts per sign while keeping the actual text universal.
+But the provider-facing prompt messages are designed so the creative instruction does not ask for a specific sign.
 
 ### Prompt pipeline
 
@@ -634,7 +712,9 @@ prompt variables
 metadata
 ```
 
-Supported prompt variables are intentionally limited. Current variables include:
+Supported prompt variables are intentionally limited.
+
+Current variables include:
 
 ```text
 locale
@@ -657,7 +737,7 @@ non-empty text
 forbidden zodiac terms check
 ```
 
-If a provider returns a text containing zodiac sign names/terms, the attempt is treated as retryable failure.
+If a provider returns text containing zodiac sign names or generic zodiac phrases, the attempt is treated as retryable failure and the forecast is not published.
 
 ---
 
@@ -696,7 +776,7 @@ If a forecast row exists but its status is `failed`, the next generation run tre
 
 ## Runtime checks used during development
 
-Manual generation command:
+Manual generation with stub provider:
 
 ```bash
 docker compose exec -T backend python - <<'PY'
@@ -765,6 +845,98 @@ This confirms failed forecast recovery and no unnecessary provider attempts for 
 
 ---
 
+## OpenAI local smoke check
+
+By default the app uses:
+
+```env
+HOROSCOPE_PROVIDER=stub
+```
+
+To try real OpenAI generation locally, create/update `.env`:
+
+```env
+HOROSCOPE_PROVIDER=openai
+OPENAI_API_KEY=your_openai_api_key_here
+OPENAI_MODEL=gpt-5.2
+OPENAI_TIMEOUT_SECONDS=30
+OPENAI_MAX_OUTPUT_TOKENS=500
+```
+
+Then restart backend/scheduler:
+
+```bash
+docker compose up --build
+```
+
+Manual OpenAI generation for current date:
+
+```bash
+docker compose exec -T backend python - <<'PY'
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+from app import create_app
+from app.services import run_daily_generation
+
+app = create_app()
+
+with app.app_context():
+    target_date = datetime.now(ZoneInfo("Europe/Kyiv")).date()
+    run = run_daily_generation(
+        target_date=target_date,
+        run_type="manual",
+        provider_name="openai",
+    )
+
+    print("run_id:", run.id)
+    print("status:", run.status)
+    print("total:", run.total_items)
+    print("success:", run.success_items)
+    print("skipped:", run.skipped_items)
+    print("failed:", run.failed_items)
+PY
+```
+
+Check attempts:
+
+```sql
+select
+  a.id,
+  a.item_id,
+  i.sign_key,
+  a.attempt_no,
+  a.status,
+  a.provider,
+  a.model_name,
+  a.error_type,
+  a.error_message
+from generation_attempts a
+join generation_items i on i.id = a.item_id
+order by a.id desc
+limit 20;
+```
+
+Check generated forecasts:
+
+```sql
+select
+  id,
+  sign_key,
+  target_date,
+  status,
+  source,
+  model_name,
+  generation_item_id
+from forecasts
+order by id desc
+limit 20;
+```
+
+Do not commit real OpenAI keys.
+
+---
+
 ## Useful SQL checks
 
 Open psql:
@@ -782,7 +954,17 @@ select * from alembic_version;
 Recent runs:
 
 ```sql
-select id, run_type, target_date, status, total_items, success_items, skipped_items, failed_items, started_at, finished_at
+select
+  id,
+  run_type,
+  target_date,
+  status,
+  total_items,
+  success_items,
+  skipped_items,
+  failed_items,
+  started_at,
+  finished_at
 from generation_runs
 order by id desc
 limit 5;
@@ -791,7 +973,16 @@ limit 5;
 Items for a run:
 
 ```sql
-select id, run_id, sign_key, target_date, status, forecast_id, provider, model_name, error_message
+select
+  id,
+  run_id,
+  sign_key,
+  target_date,
+  status,
+  forecast_id,
+  provider,
+  model_name,
+  error_message
 from generation_items
 where run_id = 1
 order by id;
@@ -800,7 +991,16 @@ order by id;
 Attempts for a run:
 
 ```sql
-select a.id, a.item_id, i.sign_key, i.run_id, a.attempt_no, a.status, a.provider, a.error_type, a.error_message
+select
+  a.id,
+  a.item_id,
+  i.sign_key,
+  i.run_id,
+  a.attempt_no,
+  a.status,
+  a.provider,
+  a.error_type,
+  a.error_message
 from generation_attempts a
 join generation_items i on i.id = a.item_id
 where i.run_id = 1
@@ -810,7 +1010,16 @@ order by a.id;
 Forecasts:
 
 ```sql
-select id, sign_key, target_date, locale, forecast_type, status, source, model_name, generation_item_id
+select
+  id,
+  sign_key,
+  target_date,
+  locale,
+  forecast_type,
+  status,
+  source,
+  model_name,
+  generation_item_id
 from forecasts
 order by id desc
 limit 20;
@@ -883,9 +1092,9 @@ Response includes both old and new aliases:
   "text": "...",
   "forecast": "...",
   "status": "published",
-  "source": "stub",
-  "model_version": "stub",
-  "model_name": "stub"
+  "source": "openai",
+  "model_version": "gpt-5.2",
+  "model_name": "gpt-5.2"
 }
 ```
 
@@ -941,6 +1150,8 @@ TEST_DB_NAME=horoscope_test_local bash scripts/backend-test.sh
 
 Safety guard: the script refuses to run against the default development DB name `horoscope`.
 
+OpenAI provider tests are mock-based and do not make real OpenAI API requests.
+
 ---
 
 ## GitHub Actions CI
@@ -954,72 +1165,57 @@ alembic upgrade head
 pytest -q
 ```
 
-The CI flow was fixed to avoid PostgreSQL Unix socket issues while preparing the isolated test database. Test DB setup should use explicit TCP host/port inside the db container.
+The CI flow avoids PostgreSQL Unix socket issues while preparing the isolated test database. Test DB setup should use explicit TCP host/port inside the db container.
 
 ---
 
 ## Current confirmed status
 
 ```text
-Docker Compose dev              done
-PostgreSQL dev                  done
-Docker secrets                  done
-Backend config                  done
-Alembic environment             done
-0001 initial schema             done
-0002 generation_attempts        done
-0003 prompt pipeline            done
-Models expanded                 done
-Service layer split             done
-Provider abstraction            done
-Stub provider                   done
-Sign-agnostic generation        done
-Prompt-building pipeline        done
-Forecast validation             done
-Generation lifecycle            done
-Generation runs/items/attempts  done
-Skipped behavior                confirmed
-Failed forecast recovery        confirmed
-Retry missing forecasts         implemented and covered by tests
-Stale running run cleanup       implemented and covered by tests
-Backend pytest baseline         done
-GitHub Actions backend CI       done
-API compatibility               preserved
-README                          this file reflects current lifecycle state
-OpenAI provider                 not implemented yet
-Local LLM provider              not implemented yet
-Production deploy               not implemented yet
+Docker Compose dev                 done
+PostgreSQL dev                     done
+Docker secrets                     done
+Backend config                     done
+Alembic environment                done
+0001 initial schema                done
+0002 generation_attempts           done
+0003 prompt pipeline               done
+Models expanded                    done
+Service layer split                done
+Provider abstraction               done
+Stub provider                      done
+OpenAI provider                    done
+OpenAI provider mock tests         done
+Sign-agnostic generation           done
+Prompt-building pipeline           done
+Forecast validation                done
+Generation lifecycle               done
+Generation runs/items/attempts     done
+Skipped behavior confirmed         done
+Failed forecast recovery           done
+Retry missing forecasts            done
+Stale running run cleanup          done
+Backend pytest baseline            done
+GitHub Actions backend CI          done
+API compatibility preserved        done
+README                             updated for feature/openai-provider
+
+Local LLM provider                 not implemented yet
+Admin/manual generation API        not implemented yet
+Archive API improvements           not implemented yet
+/api/signs/meta                    not implemented yet
+Production deploy                  not implemented yet
 ```
 
 ---
 
 ## Known limitations / next work
 
-### 1. OpenAI provider
+### 1. Admin/manual generation API
 
-The next logical backend step is to implement an OpenAI provider behind the existing provider factory.
+Manual generation is currently possible from Python commands.
 
-The provider should use the already existing pipeline:
-
-```text
-ProviderRequest
-messages
-output_schema
-request_payload
-response_payload
-raw_response
-GenerationAttempt
-validation
-retry
-```
-
-### 2. Local LLM provider
-
-A local provider can later be added behind the same provider interface.
-
-### 3. Admin/manual generation API
-
-Manual generation is currently possible from Python commands. A future admin endpoint could trigger:
+A future admin endpoint could trigger:
 
 ```text
 manual generation for date
@@ -1030,7 +1226,7 @@ inspect run/item/attempt status
 
 This should not be exposed publicly without authentication.
 
-### 4. API archive improvements
+### 2. Archive API improvements
 
 Possible future endpoint:
 
@@ -1040,15 +1236,21 @@ GET /api/archive?sign=aries&year=2026&month=05
 
 This would let the frontend query available published days from the DB.
 
-### 5. `/api/signs/meta`
+### 3. `/api/signs/meta`
 
-`/api/signs` intentionally remains a simple key list. A future endpoint can expose richer DB metadata:
+`/api/signs` intentionally remains a simple key list.
+
+A future endpoint can expose richer DB metadata:
 
 ```text
 GET /api/signs/meta
 ```
 
-### 6. Production deploy
+### 4. Local LLM provider
+
+A local provider can later be added behind the same provider interface.
+
+### 5. Production deploy
 
 Current Docker Compose setup is for development.
 
@@ -1086,4 +1288,3 @@ PostgreSQL data volumes
 node_modules
 frontend build artifacts
 ```
-
