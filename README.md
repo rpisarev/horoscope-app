@@ -1,6 +1,6 @@
 # Horoscope App
 
-Vue + Flask application for sign-agnostic daily forecast generation.
+Vue + Flask application for sign-agnostic daily horoscope forecast generation.
 
 Current working branch:
 
@@ -18,11 +18,12 @@ Generation lifecycle
 Provider abstraction
 OpenAI provider
 Prompt-building pipeline
+Prompt variation profiles
 Generation attempts / audit trail
 Backend tests + GitHub Actions CI
 ```
 
-The frontend/UI is treated as mostly formed for now. The main active work is backend generation infrastructure.
+The frontend/UI is treated as mostly formed for now. The main active work is backend generation infrastructure and forecast quality.
 
 ---
 
@@ -59,13 +60,19 @@ Planned future providers:
 local-LLM
 ```
 
+Current selected OpenAI model for production prompt version:
+
+```text
+gpt-5.4-mini
+```
+
 Important product rule:
 
 ```text
 Forecast text is sign-agnostic.
 ```
 
-The zodiac sign key is used for database routing, API compatibility and frontend display, but the generation prompt/provider must not receive the sign name as a creative instruction.
+The zodiac sign key is used for database routing, scheduler lifecycle, deterministic variation selection, API compatibility and frontend display, but the generation prompt/provider must not receive the sign name as a creative instruction.
 
 Forecast copy should address the reader directly:
 
@@ -105,12 +112,15 @@ horoscope-app/
 │   │   │   ├── forecast_validation_service.py
 │   │   │   ├── generation_service.py
 │   │   │   ├── prompt_service.py
+│   │   │   ├── prompt_variation_service.py
 │   │   │   └── sign_service.py
 │   │   ├── config.py
 │   │   ├── models.py
 │   │   └── routes.py
 │   ├── migrations/
 │   ├── tests/
+│   ├── utils/
+│   │   └── openai_prompt_probe.py
 │   ├── alembic.ini
 │   ├── Dockerfile
 │   ├── requirements.txt
@@ -206,12 +216,14 @@ HOROSCOPE_PROVIDER=stub
 # For real OpenAI generation:
 # HOROSCOPE_PROVIDER=openai
 # OPENAI_API_KEY=your_openai_api_key_here
-# OPENAI_MODEL=gpt-5.2
+# OPENAI_MODEL=gpt-5.4-mini
 # OPENAI_TIMEOUT_SECONDS=30
 # OPENAI_MAX_OUTPUT_TOKENS=500
 ```
 
 Do not commit `.env`.
+
+Note: after choosing `gpt-5.4-mini` as the working model, keep local `.env` aligned with that value when using `HOROSCOPE_PROVIDER=openai`.
 
 ---
 
@@ -357,6 +369,7 @@ Current migration chain:
 <base> -> 0001_initial_schema
 0001_initial_schema -> 0002_add_generation_attempts
 0002_add_generation_attempts -> 0003_prompt_pipeline
+0003_prompt_pipeline -> 0004_variation_prompt
 ```
 
 Check current migration:
@@ -368,7 +381,7 @@ docker compose exec backend alembic current
 Expected after current migrations:
 
 ```text
-0003_prompt_pipeline (head)
+0004_variation_prompt (head)
 ```
 
 Show migration history:
@@ -445,9 +458,13 @@ Seeded active prompt:
 daily-ru-v1
 ```
 
-The current prompt is sign-agnostic and date-agnostic in rendered message content.
+Migration `0004_variation_prompt` updates `daily-ru-v1` to a variation-aware prompt and sets the working model:
 
-Date/sign metadata may exist in request metadata for audit/debugging, but user-facing prompt content should not instruct the provider to generate for a specific sign or date.
+```text
+gpt-5.4-mini
+```
+
+The current production prompt is sign-agnostic and date-agnostic in rendered message content. Date/sign metadata may exist in request metadata for audit/debugging, but user-facing prompt content should not instruct the provider to generate for a specific sign or date.
 
 ### `forecasts`
 
@@ -651,6 +668,7 @@ Those responsibilities stay in:
 
 ```text
 prompt_service.py
+prompt_variation_service.py
 generation_service.py
 forecast_validation_service.py
 forecast_service.py
@@ -678,11 +696,12 @@ backend/app/services/
 Main responsibilities:
 
 ```text
-sign_service.py                  enabled sign lookup
-prompt_service.py                prompt variables/rendering/provider request building
-forecast_service.py              forecast read/write compatibility helpers
-forecast_validation_service.py   forbidden zodiac term checks
-generation_service.py            run/item/attempt lifecycle, retry, coverage checks
+sign_service.py                    enabled sign lookup
+prompt_service.py                  prompt variables/rendering/provider request building
+prompt_variation_service.py        deterministic neutral variation profiles
+forecast_service.py                forecast read/write compatibility helpers
+forecast_validation_service.py     forbidden zodiac term checks
+generation_service.py              run/item/attempt lifecycle, retry, coverage checks
 ```
 
 ### Sign-agnostic generation
@@ -699,6 +718,56 @@ generation_attempts.request_payload.metadata.sign_key
 
 But the provider-facing prompt messages are designed so the creative instruction does not ask for a specific sign.
 
+### Prompt variation profiles
+
+Production prompt generation now uses deterministic neutral variation profiles.
+
+Variation profile selection may use internal data:
+
+```text
+sign_key
+target_date
+locale
+forecast_type
+```
+
+But rendered prompt messages receive only neutral profile fields, such as:
+
+```text
+prompt_variation_key
+prompt_variation_theme
+prompt_variation_mood
+prompt_variation_tone
+prompt_variation_composition
+prompt_variation_opening_move
+prompt_variation_concrete_zone
+prompt_variation_ending_energy
+prompt_variation_sentence_style
+prompt_variation_avoid
+```
+
+This keeps prompts sign/date-agnostic while avoiding 13 daily forecasts that all sound the same.
+
+Current profile keys:
+
+```text
+small_joy
+relationships
+recovery
+new_chance
+creative_view
+boundaries
+money_careful
+social_warmth
+inner_choice
+home_mood
+romantic_hint
+playful_spontaneity
+quiet_confidence
+```
+
+Known zodiac signs use deterministic rotation over the profile list for a given date, so the daily package uses all available profiles with minimal repeats while keeping the selection stable.
+
 ### Prompt pipeline
 
 The prompt layer builds:
@@ -712,9 +781,7 @@ prompt variables
 metadata
 ```
 
-Supported prompt variables are intentionally limited.
-
-Current variables include:
+Supported prompt variables include general fields:
 
 ```text
 locale
@@ -722,6 +789,21 @@ forecast_type
 output_language
 address_style
 sentence_count
+```
+
+and variation fields:
+
+```text
+prompt_variation_key
+prompt_variation_theme
+prompt_variation_mood
+prompt_variation_tone
+prompt_variation_composition
+prompt_variation_opening_move
+prompt_variation_concrete_zone
+prompt_variation_ending_energy
+prompt_variation_sentence_style
+prompt_variation_avoid
 ```
 
 Unsupported placeholders should fail early rather than silently generating invalid prompts.
@@ -858,7 +940,7 @@ To try real OpenAI generation locally, create/update `.env`:
 ```env
 HOROSCOPE_PROVIDER=openai
 OPENAI_API_KEY=your_openai_api_key_here
-OPENAI_MODEL=gpt-5.2
+OPENAI_MODEL=gpt-5.4-mini
 OPENAI_TIMEOUT_SECONDS=30
 OPENAI_MAX_OUTPUT_TOKENS=500
 ```
@@ -934,6 +1016,50 @@ limit 20;
 ```
 
 Do not commit real OpenAI keys.
+
+---
+
+## OpenAI prompt probe utility
+
+Development utility:
+
+```text
+backend/utils/openai_prompt_probe.py
+```
+
+Purpose: test model and prompt quality without Flask app or DB.
+
+Useful commands:
+
+```bash
+docker compose exec -T backend python utils/openai_prompt_probe.py --model gpt-5.4-mini
+```
+
+List available profiles without making an API request:
+
+```bash
+docker compose exec -T backend python utils/openai_prompt_probe.py --list-profiles
+```
+
+Run one selected profile:
+
+```bash
+docker compose exec -T backend python utils/openai_prompt_probe.py --model gpt-5.4-mini --profile relationships
+```
+
+Run a small batch:
+
+```bash
+docker compose exec -T backend python utils/openai_prompt_probe.py --model gpt-5.4-mini --batch 13 --seed 42
+```
+
+Show prompt before requests:
+
+```bash
+docker compose exec -T backend python utils/openai_prompt_probe.py --model gpt-5.4-mini --profile creative_view --show-prompt
+```
+
+The utility is for prompt/model experimentation only. Production generation should use `generation_service.py`.
 
 ---
 
@@ -1093,8 +1219,8 @@ Response includes both old and new aliases:
   "forecast": "...",
   "status": "published",
   "source": "openai",
-  "model_version": "gpt-5.2",
-  "model_name": "gpt-5.2"
+  "model_version": "gpt-5.4-mini",
+  "model_name": "gpt-5.4-mini"
 }
 ```
 
@@ -1152,6 +1278,12 @@ Safety guard: the script refuses to run against the default development DB name 
 
 OpenAI provider tests are mock-based and do not make real OpenAI API requests.
 
+Current confirmed local test result after OpenAI provider and variation profiles:
+
+```text
+62 passed in 2.55s
+```
+
 ---
 
 ## GitHub Actions CI
@@ -1172,46 +1304,67 @@ The CI flow avoids PostgreSQL Unix socket issues while preparing the isolated te
 ## Current confirmed status
 
 ```text
-Docker Compose dev                 done
-PostgreSQL dev                     done
-Docker secrets                     done
-Backend config                     done
-Alembic environment                done
-0001 initial schema                done
-0002 generation_attempts           done
-0003 prompt pipeline               done
-Models expanded                    done
-Service layer split                done
-Provider abstraction               done
-Stub provider                      done
-OpenAI provider                    done
-OpenAI provider mock tests         done
-Sign-agnostic generation           done
-Prompt-building pipeline           done
-Forecast validation                done
-Generation lifecycle               done
-Generation runs/items/attempts     done
-Skipped behavior confirmed         done
-Failed forecast recovery           done
-Retry missing forecasts            done
-Stale running run cleanup          done
-Backend pytest baseline            done
-GitHub Actions backend CI          done
-API compatibility preserved        done
-README                             updated for feature/openai-provider
+Docker Compose dev                   done
+PostgreSQL dev                       done
+Docker secrets                       done
+Backend config                       done
+Alembic environment                  done
+0001 initial schema                  done
+0002 generation_attempts             done
+0003 prompt pipeline                 done
+0004 variation prompt                done
+Models expanded                      done
+Service layer split                  done
+Provider abstraction                 done
+Stub provider                        done
+OpenAI provider                      done
+OpenAI provider mock tests           done
+Prompt probe utility                 done
+Prompt variation service             done
+Variation profiles in production     done
+Deterministic variation selection    done
+Sign-agnostic generation             done
+Prompt-building pipeline             done
+Forecast validation                  done
+Generation lifecycle                 done
+Generation runs/items/attempts       done
+Skipped behavior confirmed           done
+Failed forecast recovery             done
+Retry missing forecasts              done
+Stale running run cleanup            done
+Backend pytest baseline              done
+GitHub Actions backend CI            done
+API compatibility preserved          done
+Working OpenAI model selected        gpt-5.4-mini
+README                               updated for feature/openai-provider
 
-Local LLM provider                 not implemented yet
-Admin/manual generation API        not implemented yet
-Archive API improvements           not implemented yet
-/api/signs/meta                    not implemented yet
-Production deploy                  not implemented yet
+Local LLM provider                   not implemented yet
+Admin/manual generation API          not implemented yet
+Archive API improvements             not implemented yet
+/api/signs/meta                      not implemented yet
+Production deploy                    not implemented yet
 ```
 
 ---
 
 ## Known limitations / next work
 
-### 1. Admin/manual generation API
+### 1. Real OpenAI package quality check
+
+The technical pipeline is implemented, but the generated daily package should still be reviewed as a set of 13 forecasts.
+
+Check for:
+
+```text
+enough variation between signs
+no forbidden zodiac terms
+no dates in text
+no repeated title pattern
+no repeated ending pattern
+no excessive productivity tone
+```
+
+### 2. Admin/manual generation API
 
 Manual generation is currently possible from Python commands.
 
@@ -1226,7 +1379,7 @@ inspect run/item/attempt status
 
 This should not be exposed publicly without authentication.
 
-### 2. Archive API improvements
+### 3. Archive API improvements
 
 Possible future endpoint:
 
@@ -1236,7 +1389,7 @@ GET /api/archive?sign=aries&year=2026&month=05
 
 This would let the frontend query available published days from the DB.
 
-### 3. `/api/signs/meta`
+### 4. `/api/signs/meta`
 
 `/api/signs` intentionally remains a simple key list.
 
@@ -1246,11 +1399,11 @@ A future endpoint can expose richer DB metadata:
 GET /api/signs/meta
 ```
 
-### 4. Local LLM provider
+### 5. Local LLM provider
 
 A local provider can later be added behind the same provider interface.
 
-### 5. Production deploy
+### 6. Production deploy
 
 Current Docker Compose setup is for development.
 
