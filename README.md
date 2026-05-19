@@ -21,9 +21,10 @@ Prompt-building pipeline
 Prompt variation profiles
 Generation attempts / audit trail
 Backend tests + GitHub Actions CI
+Forecast quality utilities
 ```
 
-The frontend/UI is treated as mostly formed for now. The main active work is backend generation infrastructure and forecast quality.
+The frontend/UI is treated as mostly formed for now. The main active work is backend generation infrastructure and generated forecast quality.
 
 ---
 
@@ -60,11 +61,13 @@ Planned future providers:
 local-LLM
 ```
 
-Current selected OpenAI model for production prompt version:
+Current selected OpenAI model:
 
 ```text
 gpt-5.4-mini
 ```
+
+This model is used by Docker/env defaults and by the current production prompt version.
 
 Important product rule:
 
@@ -90,7 +93,6 @@ Forbidden in generated text:
 для вашего знака
 ваш знак
 знак зодиака
-дата
 ```
 
 ---
@@ -120,6 +122,8 @@ horoscope-app/
 │   ├── migrations/
 │   ├── tests/
 │   ├── utils/
+│   │   ├── forecast_package_report.py
+│   │   ├── generate_forecast_package.py
 │   │   └── openai_prompt_probe.py
 │   ├── alembic.ini
 │   ├── Dockerfile
@@ -211,6 +215,7 @@ SCHEDULE_HOUR=1
 SCHEDULE_MINUTE=0
 RUN_NIGHTLY_ON_START=0
 
+# Keep stub for normal local/dev work without paid API calls.
 HOROSCOPE_PROVIDER=stub
 
 # For real OpenAI generation:
@@ -221,9 +226,7 @@ HOROSCOPE_PROVIDER=stub
 # OPENAI_MAX_OUTPUT_TOKENS=500
 ```
 
-Do not commit `.env`.
-
-Note: after choosing `gpt-5.4-mini` as the working model, keep local `.env` aligned with that value when using `HOROSCOPE_PROVIDER=openai`.
+Do not commit `.env` or real API keys.
 
 ---
 
@@ -458,13 +461,15 @@ Seeded active prompt:
 daily-ru-v1
 ```
 
-Migration `0004_variation_prompt` updates `daily-ru-v1` to a variation-aware prompt and sets the working model:
+The current active prompt is sign-agnostic, date-agnostic and variation-aware.
+
+Current production model configured on the prompt version:
 
 ```text
 gpt-5.4-mini
 ```
 
-The current production prompt is sign-agnostic and date-agnostic in rendered message content. Date/sign metadata may exist in request metadata for audit/debugging, but user-facing prompt content should not instruct the provider to generate for a specific sign or date.
+Date/sign metadata may exist in request metadata for audit/debugging, but user-facing prompt content should not instruct the provider to generate for a specific sign or date.
 
 ### `forecasts`
 
@@ -668,7 +673,6 @@ Those responsibilities stay in:
 
 ```text
 prompt_service.py
-prompt_variation_service.py
 generation_service.py
 forecast_validation_service.py
 forecast_service.py
@@ -696,12 +700,12 @@ backend/app/services/
 Main responsibilities:
 
 ```text
-sign_service.py                    enabled sign lookup
-prompt_service.py                  prompt variables/rendering/provider request building
-prompt_variation_service.py        deterministic neutral variation profiles
-forecast_service.py                forecast read/write compatibility helpers
-forecast_validation_service.py     forbidden zodiac term checks
-generation_service.py              run/item/attempt lifecycle, retry, coverage checks
+sign_service.py                  enabled sign lookup
+prompt_service.py                prompt variables/rendering/provider request building
+prompt_variation_service.py      deterministic neutral variation profile selection
+forecast_service.py              forecast read/write compatibility helpers
+forecast_validation_service.py   forbidden zodiac term checks
+generation_service.py            run/item/attempt lifecycle, retry, coverage checks
 ```
 
 ### Sign-agnostic generation
@@ -720,33 +724,28 @@ But the provider-facing prompt messages are designed so the creative instruction
 
 ### Prompt variation profiles
 
-Production prompt generation now uses deterministic neutral variation profiles.
+Production generation uses neutral variation profiles to avoid 13 same-looking daily forecasts.
 
-Variation profile selection may use internal data:
-
-```text
-sign_key
-target_date
-locale
-forecast_type
-```
-
-But rendered prompt messages receive only neutral profile fields, such as:
+The variation profiles live in:
 
 ```text
-prompt_variation_key
-prompt_variation_theme
-prompt_variation_mood
-prompt_variation_tone
-prompt_variation_composition
-prompt_variation_opening_move
-prompt_variation_concrete_zone
-prompt_variation_ending_energy
-prompt_variation_sentence_style
-prompt_variation_avoid
+backend/app/services/prompt_variation_service.py
 ```
 
-This keeps prompts sign/date-agnostic while avoiding 13 daily forecasts that all sound the same.
+Each profile contains:
+
+```text
+key
+theme
+mood
+tone
+composition
+opening_move
+concrete_zone
+ending_energy
+sentence_style
+avoid
+```
 
 Current profile keys:
 
@@ -766,7 +765,14 @@ playful_spontaneity
 quiet_confidence
 ```
 
-Known zodiac signs use deterministic rotation over the profile list for a given date, so the daily package uses all available profiles with minimal repeats while keeping the selection stable.
+The profile choice is deterministic. The backend may use `sign_key + target_date + locale + forecast_type` as an internal seed, but only neutral variation profile data is rendered into prompt messages.
+
+This preserves the main product rule:
+
+```text
+sign_key and target_date are allowed in metadata/storage/debugging,
+but not as creative prompt content.
+```
 
 ### Prompt pipeline
 
@@ -781,7 +787,7 @@ prompt variables
 metadata
 ```
 
-Supported prompt variables include general fields:
+Supported prompt variables include:
 
 ```text
 locale
@@ -789,11 +795,6 @@ forecast_type
 output_language
 address_style
 sentence_count
-```
-
-and variation fields:
-
-```text
 prompt_variation_key
 prompt_variation_theme
 prompt_variation_mood
@@ -856,74 +857,203 @@ If a forecast row exists but its status is `failed`, the next generation run tre
 
 ---
 
-## Runtime checks used during development
+## Backend API
 
-Manual generation with stub provider:
+The API remains frontend-compatible.
+
+### `GET /api/signs`
 
 ```bash
-docker compose exec -T backend python - <<'PY'
-from datetime import datetime
-from zoneinfo import ZoneInfo
-
-from app import create_app
-from app.services import run_daily_generation
-
-app = create_app()
-
-with app.app_context():
-    target_date = datetime.now(ZoneInfo("Europe/Kyiv")).date()
-    run = run_daily_generation(
-        target_date=target_date,
-        run_type="manual",
-        provider_name="stub",
-    )
-
-    print("run_id:", run.id)
-    print("status:", run.status)
-    print("total:", run.total_items)
-    print("success:", run.success_items)
-    print("skipped:", run.skipped_items)
-    print("failed:", run.failed_items)
-PY
+curl http://localhost:8000/api/signs
 ```
 
-Expected first run on an empty date:
+Current response shape is still a list of sign keys:
+
+```json
+[
+  "aries",
+  "taurus",
+  "gemini",
+  "cancer",
+  "leo",
+  "virgo",
+  "libra",
+  "scorpio",
+  "sagittarius",
+  "capricorn",
+  "aquarius",
+  "pisces",
+  "ophiuchus"
+]
+```
+
+The database has richer sign metadata in `zodiac_signs`, but `/api/signs` intentionally keeps the old response shape for frontend compatibility.
+
+### `GET /api/forecast`
+
+```bash
+curl "http://localhost:8000/api/forecast?sign=aries&date=2026-06-05"
+```
+
+Parameters:
 
 ```text
-status: success
-total: 13
-success: 13
-skipped: 0
-failed: 0
+sign    required zodiac sign key
+date    optional YYYY-MM-DD, defaults to current date
+locale  optional, defaults to ru
+type    optional forecast type, defaults to daily
 ```
 
-Expected second run for the same date:
+Response includes both old and new aliases:
+
+```json
+{
+  "id": 1,
+  "sign": "aries",
+  "sign_key": "aries",
+  "day": "2026-06-05",
+  "date": "2026-06-05",
+  "text": "...",
+  "forecast": "...",
+  "status": "published",
+  "source": "openai",
+  "model_version": "gpt-5.4-mini",
+  "model_name": "gpt-5.4-mini"
+}
+```
+
+### `GET /api/years`
+
+```bash
+curl http://localhost:8000/api/years
+```
+
+Current behavior:
 
 ```text
-status: success
-total: 13
-success: 0
-skipped: 13
-failed: 0
+If published forecasts exist, returns years from DB.
+If there are no forecasts yet, falls back to 2024..current_year.
 ```
 
-If one forecast is manually marked failed:
+---
 
-```sql
-update forecasts set status='failed' where id=3;
-```
+## Utility scripts
 
-Expected next run:
+Utility scripts live in:
 
 ```text
-status: success
-total: 13
-success: 1
-skipped: 12
-failed: 0
+backend/utils/
 ```
 
-This confirms failed forecast recovery and no unnecessary provider attempts for skipped items.
+They are development/QA helpers. They do not replace authenticated admin APIs.
+
+### `openai_prompt_probe.py`
+
+Makes exactly one OpenAI request with a hardcoded prompt/variation setup. Useful for quick model and prompt experiments without touching the DB or Flask app.
+
+List available probe options:
+
+```bash
+docker compose exec -T backend python utils/openai_prompt_probe.py --help
+```
+
+Run one probe request:
+
+```bash
+docker compose exec -T backend python utils/openai_prompt_probe.py --model gpt-5.4-mini
+```
+
+Run a specific probe variation:
+
+```bash
+docker compose exec -T backend python utils/openai_prompt_probe.py \
+  --model gpt-5.4-mini \
+  --variation creative_view \
+  --show-prompt
+```
+
+List probe variations without making an API request:
+
+```bash
+docker compose exec -T backend python utils/openai_prompt_probe.py --list-variations
+```
+
+### `generate_forecast_package.py`
+
+Runs the real generation lifecycle for a full forecast package on a target date. This is the convenient CLI replacement for a multi-line Python snippet.
+
+OpenAI generation requires an explicit safety flag to avoid accidental paid API calls:
+
+```bash
+docker compose exec -T backend python utils/generate_forecast_package.py \
+  --date 2026-06-06 \
+  --provider openai \
+  --allow-openai \
+  --show-items \
+  --show-errors
+```
+
+Free local stub generation:
+
+```bash
+docker compose exec -T backend python utils/generate_forecast_package.py \
+  --date 2026-06-06 \
+  --provider stub \
+  --show-items
+```
+
+Important behavior:
+
+```text
+If a published forecast already exists for a sign/date/locale/type,
+the corresponding item is skipped.
+```
+
+For repeated OpenAI quality checks, prefer using a new empty date rather than deleting existing forecasts.
+
+### `forecast_package_report.py`
+
+Prints a quality report for a generated forecast package.
+
+It extracts:
+
+```text
+source/model
+variation profile metadata
+duplicate titles
+duplicate endings
+forbidden zodiac hits
+soft repetition hints
+full forecast text
+```
+
+Text report:
+
+```bash
+docker compose exec -T backend python utils/forecast_package_report.py --date 2026-06-06
+```
+
+Compact report:
+
+```bash
+docker compose exec -T backend python utils/forecast_package_report.py --date 2026-06-06 --compact
+```
+
+JSON report:
+
+```bash
+docker compose exec -T backend python utils/forecast_package_report.py --date 2026-06-06 --json
+```
+
+Show extracted variation metadata:
+
+```bash
+docker compose exec -T backend python utils/forecast_package_report.py \
+  --date 2026-06-06 \
+  --show-metadata
+```
+
+The report utility uses word-aware matching for short forbidden patterns, so words like `ракурс` should not trigger a false-positive hit for the sign name `рак`.
 
 ---
 
@@ -938,128 +1068,48 @@ HOROSCOPE_PROVIDER=stub
 To try real OpenAI generation locally, create/update `.env`:
 
 ```env
-HOROSCOPE_PROVIDER=openai
+HOROSCOPE_PROVIDER=stub
 OPENAI_API_KEY=your_openai_api_key_here
 OPENAI_MODEL=gpt-5.4-mini
 OPENAI_TIMEOUT_SECONDS=30
 OPENAI_MAX_OUTPUT_TOKENS=500
+RUN_NIGHTLY_ON_START=0
 ```
 
-Then restart backend/scheduler:
+Keeping `HOROSCOPE_PROVIDER=stub` is safe for normal container startup. Manual utility commands can still pass `--provider openai --allow-openai` when you intentionally want real API calls.
+
+Generate a full OpenAI package for a clean target date:
 
 ```bash
-docker compose up --build
+docker compose exec -T backend python utils/generate_forecast_package.py \
+  --date 2026-06-06 \
+  --provider openai \
+  --allow-openai \
+  --show-items \
+  --show-errors
 ```
 
-Manual OpenAI generation for current date:
+Review the generated package:
 
 ```bash
-docker compose exec -T backend python - <<'PY'
-from datetime import datetime
-from zoneinfo import ZoneInfo
-
-from app import create_app
-from app.services import run_daily_generation
-
-app = create_app()
-
-with app.app_context():
-    target_date = datetime.now(ZoneInfo("Europe/Kyiv")).date()
-    run = run_daily_generation(
-        target_date=target_date,
-        run_type="manual",
-        provider_name="openai",
-    )
-
-    print("run_id:", run.id)
-    print("status:", run.status)
-    print("total:", run.total_items)
-    print("success:", run.success_items)
-    print("skipped:", run.skipped_items)
-    print("failed:", run.failed_items)
-PY
+docker compose exec -T backend python utils/forecast_package_report.py --date 2026-06-06
 ```
 
-Check attempts:
-
-```sql
-select
-  a.id,
-  a.item_id,
-  i.sign_key,
-  a.attempt_no,
-  a.status,
-  a.provider,
-  a.model_name,
-  a.error_type,
-  a.error_message
-from generation_attempts a
-join generation_items i on i.id = a.item_id
-order by a.id desc
-limit 20;
-```
-
-Check generated forecasts:
-
-```sql
-select
-  id,
-  sign_key,
-  target_date,
-  status,
-  source,
-  model_name,
-  generation_item_id
-from forecasts
-order by id desc
-limit 20;
-```
-
-Do not commit real OpenAI keys.
-
----
-
-## OpenAI prompt probe utility
-
-Development utility:
+Expected healthy package:
 
 ```text
-backend/utils/openai_prompt_probe.py
+13 published forecasts
+source=openai for all items
+model_name=gpt-5.4-mini for all items
+13 different variation profiles used once each
+no forbidden zodiac hits
+no duplicate titles
+no duplicate endings
 ```
 
-Purpose: test model and prompt quality without Flask app or DB.
+Recent quality checks confirmed that `gpt-5.4-mini` with variation profiles produces sufficiently diverse daily forecast packages for the current stage.
 
-Useful commands:
-
-```bash
-docker compose exec -T backend python utils/openai_prompt_probe.py --model gpt-5.4-mini
-```
-
-List available profiles without making an API request:
-
-```bash
-docker compose exec -T backend python utils/openai_prompt_probe.py --list-profiles
-```
-
-Run one selected profile:
-
-```bash
-docker compose exec -T backend python utils/openai_prompt_probe.py --model gpt-5.4-mini --profile relationships
-```
-
-Run a small batch:
-
-```bash
-docker compose exec -T backend python utils/openai_prompt_probe.py --model gpt-5.4-mini --batch 13 --seed 42
-```
-
-Show prompt before requests:
-
-```bash
-docker compose exec -T backend python utils/openai_prompt_probe.py --model gpt-5.4-mini --profile creative_view --show-prompt
-```
-
-The utility is for prompt/model experimentation only. Production generation should use `generation_service.py`.
+Do not commit real OpenAI keys.
 
 ---
 
@@ -1159,86 +1209,6 @@ Exit psql:
 
 ---
 
-## Backend API
-
-The API remains frontend-compatible.
-
-### `GET /api/signs`
-
-```bash
-curl http://localhost:8000/api/signs
-```
-
-Current response shape is still a list of sign keys:
-
-```json
-[
-  "aries",
-  "taurus",
-  "gemini",
-  "cancer",
-  "leo",
-  "virgo",
-  "libra",
-  "scorpio",
-  "sagittarius",
-  "capricorn",
-  "aquarius",
-  "pisces",
-  "ophiuchus"
-]
-```
-
-The database has richer sign metadata in `zodiac_signs`, but `/api/signs` intentionally keeps the old response shape for frontend compatibility.
-
-### `GET /api/forecast`
-
-```bash
-curl "http://localhost:8000/api/forecast?sign=aries&date=2026-05-17"
-```
-
-Parameters:
-
-```text
-sign    required zodiac sign key
-date    optional YYYY-MM-DD, defaults to current date
-locale  optional, defaults to ru
-type    optional forecast type, defaults to daily
-```
-
-Response includes both old and new aliases:
-
-```json
-{
-  "id": 1,
-  "sign": "aries",
-  "sign_key": "aries",
-  "day": "2026-05-17",
-  "date": "2026-05-17",
-  "text": "...",
-  "forecast": "...",
-  "status": "published",
-  "source": "openai",
-  "model_version": "gpt-5.4-mini",
-  "model_name": "gpt-5.4-mini"
-}
-```
-
-### `GET /api/years`
-
-```bash
-curl http://localhost:8000/api/years
-```
-
-Current behavior:
-
-```text
-If published forecasts exist, returns years from DB.
-If there are no forecasts yet, falls back to 2024..current_year.
-```
-
----
-
 ## Backend tests
 
 Backend tests run against an isolated PostgreSQL database.
@@ -1278,10 +1248,10 @@ Safety guard: the script refuses to run against the default development DB name 
 
 OpenAI provider tests are mock-based and do not make real OpenAI API requests.
 
-Current confirmed local test result after OpenAI provider and variation profiles:
+Latest local backend test run after forecast quality utilities and prompt polish:
 
 ```text
-62 passed in 2.55s
+passed
 ```
 
 ---
@@ -1304,69 +1274,56 @@ The CI flow avoids PostgreSQL Unix socket issues while preparing the isolated te
 ## Current confirmed status
 
 ```text
-Docker Compose dev                   done
-PostgreSQL dev                       done
-Docker secrets                       done
-Backend config                       done
-Alembic environment                  done
-0001 initial schema                  done
-0002 generation_attempts             done
-0003 prompt pipeline                 done
-0004 variation prompt                done
-Models expanded                      done
-Service layer split                  done
-Provider abstraction                 done
-Stub provider                        done
-OpenAI provider                      done
-OpenAI provider mock tests           done
-Prompt probe utility                 done
-Prompt variation service             done
-Variation profiles in production     done
-Deterministic variation selection    done
-Sign-agnostic generation             done
-Prompt-building pipeline             done
-Forecast validation                  done
-Generation lifecycle                 done
-Generation runs/items/attempts       done
-Skipped behavior confirmed           done
-Failed forecast recovery             done
-Retry missing forecasts              done
-Stale running run cleanup            done
-Backend pytest baseline              done
-GitHub Actions backend CI            done
-API compatibility preserved          done
-Working OpenAI model selected        gpt-5.4-mini
-README                               updated for feature/openai-provider
+Docker Compose dev                    done
+PostgreSQL dev                        done
+Docker secrets                        done
+Backend config                        done
+Alembic environment                   done
+0001 initial schema                   done
+0002 generation_attempts              done
+0003 prompt pipeline                  done
+0004 variation prompt                 done
+Models expanded                       done
+Service layer split                   done
+Provider abstraction                  done
+Stub provider                         done
+OpenAI provider                       done
+OpenAI model selection                done: gpt-5.4-mini
+OpenAI provider mock tests            done
+Prompt-building pipeline              done
+Prompt variation service              done
+Variation profiles in production      done
+Prompt polish                         done
+Forecast package generation utility   done
+Forecast package report utility       done
+Prompt probe utility                  done
+Sign-agnostic generation              done
+Forecast validation                   done
+Generation lifecycle                  done
+Generation runs/items/attempts        done
+Skipped behavior confirmed            done
+Failed forecast recovery              done
+Retry missing forecasts               done
+Stale running run cleanup             done
+Backend pytest baseline               done
+GitHub Actions backend CI             done
+API compatibility preserved           done
+README                                updated for feature/openai-provider
 
-Local LLM provider                   not implemented yet
-Admin/manual generation API          not implemented yet
-Archive API improvements             not implemented yet
-/api/signs/meta                      not implemented yet
-Production deploy                    not implemented yet
+Local LLM provider                    not implemented yet
+Admin/manual generation API           not implemented yet
+Archive API improvements              not implemented yet
+/api/signs/meta                       not implemented yet
+Production deploy                     not implemented yet
 ```
 
 ---
 
 ## Known limitations / next work
 
-### 1. Real OpenAI package quality check
+### 1. Admin/manual generation API
 
-The technical pipeline is implemented, but the generated daily package should still be reviewed as a set of 13 forecasts.
-
-Check for:
-
-```text
-enough variation between signs
-no forbidden zodiac terms
-no dates in text
-no repeated title pattern
-no repeated ending pattern
-no excessive productivity tone
-```
-
-### 2. Admin/manual generation API
-
-Manual generation is currently possible from Python commands.
+Manual generation is currently possible from utility scripts.
 
 A future admin endpoint could trigger:
 
@@ -1379,7 +1336,7 @@ inspect run/item/attempt status
 
 This should not be exposed publicly without authentication.
 
-### 3. Archive API improvements
+### 2. Archive API improvements
 
 Possible future endpoint:
 
@@ -1389,7 +1346,7 @@ GET /api/archive?sign=aries&year=2026&month=05
 
 This would let the frontend query available published days from the DB.
 
-### 4. `/api/signs/meta`
+### 3. `/api/signs/meta`
 
 `/api/signs` intentionally remains a simple key list.
 
@@ -1399,11 +1356,11 @@ A future endpoint can expose richer DB metadata:
 GET /api/signs/meta
 ```
 
-### 5. Local LLM provider
+### 4. Local LLM provider
 
 A local provider can later be added behind the same provider interface.
 
-### 6. Production deploy
+### 5. Production deploy
 
 Current Docker Compose setup is for development.
 
