@@ -9,7 +9,7 @@ from openai import OpenAI, OpenAIError
 
 from .base import GenerationProviderError, ProviderRequest, ProviderResult
 
-DEFAULT_OPENAI_MODEL = "gpt-5.2"
+DEFAULT_OPENAI_MODEL = "gpt-5.4-mini"
 DEFAULT_TIMEOUT_SECONDS = 30.0
 DEFAULT_MAX_OUTPUT_TOKENS = 500
 
