@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 
 from .base import GenerationProviderError, HoroscopeProvider
+from .openai_provider import OpenAIHoroscopeProvider
 from .stub import StubHoroscopeProvider
 
 
@@ -12,7 +13,10 @@ def get_horoscope_provider(provider_name: str | None = None) -> HoroscopeProvide
     if name == "stub":
         return StubHoroscopeProvider()
 
-    if name in {"openai", "local", "local-llm", "local_llm"}:
+    if name == "openai":
+        return OpenAIHoroscopeProvider()
+
+    if name in {"local", "local-llm", "local_llm"}:
         raise GenerationProviderError(
             f"Horoscope provider '{name}' is configured but not implemented yet.",
             retryable=False,

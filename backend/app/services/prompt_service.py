@@ -6,6 +6,10 @@ from string import Formatter
 from typing import Any
 
 from .constants import DEFAULT_FORECAST_TYPE, DEFAULT_LOCALE, DEFAULT_PROMPT_VERSION_KEY
+from .prompt_variation_service import (
+    build_prompt_variation_metadata,
+    build_prompt_variation_variables,
+)
 from ..models import PromptVersion
 from ..providers.base import ProviderRequest
 
@@ -17,6 +21,16 @@ SUPPORTED_PROMPT_VARIABLES = frozenset(
         "output_language",
         "address_style",
         "sentence_count",
+        "prompt_variation_key",
+        "prompt_variation_theme",
+        "prompt_variation_mood",
+        "prompt_variation_tone",
+        "prompt_variation_composition",
+        "prompt_variation_opening_move",
+        "prompt_variation_concrete_zone",
+        "prompt_variation_ending_energy",
+        "prompt_variation_sentence_style",
+        "prompt_variation_avoid",
     }
 )
 
@@ -67,6 +81,7 @@ def get_prompt_version(
 ) -> PromptVersion | None:
     if prompt_version_key:
         prompt_version = PromptVersion.query.filter_by(key=prompt_version_key).first()
+
         if prompt_version:
             return prompt_version
 
@@ -88,14 +103,28 @@ def build_prompt_variables(
     *,
     locale: str = DEFAULT_LOCALE,
     forecast_type: str = DEFAULT_FORECAST_TYPE,
+    sign_key: str | None = None,
+    target_date: date | None = None,
 ) -> dict[str, Any]:
-    return {
+    variables: dict[str, Any] = {
         "locale": locale,
         "forecast_type": forecast_type,
         "output_language": OUTPUT_LANGUAGE_BY_LOCALE.get(locale, locale),
         "address_style": ADDRESS_STYLE_BY_LOCALE.get(locale, "direct respectful address"),
         "sentence_count": SENTENCE_COUNT_BY_FORECAST_TYPE.get(forecast_type, "4-5"),
     }
+
+    if sign_key is not None and target_date is not None:
+        variables.update(
+            build_prompt_variation_variables(
+                sign_key=sign_key,
+                target_date=target_date,
+                locale=locale,
+                forecast_type=forecast_type,
+            )
+        )
+
+    return variables
 
 
 def render_prompt_template(template: str, variables: dict[str, Any]) -> str:
@@ -105,11 +134,13 @@ def render_prompt_template(template: str, variables: dict[str, Any]) -> str:
         rendered = template.format(**variables)
     except KeyError as exc:
         field_name = str(exc).strip("'")
+
         raise PromptRenderingError(
             f"Prompt template contains unsupported placeholder: {field_name}"
         ) from exc
 
     rendered = rendered.strip()
+
     if not rendered:
         raise PromptRenderingError("Rendered prompt is empty.")
 
@@ -128,10 +159,17 @@ def build_rendered_prompt(
         raise PromptRenderingError("Prompt version is required.")
 
     system_prompt = (prompt_version.system_prompt or "").strip()
+
     if not system_prompt:
         raise PromptRenderingError("System prompt is empty.")
 
-    variables = build_prompt_variables(locale=locale, forecast_type=forecast_type)
+    variables = build_prompt_variables(
+        locale=locale,
+        forecast_type=forecast_type,
+        sign_key=sign_key,
+        target_date=target_date,
+    )
+
     user_prompt = render_prompt_template(prompt_version.user_prompt_template, variables)
 
     metadata = {
@@ -140,6 +178,12 @@ def build_rendered_prompt(
         "locale": locale,
         "forecast_type": forecast_type,
         "prompt_version": prompt_version.key,
+        "prompt_variation": build_prompt_variation_metadata(
+            sign_key=sign_key,
+            target_date=target_date,
+            locale=locale,
+            forecast_type=forecast_type,
+        ),
     }
 
     return RenderedPrompt(
@@ -187,11 +231,13 @@ def build_provider_request(
 
 def _validate_template_variables(template: str) -> None:
     formatter = Formatter()
+
     for _, field_name, _, _ in formatter.parse(template):
         if not field_name:
             continue
 
         root_field_name = field_name.split(".", 1)[0].split("[", 1)[0]
+
         if root_field_name not in SUPPORTED_PROMPT_VARIABLES:
             raise PromptRenderingError(
                 f"Prompt template contains unsupported placeholder: {root_field_name}"
