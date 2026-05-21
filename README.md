@@ -5,7 +5,7 @@ Vue + Flask application for sign-agnostic daily horoscope forecast generation.
 Current working branch:
 
 ```text
-feature/openai-provider
+feature/api-gen-forecasts
 ```
 
 Current backend focus:
@@ -22,9 +22,10 @@ Prompt variation profiles
 Generation attempts / audit trail
 Backend tests + GitHub Actions CI
 Forecast quality utilities
+Admin/manual generation API
 ```
 
-The frontend/UI is treated as mostly formed for now. The main active work is backend generation infrastructure and generated forecast quality.
+The frontend/UI is treated as mostly formed for now. The main active work is backend generation infrastructure, generated forecast quality, and safe admin control over generation runs.
 
 ---
 
@@ -112,15 +113,19 @@ horoscope-app/
 │   │   │   ├── constants.py
 │   │   │   ├── forecast_service.py
 │   │   │   ├── forecast_validation_service.py
+│   │   │   ├── generation_admin_service.py
 │   │   │   ├── generation_service.py
 │   │   │   ├── prompt_service.py
 │   │   │   ├── prompt_variation_service.py
 │   │   │   └── sign_service.py
+│   │   ├── admin_auth.py
+│   │   ├── admin_routes.py
 │   │   ├── config.py
 │   │   ├── models.py
 │   │   └── routes.py
 │   ├── migrations/
 │   ├── tests/
+│   │   └── test_admin_generation_api.py
 │   ├── utils/
 │   │   ├── forecast_package_report.py
 │   │   ├── generate_forecast_package.py
@@ -224,9 +229,26 @@ HOROSCOPE_PROVIDER=stub
 # OPENAI_MODEL=gpt-5.4-mini
 # OPENAI_TIMEOUT_SECONDS=30
 # OPENAI_MAX_OUTPUT_TOKENS=500
+
+# Admin/manual generation API.
+# Disabled by default.
+ADMIN_API_ENABLED=0
+ADMIN_API_TOKEN=change-me-local-admin-token
+ADMIN_API_ALLOW_OPENAI=0
+
+# Local admin API smoke testing:
+# ADMIN_API_ENABLED=1
+# ADMIN_API_TOKEN=dev-admin-token
 ```
 
-Do not commit `.env` or real API keys.
+The Admin API is disabled by default. To use it locally, set `ADMIN_API_ENABLED=1`, set a private `ADMIN_API_TOKEN`, and recreate the backend container so Docker Compose passes the new environment variables into Flask.
+
+```bash
+docker compose up -d --force-recreate backend
+docker compose exec backend sh -lc 'env | grep ADMIN'
+```
+
+Do not commit `.env`, real admin tokens, or real API keys.
 
 ---
 
@@ -293,11 +315,11 @@ Default local settings:
 ```text
 host inside Docker network: db
 port inside Docker network: 5432
-host port on laptop: 5432
-database: horoscope
-user: horoscope
-password: read from secrets/postgres_password.txt
-volume: postgres_data
+host port on laptop:       5432
+database:                  horoscope
+user:                      horoscope
+password:                  read from secrets/postgres_password.txt
+volume:                    postgres_data
 ```
 
 ### `backend`
@@ -311,6 +333,14 @@ alembic upgrade head && python run.py
 ```
 
 The old `db.create_all()` workflow is no longer used. Schema changes must go through Alembic migrations.
+
+Admin API environment variables are passed only to the backend container:
+
+```env
+ADMIN_API_ENABLED=0
+ADMIN_API_TOKEN=
+ADMIN_API_ALLOW_OPENAI=0
+```
 
 ### `scheduler`
 
@@ -369,7 +399,7 @@ backend/migrations/versions/
 Current migration chain:
 
 ```text
-<base> -> 0001_initial_schema
+ -> 0001_initial_schema
 0001_initial_schema -> 0002_add_generation_attempts
 0002_add_generation_attempts -> 0003_prompt_pipeline
 0003_prompt_pipeline -> 0004_variation_prompt
@@ -507,7 +537,7 @@ This gives one current forecast slot per sign/date/locale/type.
 
 ### `generation_runs`
 
-One generation run, such as a scheduled nightly generation or manual run.
+One generation run, such as a scheduled nightly generation, retry run or manual admin run.
 
 Important fields:
 
@@ -599,9 +629,7 @@ finished_at
 created_at
 ```
 
-This table is the detailed audit trail for provider calls.
-
-Skipped items should not create attempts.
+This table is the detailed audit trail for provider calls. Skipped items should not create attempts.
 
 ---
 
@@ -700,12 +728,13 @@ backend/app/services/
 Main responsibilities:
 
 ```text
-sign_service.py                  enabled sign lookup
-prompt_service.py                prompt variables/rendering/provider request building
-prompt_variation_service.py      deterministic neutral variation profile selection
-forecast_service.py              forecast read/write compatibility helpers
-forecast_validation_service.py   forbidden zodiac term checks
-generation_service.py            run/item/attempt lifecycle, retry, coverage checks
+sign_service.py                 enabled sign lookup
+prompt_service.py               prompt variables/rendering/provider request building
+prompt_variation_service.py     deterministic neutral variation profile selection
+forecast_service.py             forecast read/write compatibility helpers
+forecast_validation_service.py  forbidden zodiac term checks
+generation_service.py           run/item/attempt lifecycle, retry, coverage checks
+generation_admin_service.py     protected admin read/write orchestration helpers
 ```
 
 ### Sign-agnostic generation
@@ -859,7 +888,7 @@ If a forecast row exists but its status is `failed`, the next generation run tre
 
 ## Backend API
 
-The API remains frontend-compatible.
+The public API remains frontend-compatible.
 
 ### `GET /api/signs`
 
@@ -937,6 +966,157 @@ If there are no forecasts yet, falls back to 2024..current_year.
 
 ---
 
+## Admin/manual generation API
+
+The Admin API is mounted under:
+
+```text
+/api/admin
+```
+
+It is disabled by default and requires bearer-token authentication:
+
+```http
+Authorization: Bearer <ADMIN_API_TOKEN>
+```
+
+Required local environment variables:
+
+```env
+ADMIN_API_ENABLED=1
+ADMIN_API_TOKEN=dev-admin-token
+ADMIN_API_ALLOW_OPENAI=0
+```
+
+After changing these values, recreate the backend container:
+
+```bash
+docker compose up -d --force-recreate backend
+```
+
+Verify that the variables reached the container:
+
+```bash
+docker compose exec backend sh -lc 'env | grep ADMIN'
+```
+
+Expected local output:
+
+```text
+ADMIN_API_ENABLED=1
+ADMIN_API_TOKEN=dev-admin-token
+ADMIN_API_ALLOW_OPENAI=0
+```
+
+### Check generation coverage
+
+```bash
+curl -s "http://localhost:8000/api/admin/generation/coverage?date=2026-06-15" \
+  -H "Authorization: Bearer dev-admin-token"
+```
+
+This returns published/missing forecast coverage for the selected date, locale and forecast type.
+
+### List generation runs
+
+```bash
+curl -s "http://localhost:8000/api/admin/generation/runs?limit=10" \
+  -H "Authorization: Bearer dev-admin-token"
+```
+
+Optional filters:
+
+```text
+date=YYYY-MM-DD
+locale=ru
+type=daily
+status=success|failed|partial_failed|running|interrupted
+run_type=manual|scheduled|retry
+limit=1..100
+offset=0..10000
+```
+
+### Inspect one generation run
+
+```bash
+curl -s "http://localhost:8000/api/admin/generation/runs/1" \
+  -H "Authorization: Bearer dev-admin-token"
+```
+
+Payload fields are hidden by default. To include stored request/response/raw payloads:
+
+```bash
+curl -s "http://localhost:8000/api/admin/generation/runs/1?include_payloads=1" \
+  -H "Authorization: Bearer dev-admin-token"
+```
+
+### Inspect item attempts
+
+```bash
+curl -s "http://localhost:8000/api/admin/generation/items/1/attempts" \
+  -H "Authorization: Bearer dev-admin-token"
+```
+
+### Run manual stub generation
+
+```bash
+curl -s -X POST http://localhost:8000/api/admin/generation/runs \
+  -H "Authorization: Bearer dev-admin-token" \
+  -H "Content-Type: application/json" \
+  -d '{"date":"2026-06-15","provider":"stub","signs":["aries","taurus"],"max_attempts":1}'
+```
+
+Behavior:
+
+```text
+run_type=manual
+already published forecast slots are skipped
+missing slots are generated through the selected provider
+```
+
+### Retry missing forecasts
+
+```bash
+curl -s -X POST http://localhost:8000/api/admin/generation/retry-missing \
+  -H "Authorization: Bearer dev-admin-token" \
+  -H "Content-Type: application/json" \
+  -d '{"date":"2026-06-15","provider":"stub","max_attempts":1}'
+```
+
+This retries all currently missing published forecast slots for the selected date.
+
+### OpenAI safety gate
+
+OpenAI generation through Admin API requires two explicit confirmations.
+
+Environment:
+
+```env
+ADMIN_API_ALLOW_OPENAI=1
+```
+
+Request body:
+
+```json
+{
+  "provider": "openai",
+  "allow_openai": true
+}
+```
+
+Example:
+
+```bash
+curl -s -X POST http://localhost:8000/api/admin/generation/runs \
+  -H "Authorization: Bearer dev-admin-token" \
+  -H "Content-Type: application/json" \
+  -d '{"date":"2026-06-16","provider":"openai","allow_openai":true,"max_attempts":3}'
+```
+
+Keep `ADMIN_API_ALLOW_OPENAI=0` for normal local development.
+
+---
+
 ## Utility scripts
 
 Utility scripts live in:
@@ -980,7 +1160,9 @@ docker compose exec -T backend python utils/openai_prompt_probe.py --list-variat
 
 ### `generate_forecast_package.py`
 
-Runs the real generation lifecycle for a full forecast package on a target date. This is the convenient CLI replacement for a multi-line Python snippet.
+Runs the real generation lifecycle for a full forecast package on a target date.
+
+This is the convenient CLI replacement for a multi-line Python snippet.
 
 OpenAI generation requires an explicit safety flag to avoid accidental paid API calls:
 
@@ -1076,7 +1258,9 @@ OPENAI_MAX_OUTPUT_TOKENS=500
 RUN_NIGHTLY_ON_START=0
 ```
 
-Keeping `HOROSCOPE_PROVIDER=stub` is safe for normal container startup. Manual utility commands can still pass `--provider openai --allow-openai` when you intentionally want real API calls.
+Keeping `HOROSCOPE_PROVIDER=stub` is safe for normal container startup.
+
+Manual utility commands can still pass `--provider openai --allow-openai` when you intentionally want real API calls.
 
 Generate a full OpenAI package for a clean target date:
 
@@ -1130,17 +1314,7 @@ select * from alembic_version;
 Recent runs:
 
 ```sql
-select
-  id,
-  run_type,
-  target_date,
-  status,
-  total_items,
-  success_items,
-  skipped_items,
-  failed_items,
-  started_at,
-  finished_at
+select id, run_type, target_date, status, total_items, success_items, skipped_items, failed_items, started_at, finished_at
 from generation_runs
 order by id desc
 limit 5;
@@ -1149,16 +1323,7 @@ limit 5;
 Items for a run:
 
 ```sql
-select
-  id,
-  run_id,
-  sign_key,
-  target_date,
-  status,
-  forecast_id,
-  provider,
-  model_name,
-  error_message
+select id, run_id, sign_key, target_date, status, forecast_id, provider, model_name, error_message
 from generation_items
 where run_id = 1
 order by id;
@@ -1167,16 +1332,7 @@ order by id;
 Attempts for a run:
 
 ```sql
-select
-  a.id,
-  a.item_id,
-  i.sign_key,
-  i.run_id,
-  a.attempt_no,
-  a.status,
-  a.provider,
-  a.error_type,
-  a.error_message
+select a.id, a.item_id, i.sign_key, i.run_id, a.attempt_no, a.status, a.provider, a.error_type, a.error_message
 from generation_attempts a
 join generation_items i on i.id = a.item_id
 where i.run_id = 1
@@ -1186,16 +1342,7 @@ order by a.id;
 Forecasts:
 
 ```sql
-select
-  id,
-  sign_key,
-  target_date,
-  locale,
-  forecast_type,
-  status,
-  source,
-  model_name,
-  generation_item_id
+select id, sign_key, target_date, locale, forecast_type, status, source, model_name, generation_item_id
 from forecasts
 order by id desc
 limit 20;
@@ -1248,10 +1395,10 @@ Safety guard: the script refuses to run against the default development DB name 
 
 OpenAI provider tests are mock-based and do not make real OpenAI API requests.
 
-Latest local backend test run after forecast quality utilities and prompt polish:
+Latest local backend test run after Admin/manual generation API:
 
 ```text
-passed
+79 passed
 ```
 
 ---
@@ -1274,67 +1421,90 @@ The CI flow avoids PostgreSQL Unix socket issues while preparing the isolated te
 ## Current confirmed status
 
 ```text
-Docker Compose dev                    done
-PostgreSQL dev                        done
-Docker secrets                        done
-Backend config                        done
-Alembic environment                   done
-0001 initial schema                   done
-0002 generation_attempts              done
-0003 prompt pipeline                  done
-0004 variation prompt                 done
-Models expanded                       done
-Service layer split                   done
-Provider abstraction                  done
-Stub provider                         done
-OpenAI provider                       done
-OpenAI model selection                done: gpt-5.4-mini
-OpenAI provider mock tests            done
-Prompt-building pipeline              done
-Prompt variation service              done
-Variation profiles in production      done
-Prompt polish                         done
-Forecast package generation utility   done
-Forecast package report utility       done
-Prompt probe utility                  done
-Sign-agnostic generation              done
-Forecast validation                   done
-Generation lifecycle                  done
-Generation runs/items/attempts        done
-Skipped behavior confirmed            done
-Failed forecast recovery              done
-Retry missing forecasts               done
-Stale running run cleanup             done
-Backend pytest baseline               done
-GitHub Actions backend CI             done
-API compatibility preserved           done
-README                                updated for feature/openai-provider
-
-Local LLM provider                    not implemented yet
-Admin/manual generation API           not implemented yet
-Archive API improvements              not implemented yet
-/api/signs/meta                       not implemented yet
-Production deploy                     not implemented yet
+Docker Compose dev                         done
+PostgreSQL dev                             done
+Docker secrets                             done
+Backend config                             done
+Alembic environment                        done
+0001 initial schema                        done
+0002 generation_attempts                   done
+0003 prompt pipeline                       done
+0004 variation prompt                      done
+Models expanded                            done
+Service layer split                        done
+Provider abstraction                       done
+Stub provider                              done
+OpenAI provider                            done
+OpenAI model selection                     done: gpt-5.4-mini
+OpenAI provider mock tests                 done
+Prompt-building pipeline                   done
+Prompt variation service                   done
+Variation profiles in production           done
+Prompt polish                              done
+Forecast package generation utility        done
+Forecast package report utility            done
+Prompt probe utility                       done
+Sign-agnostic generation                   done
+Forecast validation                        done
+Generation lifecycle                       done
+Generation runs/items/attempts             done
+Skipped behavior confirmed                 done
+Failed forecast recovery                   done
+Retry missing forecasts                    done
+Stale running run cleanup                  done
+Admin/manual generation API MVP            done
+Protected admin read API                   done
+Manual admin generation endpoint           done
+Retry-missing admin endpoint               done
+OpenAI admin safety gate                   done
+Backend pytest baseline                    done
+GitHub Actions backend CI                  done
+API compatibility preserved                done
+README updated for feature/api-gen-forecasts
+Local LLM provider                         not implemented yet
+Archive API improvements                   not implemented yet
+/api/signs/meta                            not implemented yet
+Production deploy                          not implemented yet
 ```
 
 ---
 
 ## Known limitations / next work
 
-### 1. Admin/manual generation API
+### 1. Admin/manual generation API hardening
 
-Manual generation is currently possible from utility scripts.
+The first protected Admin API MVP is implemented.
 
-A future admin endpoint could trigger:
+Current capabilities:
 
 ```text
+coverage check for date/locale/type
+list generation runs
+inspect generation run with items
+inspect item attempts
 manual generation for date
 retry missing forecasts
-regenerate one sign/date slot
-inspect run/item/attempt status
+OpenAI safety gate
 ```
 
-This should not be exposed publicly without authentication.
+The API is disabled by default and requires:
+
+```http
+Authorization: Bearer <ADMIN_API_TOKEN>
+```
+
+Still intentionally not implemented:
+
+```text
+regenerate one sign/date slot with overwrite semantics
+delete forecast
+cancel running generation
+background async job queue
+admin frontend
+real users/roles
+```
+
+Do not expose this API publicly without stronger production authentication and network-level protection.
 
 ### 2. Archive API improvements
 
@@ -1348,9 +1518,7 @@ This would let the frontend query available published days from the DB.
 
 ### 3. `/api/signs/meta`
 
-`/api/signs` intentionally remains a simple key list.
-
-A future endpoint can expose richer DB metadata:
+`/api/signs` intentionally remains a simple key list. A future endpoint can expose richer DB metadata:
 
 ```text
 GET /api/signs/meta
@@ -1374,6 +1542,7 @@ production secrets
 backup strategy
 healthchecks
 monitoring/logging
+stronger Admin API protection
 ```
 
 ---

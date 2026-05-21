@@ -12,7 +12,6 @@ def _read_secret_file(path: str | None) -> str | None:
         return None
 
     secret_path = Path(path)
-
     if not secret_path.exists():
         return None
 
@@ -36,8 +35,11 @@ def _build_postgres_uri() -> str | None:
     safe_user = quote_plus(user)
     safe_password = quote_plus(password)
     safe_db_name = quote_plus(db_name)
-
     return f"postgresql+psycopg://{safe_user}:{safe_password}@{host}:{port}/{safe_db_name}"
+
+
+def _env_flag(name: str, default: str = "0") -> bool:
+    return os.getenv(name, default).strip().lower() in {"1", "true", "yes", "on"}
 
 
 class Config:
@@ -46,5 +48,8 @@ class Config:
         or _build_postgres_uri()
         or "sqlite:///db.sqlite3"
     )
-
     SQLALCHEMY_TRACK_MODIFICATIONS = False
+
+    ADMIN_API_ENABLED = _env_flag("ADMIN_API_ENABLED", "0")
+    ADMIN_API_TOKEN = os.getenv("ADMIN_API_TOKEN")
+    ADMIN_API_ALLOW_OPENAI = _env_flag("ADMIN_API_ALLOW_OPENAI", "0")
