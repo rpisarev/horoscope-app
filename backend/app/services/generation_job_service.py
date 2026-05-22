@@ -821,6 +821,7 @@ def process_claimed_generation_job(
         job.error_message = str(exc)
         job.finished_at = utcnow()
         job.locked_at = None
+        job.locked_by = None
         db.session.commit()
 
     return serialize_generation_job(job)
