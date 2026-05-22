@@ -7,8 +7,20 @@ from typing import Any, Mapping
 from flask import current_app
 from werkzeug.datastructures import MultiDict
 
-from ..models import GenerationAttempt, GenerationItem, GenerationRun
+from .. import db
+from ..models import GenerationAttempt, GenerationItem, GenerationJob, GenerationRun
 from .constants import DEFAULT_FORECAST_TYPE, DEFAULT_LOCALE
+from .generation_job_service import (
+    JOB_TYPE_BACKFILL,
+    GenerationJobValidationError,
+    cancel_generation_job,
+    create_generation_job,
+    create_generation_jobs_for_range,
+    get_generation_job,
+    list_generation_jobs as list_generation_job_records,
+    retry_generation_job,
+    serialize_generation_job,
+)
 from .generation_service import (
     get_missing_forecast_signs,
     has_generation_coverage,
@@ -16,7 +28,6 @@ from .generation_service import (
     run_retry_for_missing_forecasts,
 )
 from .sign_service import get_enabled_sign_keys
-from .. import db
 
 
 class AdminGenerationValidationError(ValueError):
@@ -29,19 +40,25 @@ SUPPORTED_ADMIN_PROVIDERS = {"stub", "openai"}
 def _iso(value: Any) -> str | None:
     if value is None:
         return None
+
     return value.isoformat()
 
 
 def _parse_date(value: str | None, *, required: bool = True) -> date | None:
     if not value:
         if required:
-            raise AdminGenerationValidationError("date is required and must use YYYY-MM-DD format.")
+            raise AdminGenerationValidationError(
+                "date is required and must use YYYY-MM-DD format."
+            )
+
         return None
 
     try:
         return date.fromisoformat(value)
     except ValueError as exc:
-        raise AdminGenerationValidationError("date must use YYYY-MM-DD format.") from exc
+        raise AdminGenerationValidationError(
+            "date must use YYYY-MM-DD format."
+        ) from exc
 
 
 def _parse_int(
@@ -98,35 +115,52 @@ def _parse_int_value(
 def _parse_bool(value: Any) -> bool:
     if isinstance(value, bool):
         return value
+
     if value is None:
         return False
+
     return str(value).strip().lower() in {"1", "true", "yes", "on"}
 
 
-def _scope_from_args(args: MultiDict[str, str], *, require_date: bool = True) -> dict[str, Any]:
+def _scope_from_args(
+    args: MultiDict[str, str],
+    *,
+    require_date: bool = True,
+) -> dict[str, Any]:
     return {
-        "target_date": _parse_date(args.get("date"), required=require_date),
+        "target_date": _parse_date(
+            args.get("date") or args.get("target_date"),
+            required=require_date,
+        ),
         "locale": args.get("locale", DEFAULT_LOCALE),
-        "forecast_type": args.get("type", DEFAULT_FORECAST_TYPE),
+        "forecast_type": (
+            args.get("type")
+            or args.get("forecast_type")
+            or DEFAULT_FORECAST_TYPE
+        ),
     }
 
 
 def _require_json_object(body: Mapping[str, Any]) -> Mapping[str, Any]:
     if not isinstance(body, Mapping):
         raise AdminGenerationValidationError("JSON body must be an object.")
+
     return body
 
 
 def _body_value(body: Mapping[str, Any], *names: str, default: Any = None) -> Any:
     for name in names:
         value = body.get(name)
+
         if value is not None:
             return value
+
     return default
 
 
 def _parse_provider_name(value: Any) -> str:
     provider_name = str(value or "stub").strip().lower()
+
     if not provider_name:
         provider_name = "stub"
 
@@ -157,9 +191,12 @@ def _parse_signs(value: Any) -> list[str] | None:
 
     for raw_sign in value:
         if not isinstance(raw_sign, str) or not raw_sign.strip():
-            raise AdminGenerationValidationError("signs must contain non-empty strings only.")
+            raise AdminGenerationValidationError(
+                "signs must contain non-empty strings only."
+            )
 
         sign_key = raw_sign.strip().lower()
+
         if sign_key not in enabled_set:
             unknown_signs.append(sign_key)
             continue
@@ -169,7 +206,9 @@ def _parse_signs(value: Any) -> list[str] | None:
 
     if unknown_signs:
         raise AdminGenerationValidationError(
-            "Unknown or disabled sign keys: " + ", ".join(sorted(set(unknown_signs))) + "."
+            "Unknown or disabled sign keys: "
+            + ", ".join(sorted(set(unknown_signs)))
+            + "."
         )
 
     return parsed
@@ -177,8 +216,10 @@ def _parse_signs(value: Any) -> list[str] | None:
 
 def _config_bool(name: str) -> bool:
     value = current_app.config.get(name)
+
     if isinstance(value, bool):
         return value
+
     return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
@@ -207,17 +248,17 @@ def _parse_generation_body(body: Mapping[str, Any]) -> dict[str, Any]:
     body = _require_json_object(body)
 
     target_date_value = _body_value(body, "date", "target_date")
-    target_date = _parse_date(str(target_date_value) if target_date_value is not None else None)
-
+    target_date = _parse_date(
+        str(target_date_value) if target_date_value is not None else None
+    )
     locale = str(body.get("locale") or DEFAULT_LOCALE).strip() or DEFAULT_LOCALE
     forecast_type = (
-        str(_body_value(body, "type", "forecast_type", default=DEFAULT_FORECAST_TYPE)).strip()
+        str(_body_value(body, "type", "forecast_type", default=DEFAULT_FORECAST_TYPE))
+        .strip()
         or DEFAULT_FORECAST_TYPE
     )
-
     provider_name = _parse_provider_name(body.get("provider"))
     allow_openai = _parse_bool(body.get("allow_openai"))
-
     max_attempts = _parse_int_value(
         body.get("max_attempts"),
         default=3,
@@ -242,6 +283,86 @@ def _parse_generation_body(body: Mapping[str, Any]) -> dict[str, Any]:
         "max_attempts": max_attempts,
         "stale_after_hours": stale_after_hours,
     }
+
+
+def _parse_job_common_body(
+    body: Mapping[str, Any],
+    *,
+    default_job_type: str,
+    require_target_date: bool,
+) -> dict[str, Any]:
+    body = _require_json_object(body)
+
+    target_date_value = _body_value(body, "date", "target_date")
+    target_date = _parse_date(
+        str(target_date_value) if target_date_value is not None else None,
+        required=require_target_date,
+    )
+
+    locale = str(body.get("locale") or DEFAULT_LOCALE).strip() or DEFAULT_LOCALE
+    forecast_type = (
+        str(_body_value(body, "type", "forecast_type", default=DEFAULT_FORECAST_TYPE))
+        .strip()
+        or DEFAULT_FORECAST_TYPE
+    )
+    provider_name = _parse_provider_name(body.get("provider"))
+    allow_openai = _parse_bool(body.get("allow_openai"))
+
+    _ensure_provider_is_allowed(
+        provider_name=provider_name,
+        allow_openai=allow_openai,
+    )
+
+    job_type = (
+        str(body.get("job_type") or default_job_type).strip().lower()
+        or default_job_type
+    )
+
+    max_attempts = _parse_int_value(
+        body.get("max_attempts"),
+        default=3,
+        min_value=1,
+        max_value=10,
+        name="max_attempts",
+    )
+    max_retry_runs = _parse_int_value(
+        body.get("max_retry_runs"),
+        default=3,
+        min_value=1,
+        max_value=30,
+        name="max_retry_runs",
+    )
+    max_job_attempts = _parse_int_value(
+        body.get("max_job_attempts"),
+        default=1,
+        min_value=1,
+        max_value=10,
+        name="max_job_attempts",
+    )
+    priority = _parse_int_value(
+        body.get("priority"),
+        default=0,
+        min_value=-1000,
+        max_value=1000,
+        name="priority",
+    )
+
+    return {
+        "target_date": target_date,
+        "locale": locale,
+        "forecast_type": forecast_type,
+        "provider_name": provider_name,
+        "allow_openai": allow_openai,
+        "job_type": job_type,
+        "max_attempts": max_attempts,
+        "max_retry_runs": max_retry_runs,
+        "max_job_attempts": max_job_attempts,
+        "priority": priority,
+    }
+
+
+def _translate_job_error(exc: GenerationJobValidationError) -> AdminGenerationValidationError:
+    return AdminGenerationValidationError(str(exc))
 
 
 def create_manual_generation_run(body: Mapping[str, Any]) -> dict[str, Any]:
@@ -365,6 +486,200 @@ def retry_missing_generation(body: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def create_admin_generation_job(body: Mapping[str, Any]) -> dict[str, Any]:
+    params = _parse_job_common_body(
+        body,
+        default_job_type="manual",
+        require_target_date=True,
+    )
+    signs = _parse_signs(body.get("signs"))
+    batch_id = body.get("batch_id")
+    created_by = str(body.get("created_by") or "admin_api").strip() or "admin_api"
+
+    try:
+        job, created = create_generation_job(
+            job_type=params["job_type"],
+            target_date=params["target_date"],
+            locale=params["locale"],
+            forecast_type=params["forecast_type"],
+            provider=params["provider_name"],
+            signs=signs,
+            max_attempts=params["max_attempts"],
+            max_retry_runs=params["max_retry_runs"],
+            max_job_attempts=params["max_job_attempts"],
+            priority=params["priority"],
+            batch_id=str(batch_id).strip() if batch_id else None,
+            created_by=created_by,
+            allow_openai=params["allow_openai"],
+            skip_duplicate=True,
+            commit=True,
+        )
+    except GenerationJobValidationError as exc:
+        raise _translate_job_error(exc) from exc
+
+    return {
+        "job": serialize_generation_job(job),
+        "created": created,
+        "requested": {
+            "date": params["target_date"].isoformat(),
+            "target_date": params["target_date"].isoformat(),
+            "locale": params["locale"],
+            "forecast_type": params["forecast_type"],
+            "provider": params["provider_name"],
+            "job_type": params["job_type"],
+            "signs": signs,
+            "max_attempts": params["max_attempts"],
+            "max_retry_runs": params["max_retry_runs"],
+            "max_job_attempts": params["max_job_attempts"],
+            "priority": params["priority"],
+            "batch_id": batch_id,
+            "created_by": created_by,
+        },
+    }
+
+
+def create_admin_generation_jobs_backfill(body: Mapping[str, Any]) -> dict[str, Any]:
+    params = _parse_job_common_body(
+        body,
+        default_job_type=JOB_TYPE_BACKFILL,
+        require_target_date=False,
+    )
+
+    start_date_value = _body_value(body, "start_date")
+    end_date_value = _body_value(body, "end_date")
+
+    start_date = _parse_date(
+        str(start_date_value) if start_date_value is not None else None,
+        required=True,
+    )
+    end_date = _parse_date(
+        str(end_date_value) if end_date_value is not None else None,
+        required=True,
+    )
+
+    signs = _parse_signs(body.get("signs"))
+    skip_covered = _parse_bool(body.get("skip_covered"))
+    dry_run = _parse_bool(body.get("dry_run"))
+    retry_missing = _parse_bool(body.get("retry_missing"))
+
+    job_type = params["job_type"]
+
+    if retry_missing:
+        job_type = "retry_missing"
+
+    limit = None
+    if body.get("limit") is not None:
+        limit = _parse_int_value(
+            body.get("limit"),
+            default=1,
+            min_value=1,
+            max_value=10000,
+            name="limit",
+        )
+
+    batch_id = body.get("batch_id")
+    created_by = str(body.get("created_by") or "admin_api").strip() or "admin_api"
+
+    try:
+        return create_generation_jobs_for_range(
+            start_date=start_date,
+            end_date=end_date,
+            job_type=job_type,
+            locale=params["locale"],
+            forecast_type=params["forecast_type"],
+            provider=params["provider_name"],
+            signs=signs,
+            max_attempts=params["max_attempts"],
+            max_retry_runs=params["max_retry_runs"],
+            max_job_attempts=params["max_job_attempts"],
+            priority=params["priority"],
+            batch_id=str(batch_id).strip() if batch_id else None,
+            created_by=created_by,
+            allow_openai=params["allow_openai"],
+            skip_covered=skip_covered,
+            skip_duplicate=True,
+            dry_run=dry_run,
+            limit=limit,
+        )
+    except GenerationJobValidationError as exc:
+        raise _translate_job_error(exc) from exc
+
+
+def list_admin_generation_jobs(args: MultiDict[str, str]) -> dict[str, Any]:
+    target_date = _parse_date(
+        args.get("date") or args.get("target_date"),
+        required=False,
+    )
+    limit = _parse_int(
+        args.get("limit"),
+        default=20,
+        min_value=1,
+        max_value=200,
+        name="limit",
+    )
+    offset = _parse_int(
+        args.get("offset"),
+        default=0,
+        min_value=0,
+        max_value=100000,
+        name="offset",
+    )
+
+    try:
+        return list_generation_job_records(
+            status=args.get("status"),
+            target_date=target_date,
+            batch_id=args.get("batch_id"),
+            provider=args.get("provider"),
+            job_type=args.get("job_type"),
+            limit=limit,
+            offset=offset,
+        )
+    except GenerationJobValidationError as exc:
+        raise _translate_job_error(exc) from exc
+
+
+def get_admin_generation_job_detail(job_id: int) -> dict[str, Any] | None:
+    job = get_generation_job(job_id)
+
+    if job is None:
+        return None
+
+    payload = serialize_generation_job(job)
+
+    if job.run_id:
+        run = db.session.get(GenerationRun, job.run_id)
+        payload["run"] = serialize_generation_run(run) if run else None
+    else:
+        payload["run"] = None
+
+    return payload
+
+
+def cancel_admin_generation_job(job_id: int) -> dict[str, Any] | None:
+    try:
+        job = cancel_generation_job(job_id)
+    except GenerationJobValidationError as exc:
+        raise _translate_job_error(exc) from exc
+
+    if job is None:
+        return None
+
+    return {"job": serialize_generation_job(job)}
+
+
+def retry_admin_generation_job(job_id: int) -> dict[str, Any] | None:
+    try:
+        job = retry_generation_job(job_id)
+    except GenerationJobValidationError as exc:
+        raise _translate_job_error(exc) from exc
+
+    if job is None:
+        return None
+
+    return {"job": serialize_generation_job(job)}
+
+
 def get_generation_coverage(args: MultiDict[str, str]) -> dict[str, Any]:
     scope = _scope_from_args(args, require_date=True)
     sign_keys = get_enabled_sign_keys()
@@ -421,7 +736,7 @@ def list_generation_runs(args: MultiDict[str, str]) -> dict[str, Any]:
     if args.get("locale"):
         query = query.filter(GenerationRun.locale == scope["locale"])
 
-    if args.get("type"):
+    if args.get("type") or args.get("forecast_type"):
         query = query.filter(GenerationRun.forecast_type == scope["forecast_type"])
 
     status = args.get("status")
@@ -448,8 +763,12 @@ def list_generation_runs(args: MultiDict[str, str]) -> dict[str, Any]:
     }
 
 
-def get_generation_run_detail(run_id: int, args: MultiDict[str, str]) -> dict[str, Any] | None:
+def get_generation_run_detail(
+    run_id: int,
+    args: MultiDict[str, str],
+) -> dict[str, Any] | None:
     run = db.session.get(GenerationRun, run_id)
+
     if run is None:
         return None
 
@@ -459,17 +778,21 @@ def get_generation_run_detail(run_id: int, args: MultiDict[str, str]) -> dict[st
         .order_by(GenerationItem.id.asc())
         .all()
     )
-
     payload = serialize_generation_run(run)
     payload["items"] = [
         serialize_generation_item(item, include_payloads=include_payloads)
         for item in items
     ]
+
     return payload
 
 
-def get_generation_item_attempts(item_id: int, args: MultiDict[str, str]) -> dict[str, Any] | None:
+def get_generation_item_attempts(
+    item_id: int,
+    args: MultiDict[str, str],
+) -> dict[str, Any] | None:
     item = db.session.get(GenerationItem, item_id)
+
     if item is None:
         return None
 
@@ -491,6 +814,7 @@ def get_generation_item_attempts(item_id: int, args: MultiDict[str, str]) -> dic
 
 def serialize_generation_run(run: GenerationRun) -> dict[str, Any]:
     target_date = run.target_date.isoformat()
+
     return {
         "id": run.id,
         "run_type": run.run_type,
