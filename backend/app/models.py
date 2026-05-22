@@ -5,6 +5,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 
 from . import db
 
+
 json_type = JSONB().with_variant(db.JSON(), "sqlite")
 
 
@@ -149,6 +150,7 @@ class Forecast(TimestampMixin, db.Model):
 
     def to_dict(self):
         target_date = self.target_date.isoformat()
+
         return {
             "id": self.id,
             "sign": self.sign_key,
@@ -204,6 +206,122 @@ class GenerationRun(db.Model):
         back_populates="run",
         cascade="all, delete-orphan",
     )
+    jobs = db.relationship(
+        "GenerationJob",
+        back_populates="run",
+        foreign_keys="GenerationJob.run_id",
+    )
+
+
+class GenerationJob(db.Model):
+    __tablename__ = "generation_jobs"
+
+    id = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
+    job_type = db.Column(db.String(32), nullable=False, index=True)
+    status = db.Column(db.String(32), nullable=False, server_default="queued", index=True)
+    target_date = db.Column(db.Date, nullable=False, index=True)
+    locale = db.Column(db.String(8), nullable=False, server_default="ru")
+    forecast_type = db.Column(db.String(32), nullable=False, server_default="daily")
+    provider = db.Column(db.String(64), nullable=False, server_default="stub")
+    signs = db.Column(json_type, nullable=True)
+    max_attempts = db.Column(db.Integer, nullable=False, server_default="3")
+    max_retry_runs = db.Column(db.Integer, nullable=False, server_default="3")
+    max_job_attempts = db.Column(db.Integer, nullable=False, server_default="1")
+    attempt_count = db.Column(db.Integer, nullable=False, server_default="0")
+    priority = db.Column(db.Integer, nullable=False, server_default="0")
+    run_id = db.Column(
+        db.BigInteger,
+        db.ForeignKey(
+            "generation_runs.id",
+            name="fk_generation_jobs_run_id_generation_runs",
+            ondelete="SET NULL",
+        ),
+        nullable=True,
+        index=True,
+    )
+    batch_id = db.Column(db.String(128), nullable=True, index=True)
+    dedupe_key = db.Column(db.String(128), nullable=False)
+    openai_allowed_at_creation = db.Column(
+        db.Boolean,
+        nullable=False,
+        server_default=db.text("false"),
+    )
+    created_by = db.Column(db.String(64), nullable=True)
+    error_message = db.Column(db.Text, nullable=True)
+    started_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    finished_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    locked_at = db.Column(db.DateTime(timezone=True), nullable=True, index=True)
+    locked_by = db.Column(db.String(128), nullable=True)
+    created_at = db.Column(
+        db.DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    updated_at = db.Column(
+        db.DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    run = db.relationship(
+        "GenerationRun",
+        back_populates="jobs",
+        foreign_keys=[run_id],
+    )
+
+    __table_args__ = (
+        db.Index(
+            "ix_generation_jobs_status_priority_created",
+            "status",
+            "priority",
+            "created_at",
+        ),
+        db.Index(
+            "ix_generation_jobs_scope",
+            "target_date",
+            "locale",
+            "forecast_type",
+            "provider",
+        ),
+        db.Index(
+            "ix_generation_jobs_batch_status",
+            "batch_id",
+            "status",
+        ),
+    )
+
+    def to_dict(self):
+        target_date = self.target_date.isoformat()
+
+        return {
+            "id": self.id,
+            "job_type": self.job_type,
+            "status": self.status,
+            "date": target_date,
+            "target_date": target_date,
+            "locale": self.locale,
+            "forecast_type": self.forecast_type,
+            "provider": self.provider,
+            "signs": self.signs,
+            "max_attempts": self.max_attempts,
+            "max_retry_runs": self.max_retry_runs,
+            "max_job_attempts": self.max_job_attempts,
+            "attempt_count": self.attempt_count,
+            "priority": self.priority,
+            "run_id": self.run_id,
+            "batch_id": self.batch_id,
+            "dedupe_key": self.dedupe_key,
+            "openai_allowed_at_creation": self.openai_allowed_at_creation,
+            "created_by": self.created_by,
+            "error_message": self.error_message,
+            "started_at": _iso(self.started_at),
+            "finished_at": _iso(self.finished_at),
+            "locked_at": _iso(self.locked_at),
+            "locked_by": self.locked_by,
+            "created_at": _iso(self.created_at),
+            "updated_at": _iso(self.updated_at),
+        }
 
 
 class GenerationItem(db.Model):
