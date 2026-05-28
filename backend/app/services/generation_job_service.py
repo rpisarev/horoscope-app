@@ -79,29 +79,36 @@ def utcnow() -> datetime:
 def _iso(value: Any) -> str | None:
     if value is None:
         return None
+
     return value.isoformat()
 
 
 def _normalize_job_type(job_type: str | None) -> str:
     value = (job_type or JOB_TYPE_BACKFILL).strip().lower()
+
     if value not in SUPPORTED_JOB_TYPES:
         allowed = ", ".join(sorted(SUPPORTED_JOB_TYPES))
         raise GenerationJobValidationError(f"job_type must be one of: {allowed}.")
+
     return value
 
 
 def _normalize_provider(provider: str | None) -> str:
     value = (provider or "stub").strip().lower()
+
     if value not in SUPPORTED_JOB_PROVIDERS:
         allowed = ", ".join(sorted(SUPPORTED_JOB_PROVIDERS))
         raise GenerationJobValidationError(f"provider must be one of: {allowed}.")
+
     return value
 
 
 def _normalize_text(value: str | None, *, default: str, name: str) -> str:
     normalized = (value or default).strip()
+
     if not normalized:
         raise GenerationJobValidationError(f"{name} must not be empty.")
+
     return normalized
 
 
@@ -189,6 +196,7 @@ def build_generation_job_dedupe_key(
         "signs": normalized_signs,
     }
     raw_value = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+
     return hashlib.sha256(raw_value.encode("utf-8")).hexdigest()
 
 
@@ -321,6 +329,7 @@ def create_generation_job(
     if existing_job is not None:
         if skip_duplicate:
             return existing_job, False
+
         raise GenerationJobValidationError(
             f"Active generation job already exists: id={existing_job.id}."
         )
@@ -407,6 +416,7 @@ def create_generation_jobs_for_range(
         )
 
     normalized_batch_id = batch_id
+
     if normalized_batch_id is None:
         normalized_batch_id = (
             f"{normalized_job_type}-"
@@ -533,6 +543,137 @@ def create_generation_jobs_for_range(
     }
 
 
+def create_scheduled_generation_job(
+    *,
+    target_date: date,
+    locale: str = DEFAULT_LOCALE,
+    forecast_type: str = DEFAULT_FORECAST_TYPE,
+    provider: str = "stub",
+    max_attempts: int | None = None,
+    max_retry_runs: int | None = None,
+    max_job_attempts: int | None = None,
+    priority: int | None = None,
+    created_by: str | None = "scheduler",
+    allow_openai: bool = False,
+    skip_covered: bool = True,
+) -> dict[str, Any]:
+    """Create one scheduled queue job for a date without executing generation."""
+
+    if skip_covered and has_generation_coverage(
+        target_date=target_date,
+        locale=locale,
+        forecast_type=forecast_type,
+    ):
+        return {
+            "job": None,
+            "created": False,
+            "reason": "already_covered",
+            "date": target_date.isoformat(),
+            "target_date": target_date.isoformat(),
+            "locale": locale,
+            "forecast_type": forecast_type,
+            "provider": provider,
+            "job_type": JOB_TYPE_SCHEDULED,
+        }
+
+    job, created = create_generation_job(
+        job_type=JOB_TYPE_SCHEDULED,
+        target_date=target_date,
+        locale=locale,
+        forecast_type=forecast_type,
+        provider=provider,
+        signs=None,
+        max_attempts=max_attempts,
+        max_retry_runs=max_retry_runs,
+        max_job_attempts=max_job_attempts,
+        priority=priority,
+        batch_id=None,
+        created_by=created_by,
+        allow_openai=allow_openai,
+        skip_duplicate=True,
+        commit=True,
+    )
+
+    return {
+        "job": serialize_generation_job(job),
+        "created": created,
+        "reason": None if created else "active_job_exists",
+        "date": target_date.isoformat(),
+        "target_date": target_date.isoformat(),
+        "locale": locale,
+        "forecast_type": forecast_type,
+        "provider": provider,
+        "job_type": JOB_TYPE_SCHEDULED,
+    }
+
+
+def create_scheduled_retry_missing_job(
+    *,
+    target_date: date,
+    locale: str = DEFAULT_LOCALE,
+    forecast_type: str = DEFAULT_FORECAST_TYPE,
+    provider: str = "stub",
+    max_attempts: int | None = None,
+    max_retry_runs: int | None = None,
+    max_job_attempts: int | None = None,
+    priority: int | None = None,
+    created_by: str | None = "scheduler",
+    allow_openai: bool = False,
+) -> dict[str, Any]:
+    """Create one retry_missing queue job when at least one forecast is missing."""
+
+    missing_signs = get_missing_forecast_signs(
+        target_date=target_date,
+        locale=locale,
+        forecast_type=forecast_type,
+    )
+
+    if not missing_signs:
+        return {
+            "job": None,
+            "created": False,
+            "reason": "no_missing_forecasts",
+            "missing_signs": [],
+            "date": target_date.isoformat(),
+            "target_date": target_date.isoformat(),
+            "locale": locale,
+            "forecast_type": forecast_type,
+            "provider": provider,
+            "job_type": JOB_TYPE_RETRY_MISSING,
+        }
+
+    job, created = create_generation_job(
+        job_type=JOB_TYPE_RETRY_MISSING,
+        target_date=target_date,
+        locale=locale,
+        forecast_type=forecast_type,
+        provider=provider,
+        signs=None,
+        max_attempts=max_attempts,
+        max_retry_runs=max_retry_runs,
+        max_job_attempts=max_job_attempts,
+        priority=priority,
+        batch_id=None,
+        created_by=created_by,
+        allow_openai=allow_openai,
+        skip_duplicate=True,
+        commit=True,
+    )
+
+    return {
+        "job": serialize_generation_job(job),
+        "created": created,
+        "reason": None if created else "active_job_exists",
+        "missing_signs": missing_signs,
+        "date": target_date.isoformat(),
+        "target_date": target_date.isoformat(),
+        "locale": locale,
+        "forecast_type": forecast_type,
+        "provider": provider,
+        "job_type": JOB_TYPE_RETRY_MISSING,
+    }
+
+
 def get_generation_job(job_id: int) -> GenerationJob | None:
     return db.session.get(GenerationJob, job_id)
 
@@ -648,6 +789,7 @@ def retry_generation_job(job_id: int) -> GenerationJob | None:
 
 def _should_use_skip_locked() -> bool:
     bind = db.session.get_bind()
+
     return bind is not None and bind.dialect.name == "postgresql"
 
 
@@ -808,6 +950,8 @@ def process_claimed_generation_job(
                 )
 
         job.finished_at = utcnow()
+        job.locked_at = None
+        job.locked_by = None
         db.session.commit()
 
     except Exception as exc:

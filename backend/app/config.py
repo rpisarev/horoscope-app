@@ -83,6 +83,27 @@ class Config:
     ADMIN_API_TOKEN = os.getenv("ADMIN_API_TOKEN")
     ADMIN_API_ALLOW_OPENAI = _env_flag("ADMIN_API_ALLOW_OPENAI", "0")
 
+    GENERATION_SCHEDULER_USE_QUEUE = _env_flag(
+        "GENERATION_SCHEDULER_USE_QUEUE",
+        "0",
+    )
+    GENERATION_SCHEDULED_JOBS_ALLOW_OPENAI = _env_flag(
+        "GENERATION_SCHEDULED_JOBS_ALLOW_OPENAI",
+        "0",
+    )
+    GENERATION_SCHEDULED_JOB_PRIORITY = _env_int(
+        "GENERATION_SCHEDULED_JOB_PRIORITY",
+        100,
+        min_value=-1000,
+        max_value=1000,
+    )
+    GENERATION_SCHEDULED_RETRY_JOB_PRIORITY = _env_int(
+        "GENERATION_SCHEDULED_RETRY_JOB_PRIORITY",
+        90,
+        min_value=-1000,
+        max_value=1000,
+    )
+
     GENERATION_JOB_WORKER_ENABLED = _env_flag("GENERATION_JOB_WORKER_ENABLED", "0")
     GENERATION_JOB_WORKER_INTERVAL_SECONDS = _env_int(
         "GENERATION_JOB_WORKER_INTERVAL_SECONDS",

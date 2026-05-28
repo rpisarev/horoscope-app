@@ -1,4 +1,5 @@
 import importlib
+from datetime import date
 
 
 class DummyAppContext:
@@ -91,6 +92,161 @@ def test_process_queued_generation_jobs_calls_service_layer(monkeypatch):
         "worker_id": "pytest-worker",
         "allow_openai": False,
         "stale_after_hours": 3,
+    }
+
+
+def test_generate_daily_forecasts_uses_queue_when_enabled(monkeypatch):
+    import tasks
+
+    calls = {}
+
+    def fake_current_app_date():
+        return date(2026, 6, 20)
+
+    def fake_create_scheduled_generation_job(**kwargs):
+        calls.update(kwargs)
+        return {
+            "job": {"id": 10},
+            "created": True,
+            "reason": None,
+            "date": kwargs["target_date"].isoformat(),
+            "target_date": kwargs["target_date"].isoformat(),
+            "locale": kwargs["locale"],
+            "forecast_type": kwargs["forecast_type"],
+            "provider": kwargs["provider"],
+            "job_type": "scheduled",
+        }
+
+    monkeypatch.setattr(tasks, "app", DummyApp())
+    monkeypatch.setattr(tasks, "GENERATION_SCHEDULER_USE_QUEUE", True)
+    monkeypatch.setattr(tasks, "HOROSCOPE_PROVIDER", "stub")
+    monkeypatch.setattr(tasks, "GENERATION_MAX_ATTEMPTS", 2)
+    monkeypatch.setattr(tasks, "MAX_RETRY_RUNS_PER_DAY", 4)
+    monkeypatch.setattr(tasks, "GENERATION_SCHEDULED_JOB_PRIORITY", 100)
+    monkeypatch.setattr(tasks, "GENERATION_SCHEDULED_JOBS_ALLOW_OPENAI", False)
+    monkeypatch.setattr(tasks, "current_app_date", fake_current_app_date)
+    monkeypatch.setattr(
+        tasks,
+        "create_scheduled_generation_job",
+        fake_create_scheduled_generation_job,
+    )
+
+    result = tasks.generate_daily_forecasts(run_type="scheduled")
+
+    assert result["created"] is True
+    assert calls == {
+        "target_date": date(2026, 6, 20),
+        "locale": "ru",
+        "forecast_type": "daily",
+        "provider": "stub",
+        "max_attempts": 2,
+        "max_retry_runs": 4,
+        "max_job_attempts": 1,
+        "priority": 100,
+        "created_by": "scheduler:scheduled",
+        "allow_openai": False,
+        "skip_covered": True,
+    }
+
+
+def test_generate_daily_forecasts_legacy_mode_calls_generation_service(monkeypatch):
+    import tasks
+
+    calls = {}
+
+    class DummyRun:
+        id = 55
+        status = "success"
+        total_items = 13
+        success_items = 13
+        skipped_items = 0
+        failed_items = 0
+
+    def fake_current_app_date():
+        return date(2026, 6, 20)
+
+    def fake_run_daily_generation(**kwargs):
+        calls.update(kwargs)
+        return DummyRun()
+
+    monkeypatch.setattr(tasks, "app", DummyApp())
+    monkeypatch.setattr(tasks, "GENERATION_SCHEDULER_USE_QUEUE", False)
+    monkeypatch.setattr(tasks, "HOROSCOPE_PROVIDER", "stub")
+    monkeypatch.setattr(tasks, "GENERATION_MAX_ATTEMPTS", 2)
+    monkeypatch.setattr(tasks, "GENERATION_STALE_HOURS", 3)
+    monkeypatch.setattr(tasks, "current_app_date", fake_current_app_date)
+    monkeypatch.setattr(tasks, "run_daily_generation", fake_run_daily_generation)
+
+    run = tasks.generate_daily_forecasts(run_type="scheduled")
+
+    assert run.id == 55
+    assert calls == {
+        "target_date": date(2026, 6, 20),
+        "run_type": "scheduled",
+        "locale": "ru",
+        "forecast_type": "daily",
+        "provider_name": "stub",
+        "max_attempts": 2,
+        "stale_after_hours": 3,
+    }
+
+
+def test_retry_missing_forecasts_uses_queue_when_enabled(monkeypatch):
+    import tasks
+
+    calls = {}
+
+    def fake_current_app_date():
+        return date(2026, 6, 20)
+
+    def fake_retry_window_is_open():
+        return True
+
+    def fake_create_scheduled_retry_missing_job(**kwargs):
+        calls.update(kwargs)
+        return {
+            "job": {"id": 11},
+            "created": True,
+            "reason": None,
+            "missing_signs": ["aries"],
+            "date": kwargs["target_date"].isoformat(),
+            "target_date": kwargs["target_date"].isoformat(),
+            "locale": kwargs["locale"],
+            "forecast_type": kwargs["forecast_type"],
+            "provider": kwargs["provider"],
+            "job_type": "retry_missing",
+        }
+
+    monkeypatch.setattr(tasks, "app", DummyApp())
+    monkeypatch.setattr(tasks, "RETRY_MISSING_ENABLED", True)
+    monkeypatch.setattr(tasks, "GENERATION_SCHEDULER_USE_QUEUE", True)
+    monkeypatch.setattr(tasks, "HOROSCOPE_PROVIDER", "stub")
+    monkeypatch.setattr(tasks, "GENERATION_MAX_ATTEMPTS", 2)
+    monkeypatch.setattr(tasks, "MAX_RETRY_RUNS_PER_DAY", 4)
+    monkeypatch.setattr(tasks, "GENERATION_SCHEDULED_RETRY_JOB_PRIORITY", 90)
+    monkeypatch.setattr(tasks, "GENERATION_SCHEDULED_JOBS_ALLOW_OPENAI", False)
+    monkeypatch.setattr(tasks, "current_app_date", fake_current_app_date)
+    monkeypatch.setattr(tasks, "retry_window_is_open", fake_retry_window_is_open)
+    monkeypatch.setattr(
+        tasks,
+        "create_scheduled_retry_missing_job",
+        fake_create_scheduled_retry_missing_job,
+    )
+
+    result = tasks.retry_missing_forecasts()
+
+    assert result["created"] is True
+    assert calls == {
+        "target_date": date(2026, 6, 20),
+        "locale": "ru",
+        "forecast_type": "daily",
+        "provider": "stub",
+        "max_attempts": 2,
+        "max_retry_runs": 4,
+        "max_job_attempts": 1,
+        "priority": 90,
+        "created_by": "scheduler:retry_missing",
+        "allow_openai": False,
     }
 
 

@@ -9,7 +9,10 @@ from app import create_app
 from app.services import (
     DEFAULT_FORECAST_TYPE,
     DEFAULT_LOCALE,
+    GenerationJobValidationError,
     close_stale_running_jobs,
+    create_scheduled_generation_job,
+    create_scheduled_retry_missing_job,
     has_generation_coverage,
     process_generation_jobs,
     run_daily_generation,
@@ -86,6 +89,24 @@ GENERATION_STALE_HOURS = env_int(
     2,
     min_value=1,
     max_value=168,
+)
+
+GENERATION_SCHEDULER_USE_QUEUE = env_flag("GENERATION_SCHEDULER_USE_QUEUE", "0")
+GENERATION_SCHEDULED_JOBS_ALLOW_OPENAI = env_flag(
+    "GENERATION_SCHEDULED_JOBS_ALLOW_OPENAI",
+    "0",
+)
+GENERATION_SCHEDULED_JOB_PRIORITY = env_int(
+    "GENERATION_SCHEDULED_JOB_PRIORITY",
+    100,
+    min_value=-1000,
+    max_value=1000,
+)
+GENERATION_SCHEDULED_RETRY_JOB_PRIORITY = env_int(
+    "GENERATION_SCHEDULED_RETRY_JOB_PRIORITY",
+    90,
+    min_value=-1000,
+    max_value=1000,
 )
 
 RETRY_MISSING_ENABLED = env_flag("RETRY_MISSING_ENABLED", "1")
@@ -168,7 +189,54 @@ def retry_window_is_open() -> bool:
     return RETRY_WINDOW_START_HOUR <= current_hour < RETRY_WINDOW_END_HOUR
 
 
-def generate_daily_forecasts(run_type: str = "scheduled") -> None:
+def create_daily_forecast_job(run_type: str = "scheduled") -> dict | None:
+    target_day = current_app_date()
+
+    logger.info(
+        "Creating daily forecast generation job for %s provider=%s run_type=%s allow_openai=%s",
+        target_day.isoformat(),
+        HOROSCOPE_PROVIDER,
+        run_type,
+        GENERATION_SCHEDULED_JOBS_ALLOW_OPENAI,
+    )
+
+    try:
+        with app.app_context():
+            result = create_scheduled_generation_job(
+                target_date=target_day,
+                locale=DEFAULT_LOCALE,
+                forecast_type=DEFAULT_FORECAST_TYPE,
+                provider=HOROSCOPE_PROVIDER,
+                max_attempts=GENERATION_MAX_ATTEMPTS,
+                max_retry_runs=MAX_RETRY_RUNS_PER_DAY,
+                max_job_attempts=1,
+                priority=GENERATION_SCHEDULED_JOB_PRIORITY,
+                created_by=f"scheduler:{run_type}",
+                allow_openai=GENERATION_SCHEDULED_JOBS_ALLOW_OPENAI,
+                skip_covered=True,
+            )
+    except GenerationJobValidationError as exc:
+        logger.error(
+            "Daily forecast generation job was not created for %s: %s",
+            target_day.isoformat(),
+            exc,
+        )
+        return None
+
+    logger.info(
+        "Daily forecast generation job result: created=%s reason=%s job_id=%s",
+        result["created"],
+        result["reason"],
+        result["job"]["id"] if result["job"] else None,
+    )
+
+    return result
+
+
+def generate_daily_forecasts(run_type: str = "scheduled"):
+    if GENERATION_SCHEDULER_USE_QUEUE:
+        return create_daily_forecast_job(run_type=run_type)
+
     target_day = current_app_date()
 
     logger.info(
@@ -199,13 +267,61 @@ def generate_daily_forecasts(run_type: str = "scheduled") -> None:
         run.failed_items,
     )
 
+    return run
 
-def retry_missing_forecasts() -> None:
+
+def create_retry_missing_forecast_job() -> dict | None:
+    target_day = current_app_date()
+
+    logger.info(
+        "Creating retry-missing generation job for %s provider=%s allow_openai=%s",
+        target_day.isoformat(),
+        HOROSCOPE_PROVIDER,
+        GENERATION_SCHEDULED_JOBS_ALLOW_OPENAI,
+    )
+
+    try:
+        with app.app_context():
+            result = create_scheduled_retry_missing_job(
+                target_date=target_day,
+                locale=DEFAULT_LOCALE,
+                forecast_type=DEFAULT_FORECAST_TYPE,
+                provider=HOROSCOPE_PROVIDER,
+                max_attempts=GENERATION_MAX_ATTEMPTS,
+                max_retry_runs=MAX_RETRY_RUNS_PER_DAY,
+                max_job_attempts=1,
+                priority=GENERATION_SCHEDULED_RETRY_JOB_PRIORITY,
+                created_by="scheduler:retry_missing",
+                allow_openai=GENERATION_SCHEDULED_JOBS_ALLOW_OPENAI,
+            )
+    except GenerationJobValidationError as exc:
+        logger.error(
+            "Retry-missing generation job was not created for %s: %s",
+            target_day.isoformat(),
+            exc,
+        )
+        return None
+
+    logger.info(
+        "Retry-missing generation job result: created=%s reason=%s missing=%s job_id=%s",
+        result["created"],
+        result["reason"],
+        len(result["missing_signs"]),
+        result["job"]["id"] if result["job"] else None,
+    )
+
+    return result
+
+
+def retry_missing_forecasts():
     if not RETRY_MISSING_ENABLED:
-        return
+        return None
 
     if not retry_window_is_open():
-        return
+        return None
+
+    if GENERATION_SCHEDULER_USE_QUEUE:
+        return create_retry_missing_forecast_job()
 
     target_day = current_app_date()
 
@@ -219,7 +335,7 @@ def retry_missing_forecasts() -> None:
                 "Retry skipped for %s: all forecasts are already published.",
                 target_day,
             )
-            return
+            return None
 
         run = run_retry_for_missing_forecasts(
             target_date=target_day,
@@ -233,7 +349,7 @@ def retry_missing_forecasts() -> None:
 
     if not run:
         logger.info("Retry skipped for %s: no retry run created.", target_day)
-        return
+        return None
 
     logger.info(
         "Retry generation finished: run_id=%s status=%s total=%s success=%s skipped=%s failed=%s",
@@ -244,6 +360,8 @@ def retry_missing_forecasts() -> None:
         run.skipped_items,
         run.failed_items,
     )
+
+    return run
 
 
 def process_queued_generation_jobs() -> dict | None:
@@ -316,13 +434,16 @@ if GENERATION_JOB_WORKER_ENABLED:
 if __name__ == "__main__":
     logger.info(
         "Scheduler starting. Timezone=%s, nightly=%02d:%02d, run_on_start=%s, "
-        "provider=%s, queue_worker_enabled=%s, queue_interval_seconds=%s, "
+        "provider=%s, scheduler_use_queue=%s, scheduled_jobs_allow_openai=%s, "
+        "queue_worker_enabled=%s, queue_interval_seconds=%s, "
         "queue_max_jobs_per_tick=%s, queue_allow_openai=%s",
         APP_TIMEZONE,
         SCHEDULE_HOUR,
         SCHEDULE_MINUTE,
         RUN_NIGHTLY_ON_START,
         HOROSCOPE_PROVIDER,
+        GENERATION_SCHEDULER_USE_QUEUE,
+        GENERATION_SCHEDULED_JOBS_ALLOW_OPENAI,
         GENERATION_JOB_WORKER_ENABLED,
         GENERATION_JOB_WORKER_INTERVAL_SECONDS,
         GENERATION_JOB_WORKER_MAX_JOBS_PER_TICK,
