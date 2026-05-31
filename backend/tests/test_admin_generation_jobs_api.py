@@ -255,6 +255,98 @@ def test_admin_list_generation_jobs_filters_by_status(app, client):
     assert payload["items"][0]["date"] == "2026-06-01"
 
 
+def test_admin_get_generation_job_batch_status(app, client):
+    _enable_admin_api(app)
+
+    with app.app_context():
+        jobs = [
+            GenerationJob(
+                job_type="backfill",
+                status="queued",
+                target_date=date(2026, 6, 1),
+                locale="ru",
+                forecast_type="daily",
+                provider="stub",
+                batch_id="batch-status-test",
+                dedupe_key="batch-status-test-queued",
+            ),
+            GenerationJob(
+                job_type="backfill",
+                status="success",
+                target_date=date(2026, 6, 2),
+                locale="ru",
+                forecast_type="daily",
+                provider="stub",
+                batch_id="batch-status-test",
+                dedupe_key="batch-status-test-success",
+            ),
+            GenerationJob(
+                job_type="backfill",
+                status="failed",
+                target_date=date(2026, 6, 3),
+                locale="ru",
+                forecast_type="daily",
+                provider="stub",
+                batch_id="batch-status-test",
+                dedupe_key="batch-status-test-failed",
+                error_message="Failed once.",
+            ),
+        ]
+
+        db.session.add_all(jobs)
+        db.session.commit()
+
+    response = client.get(
+        "/api/admin/generation/jobs/batches/batch-status-test",
+        headers=_admin_headers(),
+    )
+
+    assert response.status_code == 200
+
+    payload = response.get_json()
+
+    assert payload["batch_id"] == "batch-status-test"
+    assert payload["total_count"] == 3
+    assert payload["status_counts"]["queued"] == 1
+    assert payload["status_counts"]["running"] == 0
+    assert payload["status_counts"]["success"] == 1
+    assert payload["status_counts"]["partial_failed"] == 0
+    assert payload["status_counts"]["failed"] == 1
+    assert payload["status_counts"]["cancelled"] == 0
+    assert payload["provider_counts"] == {"stub": 3}
+    assert payload["job_type_counts"] == {"backfill": 3}
+    assert payload["target_date_min"] == "2026-06-01"
+    assert payload["target_date_max"] == "2026-06-03"
+    assert payload["active_count"] == 1
+    assert payload["finished_count"] == 2
+    assert payload["success_count"] == 1
+    assert payload["failed_count"] == 1
+    assert payload["cancelled_count"] == 0
+    assert payload["progress_percent"] == 66.67
+    assert payload["is_complete"] is False
+    assert payload["has_failures"] is True
+    assert [item["date"] for item in payload["items"]] == [
+        "2026-06-01",
+        "2026-06-02",
+        "2026-06-03",
+    ]
+
+
+def test_admin_generation_job_batch_status_returns_404_for_unknown_batch(
+    app,
+    client,
+):
+    _enable_admin_api(app)
+
+    response = client.get(
+        "/api/admin/generation/jobs/batches/missing-batch",
+        headers=_admin_headers(),
+    )
+
+    assert response.status_code == 404
+    assert response.get_json()["error"]["code"] == "generation_job_batch_not_found"
+
+
 def test_admin_get_generation_job_detail_includes_run_summary(app, client):
     _enable_admin_api(app)
 

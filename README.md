@@ -485,12 +485,13 @@ curl -s -X POST http://localhost:8000/api/admin/generation/retry-missing \
 ### Generation job endpoints
 
 ```text
-GET  /api/admin/generation/jobs
-POST /api/admin/generation/jobs
-POST /api/admin/generation/jobs/backfill
-GET  /api/admin/generation/jobs/<job_id>
-POST /api/admin/generation/jobs/<job_id>/cancel
-POST /api/admin/generation/jobs/<job_id>/retry
+    GET  /api/admin/generation/jobs
+    POST /api/admin/generation/jobs
+    POST /api/admin/generation/jobs/backfill
+    GET  /api/admin/generation/jobs/batches/<batch_id>
+    GET  /api/admin/generation/jobs/<job_id>
+    POST /api/admin/generation/jobs/<job_id>/cancel
+    POST /api/admin/generation/jobs/<job_id>/retry
 ```
 
 Create one queued job:
@@ -532,6 +533,12 @@ and JSON body:
   "allow_openai": true
 }
 ```
+
+Batch status:
+
+    curl -s "http://localhost:8000/api/admin/generation/jobs/batches/<batch_id>" \
+      -H "Authorization: Bearer dev-admin-token" | python -m json.tool
+
 
 ## Backend utilities
 

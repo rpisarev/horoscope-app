@@ -740,6 +740,81 @@ def list_generation_jobs(
     }
 
 
+def get_generation_job_batch_status(*, batch_id: str) -> dict[str, Any] | None:
+    normalized_batch_id = (batch_id or "").strip()
+    if not normalized_batch_id:
+        raise GenerationJobValidationError("batch_id must not be empty.")
+
+    jobs = (
+        GenerationJob.query.filter(GenerationJob.batch_id == normalized_batch_id)
+        .order_by(
+            GenerationJob.target_date.asc(),
+            GenerationJob.priority.desc(),
+            GenerationJob.created_at.asc(),
+            GenerationJob.id.asc(),
+        )
+        .all()
+    )
+
+    if not jobs:
+        return None
+
+    known_statuses = [
+        JOB_STATUS_QUEUED,
+        JOB_STATUS_RUNNING,
+        JOB_STATUS_SUCCESS,
+        JOB_STATUS_PARTIAL_FAILED,
+        JOB_STATUS_FAILED,
+        JOB_STATUS_CANCELLED,
+    ]
+    status_counts: dict[str, int] = {status: 0 for status in known_statuses}
+    provider_counts: dict[str, int] = {}
+    job_type_counts: dict[str, int] = {}
+
+    active_count = 0
+    finished_count = 0
+    failed_count = 0
+    target_dates: list[date] = []
+
+    for job in jobs:
+        status_counts[job.status] = status_counts.get(job.status, 0) + 1
+        provider_counts[job.provider] = provider_counts.get(job.provider, 0) + 1
+        job_type_counts[job.job_type] = job_type_counts.get(job.job_type, 0) + 1
+        target_dates.append(job.target_date)
+
+        if job.status in ACTIVE_JOB_STATUSES:
+            active_count += 1
+
+        if job.status in FINAL_JOB_STATUSES:
+            finished_count += 1
+
+        if job.status in {JOB_STATUS_PARTIAL_FAILED, JOB_STATUS_FAILED}:
+            failed_count += 1
+
+    total_count = len(jobs)
+    success_count = status_counts.get(JOB_STATUS_SUCCESS, 0)
+    cancelled_count = status_counts.get(JOB_STATUS_CANCELLED, 0)
+
+    return {
+        "batch_id": normalized_batch_id,
+        "total_count": total_count,
+        "status_counts": status_counts,
+        "provider_counts": dict(sorted(provider_counts.items())),
+        "job_type_counts": dict(sorted(job_type_counts.items())),
+        "target_date_min": min(target_dates).isoformat(),
+        "target_date_max": max(target_dates).isoformat(),
+        "active_count": active_count,
+        "finished_count": finished_count,
+        "success_count": success_count,
+        "failed_count": failed_count,
+        "cancelled_count": cancelled_count,
+        "progress_percent": round((finished_count / total_count) * 100, 2),
+        "is_complete": active_count == 0,
+        "has_failures": failed_count > 0,
+        "items": [serialize_generation_job(job) for job in jobs],
+    }
+
+
 def cancel_generation_job(job_id: int) -> GenerationJob | None:
     job = db.session.get(GenerationJob, job_id)
 

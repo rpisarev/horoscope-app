@@ -17,6 +17,7 @@ from .generation_job_service import (
     create_generation_job,
     create_generation_jobs_for_range,
     get_generation_job,
+    get_generation_job_batch_status,
     list_generation_jobs as list_generation_job_records,
     retry_generation_job,
     serialize_generation_job,
@@ -635,6 +636,13 @@ def list_admin_generation_jobs(args: MultiDict[str, str]) -> dict[str, Any]:
             limit=limit,
             offset=offset,
         )
+    except GenerationJobValidationError as exc:
+        raise _translate_job_error(exc) from exc
+
+
+def get_admin_generation_job_batch_status(batch_id: str) -> dict[str, Any] | None:
+    try:
+        return get_generation_job_batch_status(batch_id=batch_id)
     except GenerationJobValidationError as exc:
         raise _translate_job_error(exc) from exc
 

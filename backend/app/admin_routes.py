@@ -9,6 +9,7 @@ from .services.generation_admin_service import (
     create_admin_generation_job,
     create_admin_generation_jobs_backfill,
     create_manual_generation_run,
+    get_admin_generation_job_batch_status,
     get_admin_generation_job_detail,
     get_generation_coverage,
     get_generation_item_attempts,
@@ -134,6 +135,23 @@ def create_generation_jobs_backfill():
         payload = create_admin_generation_jobs_backfill(_json_body())
     except AdminGenerationValidationError as exc:
         return _error_response(400, "bad_admin_generation_request", str(exc))
+
+    return jsonify(payload)
+
+
+@bp.route("/generation/jobs/batches/<string:batch_id>", methods=["GET"])
+def generation_job_batch_status(batch_id: str):
+    try:
+        payload = get_admin_generation_job_batch_status(batch_id)
+    except AdminGenerationValidationError as exc:
+        return _error_response(400, "bad_admin_generation_request", str(exc))
+
+    if payload is None:
+        return _error_response(
+            404,
+            "generation_job_batch_not_found",
+            "Generation job batch not found.",
+        )
 
     return jsonify(payload)
 
