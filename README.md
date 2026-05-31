@@ -78,6 +78,8 @@ ADMIN_API_ALLOW_OPENAI=0
 
 GENERATION_SCHEDULER_USE_QUEUE=0
 GENERATION_SCHEDULED_JOBS_ALLOW_OPENAI=0
+GENERATION_SCHEDULED_TARGET_POLICY=today_and_tomorrow
+GENERATION_SCHEDULED_ROLLING_DAYS=2
 
 GENERATION_JOB_WORKER_ENABLED=0
 GENERATION_JOB_WORKER_ALLOW_OPENAI=0
@@ -400,9 +402,45 @@ SCHEDULE_HOUR=1
 SCHEDULE_MINUTE=0
 RUN_NIGHTLY_ON_START=0
 GENERATION_SCHEDULED_JOBS_ALLOW_OPENAI=0
+GENERATION_SCHEDULED_TARGET_POLICY=today_and_tomorrow
+GENERATION_SCHEDULED_ROLLING_DAYS=2
 GENERATION_SCHEDULED_JOB_PRIORITY=100
 GENERATION_SCHEDULED_RETRY_JOB_PRIORITY=90
 ```
+
+### Scheduler target-date policy
+
+Scheduled generation and scheduled retry-missing use the same target-date policy.
+
+Default policy:
+
+```env
+GENERATION_SCHEDULED_TARGET_POLICY=today_and_tomorrow
+GENERATION_SCHEDULED_ROLLING_DAYS=2
+```
+
+Supported policies:
+
+```text
+today               create scheduled work for the current app date only
+tomorrow            create scheduled work for current app date + 1 day only
+today_and_tomorrow  create scheduled work for today and tomorrow; default and recommended production mode
+rolling             create scheduled work for N days starting from today
+```
+
+`GENERATION_SCHEDULED_ROLLING_DAYS` is only used when `GENERATION_SCHEDULED_TARGET_POLICY=rolling`.
+For example:
+
+```env
+GENERATION_SCHEDULED_TARGET_POLICY=rolling
+GENERATION_SCHEDULED_ROLLING_DAYS=7
+```
+
+creates target dates for today plus the next 6 days.
+
+In queue mode, scheduled generation skips dates that already have full published coverage. Retry-missing only creates jobs for dates that still have missing forecasts.
+
+In legacy direct mode, the same target-date policy is used, but generation is executed immediately instead of creating queue jobs.
 
 Retry-missing scheduler env:
 
@@ -422,6 +460,8 @@ OPENAI_API_KEY=your_openai_api_key_here
 
 GENERATION_SCHEDULER_USE_QUEUE=1
 GENERATION_SCHEDULED_JOBS_ALLOW_OPENAI=1
+GENERATION_SCHEDULED_TARGET_POLICY=today_and_tomorrow
+GENERATION_SCHEDULED_ROLLING_DAYS=2
 
 GENERATION_JOB_WORKER_ENABLED=1
 GENERATION_JOB_WORKER_ALLOW_OPENAI=1
@@ -830,6 +870,7 @@ docker compose exec -T backend python utils/process_generation_jobs.py \
 
 ```bash
 GENERATION_SCHEDULER_USE_QUEUE=1 \
+GENERATION_SCHEDULED_TARGET_POLICY=today_and_tomorrow \
 GENERATION_JOB_WORKER_ENABLED=1 \
 GENERATION_JOB_WORKER_MAX_JOBS_PER_TICK=1 \
 GENERATION_JOB_WORKER_ALLOW_OPENAI=0 \
