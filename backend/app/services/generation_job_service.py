@@ -815,6 +815,105 @@ def get_generation_job_batch_status(*, batch_id: str) -> dict[str, Any] | None:
     }
 
 
+def cancel_generation_job_batch(*, batch_id: str) -> dict[str, Any] | None:
+    normalized_batch_id = (batch_id or "").strip()
+    if not normalized_batch_id:
+        raise GenerationJobValidationError("batch_id must not be empty.")
+
+    jobs = (
+        GenerationJob.query.filter(GenerationJob.batch_id == normalized_batch_id)
+        .order_by(
+            GenerationJob.target_date.asc(),
+            GenerationJob.priority.desc(),
+            GenerationJob.created_at.asc(),
+            GenerationJob.id.asc(),
+        )
+        .all()
+    )
+
+    if not jobs:
+        return None
+
+    now = utcnow()
+    cancelled_count = 0
+    skipped_status_counts: dict[str, int] = {}
+
+    for job in jobs:
+        if job.status == JOB_STATUS_QUEUED:
+            job.status = JOB_STATUS_CANCELLED
+            job.finished_at = now
+            job.locked_at = None
+            job.locked_by = None
+            job.error_message = job.error_message or "Job was cancelled as part of batch cancel."
+            cancelled_count += 1
+            continue
+
+        skipped_status_counts[job.status] = skipped_status_counts.get(job.status, 0) + 1
+
+    if cancelled_count:
+        db.session.commit()
+
+    return {
+        "batch_id": normalized_batch_id,
+        "total_count": len(jobs),
+        "cancelled_count": cancelled_count,
+        "skipped_count": len(jobs) - cancelled_count,
+        "skipped_status_counts": dict(sorted(skipped_status_counts.items())),
+        "items": [serialize_generation_job(job) for job in jobs],
+        "batch_status": get_generation_job_batch_status(batch_id=normalized_batch_id),
+    }
+
+
+def retry_failed_generation_job_batch(*, batch_id: str) -> dict[str, Any] | None:
+    normalized_batch_id = (batch_id or "").strip()
+    if not normalized_batch_id:
+        raise GenerationJobValidationError("batch_id must not be empty.")
+
+    jobs = (
+        GenerationJob.query.filter(GenerationJob.batch_id == normalized_batch_id)
+        .order_by(
+            GenerationJob.target_date.asc(),
+            GenerationJob.priority.desc(),
+            GenerationJob.created_at.asc(),
+            GenerationJob.id.asc(),
+        )
+        .all()
+    )
+
+    if not jobs:
+        return None
+
+    retried_count = 0
+    skipped_status_counts: dict[str, int] = {}
+
+    for job in jobs:
+        if job.status in {JOB_STATUS_FAILED, JOB_STATUS_PARTIAL_FAILED}:
+            job.status = JOB_STATUS_QUEUED
+            job.run_id = None
+            job.error_message = None
+            job.started_at = None
+            job.finished_at = None
+            job.locked_at = None
+            job.locked_by = None
+            retried_count += 1
+            continue
+
+        skipped_status_counts[job.status] = skipped_status_counts.get(job.status, 0) + 1
+
+    if retried_count:
+        db.session.commit()
+
+    return {
+        "batch_id": normalized_batch_id,
+        "total_count": len(jobs),
+        "retried_count": retried_count,
+        "skipped_count": len(jobs) - retried_count,
+        "skipped_status_counts": dict(sorted(skipped_status_counts.items())),
+        "items": [serialize_generation_job(job) for job in jobs],
+        "batch_status": get_generation_job_batch_status(batch_id=normalized_batch_id),
+    }
+
+
 def cancel_generation_job(job_id: int) -> GenerationJob | None:
     job = db.session.get(GenerationJob, job_id)
 

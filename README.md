@@ -489,6 +489,8 @@ curl -s -X POST http://localhost:8000/api/admin/generation/retry-missing \
     POST /api/admin/generation/jobs
     POST /api/admin/generation/jobs/backfill
     GET  /api/admin/generation/jobs/batches/<batch_id>
+    POST /api/admin/generation/jobs/batches/<batch_id>/cancel
+    POST /api/admin/generation/jobs/batches/<batch_id>/retry-failed
     GET  /api/admin/generation/jobs/<job_id>
     POST /api/admin/generation/jobs/<job_id>/cancel
     POST /api/admin/generation/jobs/<job_id>/retry
@@ -537,6 +539,17 @@ and JSON body:
 Batch status:
 
     curl -s "http://localhost:8000/api/admin/generation/jobs/batches/<batch_id>" \
+      -H "Authorization: Bearer dev-admin-token" | python -m json.tool
+
+
+Batch cancel queued jobs:
+
+    curl -s -X POST "http://localhost:8000/api/admin/generation/jobs/batches/<batch_id>/cancel" \
+      -H "Authorization: Bearer dev-admin-token" | python -m json.tool
+
+Batch retry failed jobs:
+
+    curl -s -X POST "http://localhost:8000/api/admin/generation/jobs/batches/<batch_id>/retry-failed" \
       -H "Authorization: Bearer dev-admin-token" | python -m json.tool
 
 

@@ -332,6 +332,197 @@ def test_admin_get_generation_job_batch_status(app, client):
     ]
 
 
+def test_admin_can_cancel_generation_job_batch(app, client):
+    _enable_admin_api(app)
+
+    with app.app_context():
+        queued_job = GenerationJob(
+            job_type="backfill",
+            status="queued",
+            target_date=date(2026, 6, 1),
+            locale="ru",
+            forecast_type="daily",
+            provider="stub",
+            batch_id="batch-cancel-test",
+            dedupe_key="batch-cancel-test-queued",
+        )
+        running_job = GenerationJob(
+            job_type="backfill",
+            status="running",
+            target_date=date(2026, 6, 2),
+            locale="ru",
+            forecast_type="daily",
+            provider="stub",
+            batch_id="batch-cancel-test",
+            dedupe_key="batch-cancel-test-running",
+            locked_by="test-worker",
+        )
+        success_job = GenerationJob(
+            job_type="backfill",
+            status="success",
+            target_date=date(2026, 6, 3),
+            locale="ru",
+            forecast_type="daily",
+            provider="stub",
+            batch_id="batch-cancel-test",
+            dedupe_key="batch-cancel-test-success",
+        )
+        other_batch_job = GenerationJob(
+            job_type="backfill",
+            status="queued",
+            target_date=date(2026, 6, 4),
+            locale="ru",
+            forecast_type="daily",
+            provider="stub",
+            batch_id="other-batch",
+            dedupe_key="batch-cancel-test-other-batch",
+        )
+
+        db.session.add_all([queued_job, running_job, success_job, other_batch_job])
+        db.session.commit()
+
+        queued_job_id = queued_job.id
+        running_job_id = running_job.id
+        success_job_id = success_job.id
+        other_batch_job_id = other_batch_job.id
+
+    response = client.post(
+        "/api/admin/generation/jobs/batches/batch-cancel-test/cancel",
+        headers=_admin_headers(),
+    )
+
+    assert response.status_code == 200
+
+    payload = response.get_json()
+
+    assert payload["batch_id"] == "batch-cancel-test"
+    assert payload["total_count"] == 3
+    assert payload["cancelled_count"] == 1
+    assert payload["skipped_count"] == 2
+    assert payload["skipped_status_counts"] == {
+        "running": 1,
+        "success": 1,
+    }
+    assert payload["batch_status"]["status_counts"]["cancelled"] == 1
+    assert payload["batch_status"]["status_counts"]["running"] == 1
+    assert payload["batch_status"]["status_counts"]["success"] == 1
+
+    with app.app_context():
+        assert db.session.get(GenerationJob, queued_job_id).status == "cancelled"
+        assert db.session.get(GenerationJob, running_job_id).status == "running"
+        assert db.session.get(GenerationJob, success_job_id).status == "success"
+        assert db.session.get(GenerationJob, other_batch_job_id).status == "queued"
+
+
+def test_admin_can_retry_failed_generation_job_batch(app, client):
+    _enable_admin_api(app)
+
+    with app.app_context():
+        failed_job = GenerationJob(
+            job_type="backfill",
+            status="failed",
+            target_date=date(2026, 6, 1),
+            locale="ru",
+            forecast_type="daily",
+            provider="stub",
+            batch_id="batch-retry-failed-test",
+            dedupe_key="batch-retry-failed-test-failed",
+            error_message="Failed once.",
+        )
+        partial_failed_job = GenerationJob(
+            job_type="backfill",
+            status="partial_failed",
+            target_date=date(2026, 6, 2),
+            locale="ru",
+            forecast_type="daily",
+            provider="stub",
+            batch_id="batch-retry-failed-test",
+            dedupe_key="batch-retry-failed-test-partial-failed",
+            error_message="Partial failure.",
+        )
+        success_job = GenerationJob(
+            job_type="backfill",
+            status="success",
+            target_date=date(2026, 6, 3),
+            locale="ru",
+            forecast_type="daily",
+            provider="stub",
+            batch_id="batch-retry-failed-test",
+            dedupe_key="batch-retry-failed-test-success",
+        )
+        queued_job = GenerationJob(
+            job_type="backfill",
+            status="queued",
+            target_date=date(2026, 6, 4),
+            locale="ru",
+            forecast_type="daily",
+            provider="stub",
+            batch_id="batch-retry-failed-test",
+            dedupe_key="batch-retry-failed-test-queued",
+        )
+
+        db.session.add_all([failed_job, partial_failed_job, success_job, queued_job])
+        db.session.commit()
+
+        failed_job_id = failed_job.id
+        partial_failed_job_id = partial_failed_job.id
+        success_job_id = success_job.id
+        queued_job_id = queued_job.id
+
+    response = client.post(
+        "/api/admin/generation/jobs/batches/batch-retry-failed-test/retry-failed",
+        headers=_admin_headers(),
+    )
+
+    assert response.status_code == 200
+
+    payload = response.get_json()
+
+    assert payload["batch_id"] == "batch-retry-failed-test"
+    assert payload["total_count"] == 4
+    assert payload["retried_count"] == 2
+    assert payload["skipped_count"] == 2
+    assert payload["skipped_status_counts"] == {
+        "queued": 1,
+        "success": 1,
+    }
+    assert payload["batch_status"]["status_counts"]["queued"] == 3
+    assert payload["batch_status"]["status_counts"]["failed"] == 0
+    assert payload["batch_status"]["status_counts"]["partial_failed"] == 0
+    assert payload["batch_status"]["status_counts"]["success"] == 1
+    assert payload["batch_status"]["has_failures"] is False
+
+    with app.app_context():
+        failed_job = db.session.get(GenerationJob, failed_job_id)
+        partial_failed_job = db.session.get(GenerationJob, partial_failed_job_id)
+        success_job = db.session.get(GenerationJob, success_job_id)
+        queued_job = db.session.get(GenerationJob, queued_job_id)
+
+        assert failed_job.status == "queued"
+        assert failed_job.error_message is None
+        assert failed_job.run_id is None
+
+        assert partial_failed_job.status == "queued"
+        assert partial_failed_job.error_message is None
+        assert partial_failed_job.run_id is None
+
+        assert success_job.status == "success"
+        assert queued_job.status == "queued"
+
+
+def test_admin_generation_job_batch_actions_return_404_for_unknown_batch(app, client):
+    _enable_admin_api(app)
+
+    for endpoint in [
+        "/api/admin/generation/jobs/batches/missing-batch/cancel",
+        "/api/admin/generation/jobs/batches/missing-batch/retry-failed",
+    ]:
+        response = client.post(endpoint, headers=_admin_headers())
+
+        assert response.status_code == 404
+        assert response.get_json()["error"]["code"] == "generation_job_batch_not_found"
+
+
 def test_admin_generation_job_batch_status_returns_404_for_unknown_batch(
     app,
     client,

@@ -14,11 +14,13 @@ from .generation_job_service import (
     JOB_TYPE_BACKFILL,
     GenerationJobValidationError,
     cancel_generation_job,
+    cancel_generation_job_batch,
     create_generation_job,
     create_generation_jobs_for_range,
     get_generation_job,
     get_generation_job_batch_status,
     list_generation_jobs as list_generation_job_records,
+    retry_failed_generation_job_batch,
     retry_generation_job,
     serialize_generation_job,
 )
@@ -643,6 +645,20 @@ def list_admin_generation_jobs(args: MultiDict[str, str]) -> dict[str, Any]:
 def get_admin_generation_job_batch_status(batch_id: str) -> dict[str, Any] | None:
     try:
         return get_generation_job_batch_status(batch_id=batch_id)
+    except GenerationJobValidationError as exc:
+        raise _translate_job_error(exc) from exc
+
+
+def cancel_admin_generation_job_batch(batch_id: str) -> dict[str, Any] | None:
+    try:
+        return cancel_generation_job_batch(batch_id=batch_id)
+    except GenerationJobValidationError as exc:
+        raise _translate_job_error(exc) from exc
+
+
+def retry_failed_admin_generation_job_batch(batch_id: str) -> dict[str, Any] | None:
+    try:
+        return retry_failed_generation_job_batch(batch_id=batch_id)
     except GenerationJobValidationError as exc:
         raise _translate_job_error(exc) from exc
 

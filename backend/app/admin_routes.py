@@ -6,6 +6,7 @@ from .admin_auth import require_admin_api_access
 from .services.generation_admin_service import (
     AdminGenerationValidationError,
     cancel_admin_generation_job,
+    cancel_admin_generation_job_batch,
     create_admin_generation_job,
     create_admin_generation_jobs_backfill,
     create_manual_generation_run,
@@ -17,6 +18,7 @@ from .services.generation_admin_service import (
     list_admin_generation_jobs,
     list_generation_runs,
     retry_admin_generation_job,
+    retry_failed_admin_generation_job_batch,
     retry_missing_generation,
 )
 
@@ -106,6 +108,40 @@ def generation_item_attempts(item_id: int):
             404,
             "generation_item_not_found",
             "Generation item not found.",
+        )
+
+    return jsonify(payload)
+
+
+@bp.route("/generation/jobs/batches/<string:batch_id>/cancel", methods=["POST"])
+def cancel_generation_job_batch_endpoint(batch_id: str):
+    try:
+        payload = cancel_admin_generation_job_batch(batch_id)
+    except AdminGenerationValidationError as exc:
+        return _error_response(400, "bad_admin_generation_request", str(exc))
+
+    if payload is None:
+        return _error_response(
+            404,
+            "generation_job_batch_not_found",
+            "Generation job batch not found.",
+        )
+
+    return jsonify(payload)
+
+
+@bp.route("/generation/jobs/batches/<string:batch_id>/retry-failed", methods=["POST"])
+def retry_failed_generation_job_batch_endpoint(batch_id: str):
+    try:
+        payload = retry_failed_admin_generation_job_batch(batch_id)
+    except AdminGenerationValidationError as exc:
+        return _error_response(400, "bad_admin_generation_request", str(exc))
+
+    if payload is None:
+        return _error_response(
+            404,
+            "generation_job_batch_not_found",
+            "Generation job batch not found.",
         )
 
     return jsonify(payload)
