@@ -13,7 +13,6 @@ FORBIDDEN_POSTGRES_TEST_DATABASES = {
 
 def _assert_safe_test_database() -> None:
     """Prevent pytest cleanup from truncating the local development database."""
-
     if db.engine.dialect.name != "postgresql":
         return
 
@@ -38,7 +37,6 @@ def _clean_mutable_tables() -> None:
     - zodiac_signs
     - prompt_versions
     """
-
     _assert_safe_test_database()
 
     if db.engine.dialect.name == "postgresql":
@@ -49,6 +47,7 @@ def _clean_mutable_tables() -> None:
                     generation_attempts,
                     forecasts,
                     generation_items,
+                    generation_jobs,
                     generation_runs
                 RESTART IDENTITY CASCADE
                 """
@@ -57,10 +56,10 @@ def _clean_mutable_tables() -> None:
     else:
         db.session.execute(text("UPDATE forecasts SET generation_item_id = NULL"))
         db.session.execute(text("UPDATE generation_items SET forecast_id = NULL"))
-
         db.session.execute(text("DELETE FROM generation_attempts"))
         db.session.execute(text("DELETE FROM forecasts"))
         db.session.execute(text("DELETE FROM generation_items"))
+        db.session.execute(text("DELETE FROM generation_jobs"))
         db.session.execute(text("DELETE FROM generation_runs"))
 
     db.session.commit()
@@ -84,8 +83,6 @@ def client(app):
 def clean_database(app):
     with app.app_context():
         _clean_mutable_tables()
-
         yield
-
         db.session.remove()
         _clean_mutable_tables()
