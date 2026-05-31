@@ -34,6 +34,10 @@ SUPPORTED_JOB_TYPES = {
 
 SUPPORTED_JOB_PROVIDERS = {"stub", "openai"}
 
+DEFAULT_OPENAI_MAX_BACKFILL_DAYS = 7
+DEFAULT_OPENAI_MAX_JOBS_PER_RUN = 2
+DEFAULT_OPENAI_MAX_JOBS_PER_DAY = 10
+
 JOB_STATUS_QUEUED = "queued"
 JOB_STATUS_RUNNING = "running"
 JOB_STATUS_SUCCESS = "success"
@@ -137,6 +141,105 @@ def _validate_int(
         )
 
     return parsed
+
+
+def _env_int(
+    name: str,
+    *,
+    default: int,
+    min_value: int,
+    max_value: int,
+) -> int:
+    raw_value = os.getenv(name)
+    if raw_value is None or not raw_value.strip():
+        return default
+
+    try:
+        parsed = int(raw_value)
+    except ValueError as exc:
+        raise GenerationJobValidationError(f"{name} must be an integer.") from exc
+
+    if parsed < min_value or parsed > max_value:
+        raise GenerationJobValidationError(
+            f"{name} must be between {min_value} and {max_value}."
+        )
+
+    return parsed
+
+
+def _resolve_openai_limit(
+    value: int | None,
+    *,
+    env_name: str,
+    default: int,
+    min_value: int,
+    max_value: int,
+    name: str,
+) -> int:
+    if value is not None:
+        return _validate_int(
+            value,
+            default=default,
+            min_value=min_value,
+            max_value=max_value,
+            name=name,
+        )
+
+    return _env_int(
+        env_name,
+        default=default,
+        min_value=min_value,
+        max_value=max_value,
+    )
+
+
+def _enforce_openai_backfill_range_limit(
+    *,
+    provider: str,
+    start_date: date,
+    end_date: date,
+    limit: int | None,
+) -> None:
+    if provider != "openai":
+        return
+
+    max_days = _env_int(
+        "GENERATION_OPENAI_MAX_BACKFILL_DAYS",
+        default=DEFAULT_OPENAI_MAX_BACKFILL_DAYS,
+        min_value=1,
+        max_value=10000,
+    )
+
+    requested_days = (end_date - start_date).days + 1
+    if limit is not None:
+        requested_days = min(requested_days, limit)
+
+    if requested_days > max_days:
+        raise GenerationJobValidationError(
+            "OpenAI backfill range is too large: "
+            f"requested {requested_days} day(s), max allowed is {max_days}. "
+            "Use a smaller range or increase GENERATION_OPENAI_MAX_BACKFILL_DAYS "
+            "explicitly."
+        )
+
+
+def count_openai_generation_jobs_started_today(
+    *,
+    now: datetime | None = None,
+) -> int:
+    current = now or utcnow()
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    current = current.astimezone(timezone.utc)
+
+    day_start = current.replace(hour=0, minute=0, second=0, microsecond=0)
+    next_day = day_start + timedelta(days=1)
+
+    return GenerationJob.query.filter(
+        GenerationJob.provider == "openai",
+        GenerationJob.started_at >= day_start,
+        GenerationJob.started_at < next_day,
+    ).count()
 
 
 def normalize_signs(signs: Iterable[str] | None) -> list[str] | None:
@@ -414,6 +517,13 @@ def create_generation_jobs_for_range(
         raise GenerationJobValidationError(
             "provider=openai requires explicit allow_openai=True at job creation."
         )
+
+    _enforce_openai_backfill_range_limit(
+        provider=normalized_provider,
+        start_date=start_date,
+        end_date=end_date,
+        limit=limit,
+    )
 
     normalized_batch_id = batch_id
 
@@ -967,8 +1077,19 @@ def _should_use_skip_locked() -> bool:
     return bind is not None and bind.dialect.name == "postgresql"
 
 
-def claim_next_generation_job(*, worker_id: str) -> GenerationJob | None:
+def claim_next_generation_job(
+    *,
+    worker_id: str,
+    exclude_providers: Iterable[str] | None = None,
+) -> GenerationJob | None:
     query = GenerationJob.query.filter(GenerationJob.status == JOB_STATUS_QUEUED)
+
+    normalized_excluded_providers: list[str] = []
+    for provider in exclude_providers or []:
+        normalized_excluded_providers.append(_normalize_provider(provider))
+
+    if normalized_excluded_providers:
+        query = query.filter(~GenerationJob.provider.in_(normalized_excluded_providers))
 
     query = query.order_by(
         GenerationJob.priority.desc(),
@@ -980,7 +1101,6 @@ def claim_next_generation_job(*, worker_id: str) -> GenerationJob | None:
         query = query.with_for_update(skip_locked=True)
 
     job = query.first()
-
     if job is None:
         return None
 
@@ -990,6 +1110,7 @@ def claim_next_generation_job(*, worker_id: str) -> GenerationJob | None:
     job.locked_by = worker_id
     job.started_at = job.started_at or now
     job.attempt_count = (job.attempt_count or 0) + 1
+
     db.session.commit()
 
     return job
@@ -1048,6 +1169,8 @@ def process_generation_jobs(
     worker_id: str | None = None,
     allow_openai: bool = False,
     stale_after_hours: int = 2,
+    max_openai_jobs_per_run: int | None = None,
+    max_openai_jobs_per_day: int | None = None,
 ) -> dict[str, Any]:
     normalized_limit = _validate_int(
         limit,
@@ -1057,14 +1180,50 @@ def process_generation_jobs(
         name="limit",
     )
     normalized_worker_id = worker_id or f"worker-{uuid4().hex[:8]}"
+    normalized_max_openai_jobs_per_run = _resolve_openai_limit(
+        max_openai_jobs_per_run,
+        env_name="GENERATION_OPENAI_MAX_JOBS_PER_RUN",
+        default=DEFAULT_OPENAI_MAX_JOBS_PER_RUN,
+        min_value=1,
+        max_value=10000,
+        name="max_openai_jobs_per_run",
+    )
+    normalized_max_openai_jobs_per_day = _resolve_openai_limit(
+        max_openai_jobs_per_day,
+        env_name="GENERATION_OPENAI_MAX_JOBS_PER_DAY",
+        default=DEFAULT_OPENAI_MAX_JOBS_PER_DAY,
+        min_value=1,
+        max_value=10000,
+        name="max_openai_jobs_per_day",
+    )
 
     processed_jobs: list[dict[str, Any]] = []
+    processed_openai_count = 0
+    openai_run_limit_reached = False
+    openai_daily_limit_reached = False
 
     for _ in range(normalized_limit):
-        job = claim_next_generation_job(worker_id=normalized_worker_id)
+        exclude_providers: list[str] = []
 
+        if allow_openai:
+            if processed_openai_count >= normalized_max_openai_jobs_per_run:
+                openai_run_limit_reached = True
+                exclude_providers.append("openai")
+            elif (
+                count_openai_generation_jobs_started_today()
+                >= normalized_max_openai_jobs_per_day
+            ):
+                openai_daily_limit_reached = True
+                exclude_providers.append("openai")
+
+        job = claim_next_generation_job(
+            worker_id=normalized_worker_id,
+            exclude_providers=exclude_providers,
+        )
         if job is None:
             break
+
+        job_provider = job.provider
 
         processed_jobs.append(
             process_claimed_generation_job(
@@ -1075,13 +1234,29 @@ def process_generation_jobs(
             )
         )
 
+        if job_provider == "openai":
+            processed_openai_count += 1
+
+    openai_started_today = count_openai_generation_jobs_started_today()
+    openai_limit_reached = openai_run_limit_reached or openai_daily_limit_reached
+
     return {
         "worker_id": normalized_worker_id,
         "requested_limit": normalized_limit,
         "processed_count": len(processed_jobs),
         "jobs": processed_jobs,
+        "openai_limit_reached": openai_limit_reached,
+        "openai_limits": {
+            "allow_openai": allow_openai,
+            "max_jobs_per_run": normalized_max_openai_jobs_per_run,
+            "max_jobs_per_day": normalized_max_openai_jobs_per_day,
+            "processed_count": processed_openai_count,
+            "started_count_today": openai_started_today,
+            "run_limit_reached": openai_run_limit_reached,
+            "daily_limit_reached": openai_daily_limit_reached,
+            "limit_reached": openai_limit_reached,
+        },
     }
-
 
 def process_claimed_generation_job(
     job: GenerationJob,

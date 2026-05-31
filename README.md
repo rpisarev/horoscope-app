@@ -2,13 +2,11 @@
 
 Vue + Flask application for sign-agnostic daily horoscope generation.
 
-The project runs locally with Docker Compose and includes a Flask backend, Vue/Vite frontend, PostgreSQL database, scheduler container, provider abstraction, OpenAI integration, prompt pipeline, forecast validation, Admin API, and DB-backed queued generation jobs.
-
-## Services
+The project runs locally with Docker Compose and includes:
 
 ```text
 frontend   Vue/Vite dev server
-backend    Flask API and Admin API
+backend    Flask public API and Admin API
 scheduler  APScheduler process for scheduled generation and queue processing
 db         PostgreSQL 17 Alpine
 ```
@@ -59,7 +57,7 @@ git check-ignore -v secrets/postgres_password.txt
 
 ## Optional `.env`
 
-The app can run without `.env` because `docker-compose.yml` provides defaults.
+The app can run without `.env` because `docker-compose.yml` provides safe defaults.
 
 To override local settings:
 
@@ -72,7 +70,6 @@ Safe local defaults:
 ```env
 APP_TIMEZONE=Europe/Kyiv
 LOG_LEVEL=INFO
-
 HOROSCOPE_PROVIDER=stub
 RUN_NIGHTLY_ON_START=0
 
@@ -81,9 +78,12 @@ ADMIN_API_ALLOW_OPENAI=0
 
 GENERATION_SCHEDULER_USE_QUEUE=0
 GENERATION_SCHEDULED_JOBS_ALLOW_OPENAI=0
+
 GENERATION_JOB_WORKER_ENABLED=0
 GENERATION_JOB_WORKER_ALLOW_OPENAI=0
 ```
+
+OpenAI should stay disabled by default in local automation unless you explicitly enable all relevant gates.
 
 ## Run locally
 
@@ -147,7 +147,7 @@ sign_key + target_date + locale + forecast_type
 
 ## Public API compatibility
 
-The frontend-compatible endpoints are kept backward-compatible.
+The frontend-compatible public endpoints are kept backward-compatible.
 
 ### `GET /api/signs`
 
@@ -186,7 +186,13 @@ Response includes old and new aliases:
 
 ### `GET /api/years`
 
-Returns years available in published forecasts. If the database has no published forecasts, it falls back to `2024..current_year`.
+Returns years available in published forecasts.
+
+If the database has no published forecasts, it falls back to:
+
+```text
+2024..current_year
+```
 
 ## Forecast generation rules
 
@@ -242,7 +248,10 @@ get_horoscope_provider()
 OpenAI provider is a thin adapter:
 
 ```text
-ProviderRequest -> OpenAI Responses API call -> structured JSON parsing -> ProviderResult
+ProviderRequest
+  -> OpenAI Responses API call
+  -> structured JSON parsing
+  -> ProviderResult
 ```
 
 It does not build prompts, choose sign names, write forecasts, or manage lifecycle state. Those responsibilities belong to service-layer code.
@@ -265,7 +274,13 @@ HOROSCOPE_PROVIDER=stub
 
 ## Prompt pipeline and variation profiles
 
-The production prompt pipeline is sign/date-agnostic. Prompt rendering and provider request construction live in `backend/app/services/prompt_service.py`.
+The production prompt pipeline is sign/date-agnostic.
+
+Prompt rendering and provider request construction live in:
+
+```text
+backend/app/services/prompt_service.py
+```
 
 Variation profiles live in:
 
@@ -298,11 +313,11 @@ For a full 13-sign daily package, the pipeline deterministically spreads all 13 
 The app separates queue orchestration from execution audit trail.
 
 ```text
-generation_jobs      what should be executed
-generation_runs      execution run / audit record
-generation_items     per-sign execution records
-generation_attempts  provider attempts
-forecasts            published result
+generation_jobs       what should be executed
+generation_runs       execution run / audit record
+generation_items      per-sign execution records
+generation_attempts   provider attempts
+forecasts             published result
 ```
 
 `generation_service.py` remains responsible for executing one generation run.
@@ -351,7 +366,7 @@ There are two scheduler modes.
 GENERATION_SCHEDULER_USE_QUEUE=0
 ```
 
-In this mode, the nightly scheduler directly calls `run_daily_generation()`.
+In this mode, the nightly scheduler directly calls `run_daily_generation()` and retry-missing logic.
 
 ### Queue producer mode
 
@@ -370,6 +385,12 @@ GENERATION_JOB_WORKER_MAX_JOBS_PER_TICK=1
 GENERATION_JOB_WORKER_ALLOW_OPENAI=0
 GENERATION_JOB_STALE_AFTER_MINUTES=60
 GENERATION_JOB_WORKER_ID=scheduler
+
+# OpenAI queue safety / cost guards.
+# These are intentionally count-based, not money-based.
+GENERATION_OPENAI_MAX_BACKFILL_DAYS=7
+GENERATION_OPENAI_MAX_JOBS_PER_RUN=1
+GENERATION_OPENAI_MAX_JOBS_PER_DAY=10
 ```
 
 Scheduled producer env:
@@ -378,7 +399,6 @@ Scheduled producer env:
 SCHEDULE_HOUR=1
 SCHEDULE_MINUTE=0
 RUN_NIGHTLY_ON_START=0
-
 GENERATION_SCHEDULED_JOBS_ALLOW_OPENAI=0
 GENERATION_SCHEDULED_JOB_PRIORITY=100
 GENERATION_SCHEDULED_RETRY_JOB_PRIORITY=90
@@ -405,9 +425,76 @@ GENERATION_SCHEDULED_JOBS_ALLOW_OPENAI=1
 
 GENERATION_JOB_WORKER_ENABLED=1
 GENERATION_JOB_WORKER_ALLOW_OPENAI=1
+GENERATION_JOB_WORKER_MAX_JOBS_PER_TICK=1
+
+GENERATION_OPENAI_MAX_BACKFILL_DAYS=7
+GENERATION_OPENAI_MAX_JOBS_PER_RUN=1
+GENERATION_OPENAI_MAX_JOBS_PER_DAY=10
 ```
 
 OpenAI is intentionally disabled by default at both job-creation and job-execution layers.
+
+## OpenAI safety gates and queue limits
+
+OpenAI jobs are protected by multiple gates.
+
+CLI job creation requires:
+
+```bash
+--provider openai --allow-openai
+```
+
+CLI queue worker execution requires:
+
+```bash
+--allow-openai
+```
+
+Admin API job creation requires:
+
+```env
+ADMIN_API_ALLOW_OPENAI=1
+```
+
+and request body:
+
+```json
+{
+  "provider": "openai",
+  "allow_openai": true
+}
+```
+
+Scheduler producer requires:
+
+```env
+GENERATION_SCHEDULED_JOBS_ALLOW_OPENAI=1
+```
+
+Scheduler worker execution requires:
+
+```env
+GENERATION_JOB_WORKER_ALLOW_OPENAI=1
+```
+
+Additional OpenAI queue limits:
+
+```env
+GENERATION_OPENAI_MAX_BACKFILL_DAYS=7
+GENERATION_OPENAI_MAX_JOBS_PER_RUN=2
+GENERATION_OPENAI_MAX_JOBS_PER_DAY=10
+```
+
+These are count-based safety guards. The project intentionally does not track a money budget in this layer.
+
+Behavior:
+
+* `GENERATION_OPENAI_MAX_BACKFILL_DAYS` limits OpenAI backfill job creation through both CLI and Admin API.
+* `GENERATION_OPENAI_MAX_JOBS_PER_RUN` limits how many OpenAI jobs a worker run/tick may execute.
+* `GENERATION_OPENAI_MAX_JOBS_PER_DAY` limits how many OpenAI jobs may be started per UTC day.
+* When the worker reaches an OpenAI execution limit, matching OpenAI jobs stay `queued`.
+* OpenAI jobs are not marked as `failed` for a quota/safety condition.
+* The worker may still process non-OpenAI queued jobs in the same run.
 
 ## Admin API
 
@@ -463,14 +550,16 @@ Manual stub generation:
 curl -s -X POST http://localhost:8000/api/admin/generation/runs \
   -H "Authorization: Bearer dev-admin-token" \
   -H "Content-Type: application/json" \
-  -d '{"date":"2026-06-15","provider":"stub","signs":["aries","taurus"],"max_attempts":1}' | python -m json.tool
+  -d '{"date":"2026-06-15","provider":"stub","signs":["aries","taurus"],"max_attempts":1}' \
+  | python -m json.tool
 ```
 
 Coverage:
 
 ```bash
 curl -s "http://localhost:8000/api/admin/generation/coverage?date=2026-06-15" \
-  -H "Authorization: Bearer dev-admin-token" | python -m json.tool
+  -H "Authorization: Bearer dev-admin-token" \
+  | python -m json.tool
 ```
 
 Retry missing:
@@ -479,21 +568,22 @@ Retry missing:
 curl -s -X POST http://localhost:8000/api/admin/generation/retry-missing \
   -H "Authorization: Bearer dev-admin-token" \
   -H "Content-Type: application/json" \
-  -d '{"date":"2026-06-15","provider":"stub","max_attempts":1}' | python -m json.tool
+  -d '{"date":"2026-06-15","provider":"stub","max_attempts":1}' \
+  | python -m json.tool
 ```
 
 ### Generation job endpoints
 
 ```text
-    GET  /api/admin/generation/jobs
-    POST /api/admin/generation/jobs
-    POST /api/admin/generation/jobs/backfill
-    GET  /api/admin/generation/jobs/batches/<batch_id>
-    POST /api/admin/generation/jobs/batches/<batch_id>/cancel
-    POST /api/admin/generation/jobs/batches/<batch_id>/retry-failed
-    GET  /api/admin/generation/jobs/<job_id>
-    POST /api/admin/generation/jobs/<job_id>/cancel
-    POST /api/admin/generation/jobs/<job_id>/retry
+GET  /api/admin/generation/jobs
+POST /api/admin/generation/jobs
+POST /api/admin/generation/jobs/backfill
+GET  /api/admin/generation/jobs/batches/<batch_id>
+POST /api/admin/generation/jobs/batches/<batch_id>/cancel
+POST /api/admin/generation/jobs/batches/<batch_id>/retry-failed
+GET  /api/admin/generation/jobs/<job_id>
+POST /api/admin/generation/jobs/<job_id>/cancel
+POST /api/admin/generation/jobs/<job_id>/retry
 ```
 
 Create one queued job:
@@ -502,7 +592,8 @@ Create one queued job:
 curl -s -X POST http://localhost:8000/api/admin/generation/jobs \
   -H "Authorization: Bearer dev-admin-token" \
   -H "Content-Type: application/json" \
-  -d '{"date":"2026-06-15","provider":"stub","job_type":"manual","signs":["aries","taurus"],"max_attempts":1}' | python -m json.tool
+  -d '{"date":"2026-06-15","provider":"stub","job_type":"manual","signs":["aries","taurus"],"max_attempts":1}' \
+  | python -m json.tool
 ```
 
 Create a backfill range:
@@ -511,14 +602,40 @@ Create a backfill range:
 curl -s -X POST http://localhost:8000/api/admin/generation/jobs/backfill \
   -H "Authorization: Bearer dev-admin-token" \
   -H "Content-Type: application/json" \
-  -d '{"start_date":"2026-06-15","end_date":"2026-06-17","provider":"stub","skip_covered":true}' | python -m json.tool
+  -d '{"start_date":"2026-06-15","end_date":"2026-06-17","provider":"stub","skip_covered":true}' \
+  | python -m json.tool
 ```
 
 List jobs:
 
 ```bash
 curl -s "http://localhost:8000/api/admin/generation/jobs?status=queued" \
-  -H "Authorization: Bearer dev-admin-token" | python -m json.tool
+  -H "Authorization: Bearer dev-admin-token" \
+  | python -m json.tool
+```
+
+Batch status:
+
+```bash
+curl -s "http://localhost:8000/api/admin/generation/jobs/batches/<batch_id>" \
+  -H "Authorization: Bearer dev-admin-token" \
+  | python -m json.tool
+```
+
+Batch cancel queued jobs:
+
+```bash
+curl -s -X POST "http://localhost:8000/api/admin/generation/jobs/batches/<batch_id>/cancel" \
+  -H "Authorization: Bearer dev-admin-token" \
+  | python -m json.tool
+```
+
+Batch retry failed jobs:
+
+```bash
+curl -s -X POST "http://localhost:8000/api/admin/generation/jobs/batches/<batch_id>/retry-failed" \
+  -H "Authorization: Bearer dev-admin-token" \
+  | python -m json.tool
 ```
 
 OpenAI through Admin API requires both:
@@ -536,22 +653,7 @@ and JSON body:
 }
 ```
 
-Batch status:
-
-    curl -s "http://localhost:8000/api/admin/generation/jobs/batches/<batch_id>" \
-      -H "Authorization: Bearer dev-admin-token" | python -m json.tool
-
-
-Batch cancel queued jobs:
-
-    curl -s -X POST "http://localhost:8000/api/admin/generation/jobs/batches/<batch_id>/cancel" \
-      -H "Authorization: Bearer dev-admin-token" | python -m json.tool
-
-Batch retry failed jobs:
-
-    curl -s -X POST "http://localhost:8000/api/admin/generation/jobs/batches/<batch_id>/retry-failed" \
-      -H "Authorization: Bearer dev-admin-token" | python -m json.tool
-
+There is intentionally no HTTP endpoint for “process jobs now”. Job execution is handled by the worker or CLI.
 
 ## Backend utilities
 
@@ -717,7 +819,6 @@ docker compose exec -T backend python utils/create_generation_jobs.py \
   --end-date 2026-06-16 \
   --provider stub \
   --show-items
-
 
 docker compose exec -T backend python utils/process_generation_jobs.py \
   --limit 1 \

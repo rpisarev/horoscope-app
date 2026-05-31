@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
@@ -17,6 +17,7 @@ from app.services.generation_job_service import (
     cancel_generation_job,
     claim_next_generation_job,
     close_stale_running_jobs,
+    count_openai_generation_jobs_started_today,
     create_generation_job,
     create_generation_jobs_for_range,
     find_active_generation_job,
@@ -221,6 +222,39 @@ def test_create_generation_jobs_for_range_can_skip_covered_dates(app):
         assert GenerationJob.query.count() == 1
 
 
+def test_openai_backfill_range_is_limited(app, monkeypatch):
+    monkeypatch.setenv("GENERATION_OPENAI_MAX_BACKFILL_DAYS", "2")
+
+    with app.app_context():
+        with pytest.raises(GenerationJobValidationError) as exc_info:
+            create_generation_jobs_for_range(
+                start_date=date(2026, 6, 1),
+                end_date=date(2026, 6, 3),
+                provider="openai",
+                allow_openai=True,
+            )
+
+        assert "OpenAI backfill range is too large" in str(exc_info.value)
+        assert GenerationJob.query.count() == 0
+
+
+def test_openai_backfill_range_limit_respects_creation_limit(app, monkeypatch):
+    monkeypatch.setenv("GENERATION_OPENAI_MAX_BACKFILL_DAYS", "2")
+
+    with app.app_context():
+        result = create_generation_jobs_for_range(
+            start_date=date(2026, 6, 1),
+            end_date=date(2026, 6, 10),
+            provider="openai",
+            allow_openai=True,
+            limit=2,
+        )
+
+        assert result["processed_dates"] == 2
+        assert result["created_count"] == 2
+        assert GenerationJob.query.count() == 2
+
+
 def test_claim_next_generation_job_respects_priority(app):
     with app.app_context():
         low_job, _ = create_generation_job(
@@ -355,6 +389,167 @@ def test_process_generation_jobs_rejects_openai_without_worker_allow(app):
         failed_job = db.session.get(GenerationJob, job.id)
         assert failed_job.status == JOB_STATUS_FAILED
         assert "provider=openai" in failed_job.error_message
+
+
+def test_count_openai_generation_jobs_started_today(app):
+    now = datetime.now(timezone.utc)
+
+    with app.app_context():
+        old_job, _ = create_generation_job(
+            job_type=JOB_TYPE_BACKFILL,
+            target_date=date(2026, 6, 14),
+            provider="openai",
+            allow_openai=True,
+        )
+        old_job.status = JOB_STATUS_SUCCESS
+        old_job.started_at = now - timedelta(days=1)
+        old_job.finished_at = old_job.started_at
+
+        today_job, _ = create_generation_job(
+            job_type=JOB_TYPE_BACKFILL,
+            target_date=date(2026, 6, 15),
+            provider="openai",
+            allow_openai=True,
+        )
+        today_job.status = JOB_STATUS_SUCCESS
+        today_job.started_at = now
+        today_job.finished_at = now
+
+        stub_job, _ = create_generation_job(
+            job_type=JOB_TYPE_BACKFILL,
+            target_date=date(2026, 6, 16),
+            provider="stub",
+        )
+        stub_job.status = JOB_STATUS_SUCCESS
+        stub_job.started_at = now
+        stub_job.finished_at = now
+
+        db.session.commit()
+
+        assert count_openai_generation_jobs_started_today(now=now) == 1
+
+
+def test_process_generation_jobs_leaves_openai_queued_when_daily_limit_is_reached(
+    app,
+):
+    now = datetime.now(timezone.utc)
+
+    with app.app_context():
+        already_started_job, _ = create_generation_job(
+            job_type=JOB_TYPE_BACKFILL,
+            target_date=date(2026, 6, 14),
+            provider="openai",
+            allow_openai=True,
+        )
+        already_started_job.status = JOB_STATUS_SUCCESS
+        already_started_job.started_at = now
+        already_started_job.finished_at = now
+
+        queued_job, _ = create_generation_job(
+            job_type=JOB_TYPE_BACKFILL,
+            target_date=date(2026, 6, 15),
+            provider="openai",
+            allow_openai=True,
+            priority=100,
+        )
+
+        db.session.commit()
+
+        result = process_generation_jobs(
+            limit=1,
+            worker_id="test-worker",
+            allow_openai=True,
+            max_openai_jobs_per_run=10,
+            max_openai_jobs_per_day=1,
+        )
+
+        assert result["processed_count"] == 0
+        assert result["openai_limit_reached"] is True
+        assert result["openai_limits"]["daily_limit_reached"] is True
+        assert result["openai_limits"]["run_limit_reached"] is False
+
+        queued_job = db.session.get(GenerationJob, queued_job.id)
+        assert queued_job.status == JOB_STATUS_QUEUED
+        assert queued_job.attempt_count == 0
+        assert queued_job.started_at is None
+        assert queued_job.locked_by is None
+
+
+def test_process_generation_jobs_respects_openai_per_run_limit(
+    app,
+    monkeypatch,
+):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-api-key")
+
+    def fake_run_standard_generation_job(job, *, stale_after_hours):
+        run = GenerationRun(
+            run_type=job.job_type,
+            target_date=job.target_date,
+            locale=job.locale,
+            forecast_type=job.forecast_type,
+            status="success",
+            total_items=0,
+            success_items=0,
+            failed_items=0,
+            skipped_items=0,
+        )
+        db.session.add(run)
+        db.session.flush()
+        return run
+
+    monkeypatch.setattr(
+        "app.services.generation_job_service._run_standard_generation_job",
+        fake_run_standard_generation_job,
+    )
+
+    with app.app_context():
+        first_openai_job, _ = create_generation_job(
+            job_type=JOB_TYPE_BACKFILL,
+            target_date=date(2026, 6, 15),
+            provider="openai",
+            allow_openai=True,
+            priority=100,
+        )
+        second_openai_job, _ = create_generation_job(
+            job_type=JOB_TYPE_BACKFILL,
+            target_date=date(2026, 6, 16),
+            provider="openai",
+            allow_openai=True,
+            priority=90,
+        )
+        stub_job, _ = create_generation_job(
+            job_type=JOB_TYPE_BACKFILL,
+            target_date=date(2026, 6, 17),
+            provider="stub",
+            signs=["aries"],
+            max_attempts=1,
+            priority=80,
+        )
+
+        result = process_generation_jobs(
+            limit=3,
+            worker_id="test-worker",
+            allow_openai=True,
+            max_openai_jobs_per_run=1,
+            max_openai_jobs_per_day=10,
+        )
+
+        assert result["processed_count"] == 2
+        assert result["jobs"][0]["id"] == first_openai_job.id
+        assert result["jobs"][1]["id"] == stub_job.id
+        assert result["openai_limit_reached"] is True
+        assert result["openai_limits"]["processed_count"] == 1
+        assert result["openai_limits"]["run_limit_reached"] is True
+        assert result["openai_limits"]["daily_limit_reached"] is False
+
+        first_openai_job = db.session.get(GenerationJob, first_openai_job.id)
+        second_openai_job = db.session.get(GenerationJob, second_openai_job.id)
+        stub_job = db.session.get(GenerationJob, stub_job.id)
+
+        assert first_openai_job.status == JOB_STATUS_SUCCESS
+        assert second_openai_job.status == JOB_STATUS_QUEUED
+        assert second_openai_job.attempt_count == 0
+        assert stub_job.status == JOB_STATUS_SUCCESS
 
 
 def test_process_claimed_generation_job_requires_lock_owner(app):
