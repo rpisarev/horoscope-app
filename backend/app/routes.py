@@ -2,7 +2,7 @@ import os
 from calendar import monthrange
 from datetime import date, timedelta
 
-from flask import Blueprint, abort, current_app, jsonify, request
+from flask import Blueprint, Response, abort, current_app, jsonify, request
 from sqlalchemy import distinct, extract, func
 
 from . import db
@@ -15,9 +15,16 @@ from .services import (
     get_forecast,
     save_forecast,
 )
-from .services.sitemap_service import build_sitemap_entries
+from .services.sitemap_service import (
+    DEFAULT_SITEMAP_CHUNK_SIZE,
+    build_sitemap_documents,
+    build_sitemap_entries,
+    render_sitemap_index_xml,
+    render_sitemap_xml,
+)
 
 bp = Blueprint("api", __name__)
+site_bp = Blueprint("site", __name__)
 
 
 def _localized_sign_name(sign: ZodiacSign, locale: str) -> str:
@@ -89,6 +96,75 @@ def _public_site_url() -> str:
     )
 
 
+def _sitemap_chunk_size() -> int:
+    raw_value = (
+        current_app.config.get("SITEMAP_CHUNK_SIZE")
+        or os.getenv("SITEMAP_CHUNK_SIZE")
+        or DEFAULT_SITEMAP_CHUNK_SIZE
+    )
+
+    try:
+        chunk_size = int(raw_value)
+    except (TypeError, ValueError):
+        abort(500, "Bad SITEMAP_CHUNK_SIZE config value")
+
+    if chunk_size < 1 or chunk_size > DEFAULT_SITEMAP_CHUNK_SIZE:
+        abort(500, f"Bad SITEMAP_CHUNK_SIZE config value, expected 1..{DEFAULT_SITEMAP_CHUNK_SIZE}")
+
+    return chunk_size
+
+
+def _build_sitemap_entries_from_request():
+    locale = request.args.get("locale", DEFAULT_LOCALE)
+    forecast_type = request.args.get("type", DEFAULT_FORECAST_TYPE)
+    date_from = _parse_optional_date_arg("from")
+    date_to = _parse_optional_date_arg("to")
+
+    if date_from and date_to and date_from > date_to:
+        abort(400, "Bad date range, 'from' must be less than or equal to 'to'")
+
+    include_home = _parse_bool_arg("include_home", default=True)
+    include_forecasts = _parse_bool_arg("include_forecasts", default=True)
+    include_archive_months = _parse_bool_arg("include_archive_months", default=True)
+
+    entries = build_sitemap_entries(
+        site_url=_public_site_url(),
+        locale=locale,
+        forecast_type=forecast_type,
+        date_from=date_from,
+        date_to=date_to,
+        include_home=include_home,
+        include_forecasts=include_forecasts,
+        include_archive_months=include_archive_months,
+    )
+
+    return {
+        "site_url": _public_site_url().strip().rstrip("/"),
+        "locale": locale,
+        "forecast_type": forecast_type,
+        "from": date_from,
+        "to": date_to,
+        "include_home": include_home,
+        "include_forecasts": include_forecasts,
+        "include_archive_months": include_archive_months,
+        "entries": entries,
+    }
+
+
+def _build_sitemap_documents_from_request():
+    sitemap_data = _build_sitemap_entries_from_request()
+    documents = build_sitemap_documents(
+        site_url=_public_site_url(),
+        entries=sitemap_data["entries"],
+        chunk_size=_sitemap_chunk_size(),
+    )
+
+    return {
+        **sitemap_data,
+        "documents": documents,
+    }
+
+
 def _active_sign_count() -> int:
     return ZodiacSign.query.filter_by(is_enabled=True).count()
 
@@ -144,6 +220,34 @@ def _archive_day_summary(
         and forecast_count >= expected_sign_count,
         "missing_count": missing_count,
     }
+
+
+@site_bp.route("/sitemap.xml")
+def sitemap_xml():
+    sitemap_data = _build_sitemap_entries_from_request()
+    xml = render_sitemap_xml(sitemap_data["entries"])
+
+    return Response(xml, content_type="application/xml; charset=utf-8")
+
+
+@site_bp.route("/sitemap-index.xml")
+def sitemap_index_xml():
+    sitemap_data = _build_sitemap_documents_from_request()
+    xml = render_sitemap_index_xml(sitemap_data["documents"])
+
+    return Response(xml, content_type="application/xml; charset=utf-8")
+
+
+@site_bp.route("/sitemaps/<filename>")
+def split_sitemap_xml(filename: str):
+    sitemap_data = _build_sitemap_documents_from_request()
+
+    for document in sitemap_data["documents"]:
+        if document.name == filename:
+            xml = render_sitemap_xml(document.entries)
+            return Response(xml, content_type="application/xml; charset=utf-8")
+
+    abort(404, f"Unknown sitemap file '{filename}'")
 
 
 @bp.route("/forecast")
@@ -352,40 +456,36 @@ def archive_months():
 
 @bp.route("/seo/sitemap/urls")
 def sitemap_urls():
-    locale = request.args.get("locale", DEFAULT_LOCALE)
-    forecast_type = request.args.get("type", DEFAULT_FORECAST_TYPE)
-    date_from = _parse_optional_date_arg("from")
-    date_to = _parse_optional_date_arg("to")
-
-    if date_from and date_to and date_from > date_to:
-        abort(400, "Bad date range, 'from' must be less than or equal to 'to'")
-
-    include_home = _parse_bool_arg("include_home", default=True)
-    include_forecasts = _parse_bool_arg("include_forecasts", default=True)
-    include_archive_months = _parse_bool_arg("include_archive_months", default=True)
-
-    entries = build_sitemap_entries(
-        site_url=_public_site_url(),
-        locale=locale,
-        forecast_type=forecast_type,
-        date_from=date_from,
-        date_to=date_to,
-        include_home=include_home,
-        include_forecasts=include_forecasts,
-        include_archive_months=include_archive_months,
-    )
+    sitemap_data = _build_sitemap_entries_from_request()
 
     return jsonify(
         {
-            "site_url": _public_site_url().strip().rstrip("/"),
-            "locale": locale,
-            "forecast_type": forecast_type,
-            "from": date_from.isoformat() if date_from else None,
-            "to": date_to.isoformat() if date_to else None,
-            "include_home": include_home,
-            "include_forecasts": include_forecasts,
-            "include_archive_months": include_archive_months,
-            "items": [entry.to_dict() for entry in entries],
+            "site_url": sitemap_data["site_url"],
+            "locale": sitemap_data["locale"],
+            "forecast_type": sitemap_data["forecast_type"],
+            "from": sitemap_data["from"].isoformat() if sitemap_data["from"] else None,
+            "to": sitemap_data["to"].isoformat() if sitemap_data["to"] else None,
+            "include_home": sitemap_data["include_home"],
+            "include_forecasts": sitemap_data["include_forecasts"],
+            "include_archive_months": sitemap_data["include_archive_months"],
+            "items": [entry.to_dict() for entry in sitemap_data["entries"]],
+        }
+    )
+
+
+@bp.route("/seo/sitemap/documents")
+def sitemap_documents():
+    sitemap_data = _build_sitemap_documents_from_request()
+
+    return jsonify(
+        {
+            "site_url": sitemap_data["site_url"],
+            "locale": sitemap_data["locale"],
+            "forecast_type": sitemap_data["forecast_type"],
+            "chunk_size": _sitemap_chunk_size(),
+            "url_count": len(sitemap_data["entries"]),
+            "document_count": len(sitemap_data["documents"]),
+            "documents": [document.to_dict() for document in sitemap_data["documents"]],
         }
     )
 

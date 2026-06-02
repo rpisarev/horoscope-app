@@ -1,8 +1,13 @@
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from typing import Any
+from xml.etree import ElementTree as ET
 
 from app.models import Forecast, ZodiacSign
+
+
+SITEMAP_NAMESPACE = "http://www.sitemaps.org/schemas/sitemap/0.9"
+DEFAULT_SITEMAP_CHUNK_SIZE = 50_000
 
 
 @dataclass(frozen=True)
@@ -34,6 +39,24 @@ class SitemapEntry:
             data["month"] = self.month
 
         return data
+
+
+@dataclass(frozen=True)
+class SitemapDocument:
+    name: str
+    loc: str
+    path: str
+    lastmod: str | None
+    entries: list[SitemapEntry]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "loc": self.loc,
+            "path": self.path,
+            "lastmod": self.lastmod,
+            "url_count": len(self.entries),
+        }
 
 
 def normalize_site_url(site_url: str) -> str:
@@ -99,6 +122,80 @@ def build_sitemap_entries(
         )
 
     return entries
+
+
+def build_sitemap_documents(
+    *,
+    site_url: str,
+    entries: list[SitemapEntry],
+    chunk_size: int = DEFAULT_SITEMAP_CHUNK_SIZE,
+) -> list[SitemapDocument]:
+    if chunk_size < 1:
+        raise ValueError("chunk_size must be greater than zero.")
+
+    normalized_site_url = normalize_site_url(site_url)
+    documents: list[SitemapDocument] = []
+
+    for index, start in enumerate(range(0, len(entries), chunk_size), start=1):
+        chunk = entries[start : start + chunk_size]
+        name = f"sitemap-{index}.xml"
+        path = f"/sitemaps/{name}"
+
+        documents.append(
+            SitemapDocument(
+                name=name,
+                loc=_absolute_url(normalized_site_url, path),
+                path=path,
+                lastmod=_latest_entry_lastmod(chunk),
+                entries=chunk,
+            )
+        )
+
+    return documents
+
+
+def render_sitemap_xml(entries: list[SitemapEntry]) -> str:
+    ET.register_namespace("", SITEMAP_NAMESPACE)
+
+    urlset = ET.Element(f"{{{SITEMAP_NAMESPACE}}}urlset")
+
+    for entry in entries:
+        url = ET.SubElement(urlset, f"{{{SITEMAP_NAMESPACE}}}url")
+
+        loc = ET.SubElement(url, f"{{{SITEMAP_NAMESPACE}}}loc")
+        loc.text = entry.loc
+
+        if entry.lastmod:
+            lastmod = ET.SubElement(url, f"{{{SITEMAP_NAMESPACE}}}lastmod")
+            lastmod.text = entry.lastmod
+
+    xml_body = ET.tostring(urlset, encoding="unicode", short_empty_elements=False)
+
+    return f'<?xml version="1.0" encoding="UTF-8"?>\n{xml_body}\n'
+
+
+def render_sitemap_index_xml(documents: list[SitemapDocument]) -> str:
+    ET.register_namespace("", SITEMAP_NAMESPACE)
+
+    sitemapindex = ET.Element(f"{{{SITEMAP_NAMESPACE}}}sitemapindex")
+
+    for document in documents:
+        sitemap = ET.SubElement(sitemapindex, f"{{{SITEMAP_NAMESPACE}}}sitemap")
+
+        loc = ET.SubElement(sitemap, f"{{{SITEMAP_NAMESPACE}}}loc")
+        loc.text = document.loc
+
+        if document.lastmod:
+            lastmod = ET.SubElement(sitemap, f"{{{SITEMAP_NAMESPACE}}}lastmod")
+            lastmod.text = document.lastmod
+
+    xml_body = ET.tostring(
+        sitemapindex,
+        encoding="unicode",
+        short_empty_elements=False,
+    )
+
+    return f'<?xml version="1.0" encoding="UTF-8"?>\n{xml_body}\n'
 
 
 def _published_forecasts(
@@ -261,3 +358,16 @@ def _max_datetime(
         return current_value
 
     return max(current_value, next_value)
+
+
+def _latest_entry_lastmod(entries: list[SitemapEntry]) -> str | None:
+    values = [
+        datetime.fromisoformat(entry.lastmod)
+        for entry in entries
+        if entry.lastmod is not None
+    ]
+
+    if not values:
+        return None
+
+    return max(values).isoformat()

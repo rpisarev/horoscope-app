@@ -132,7 +132,11 @@ def test_sitemap_xml_endpoint_escapes_xml_values(client, app):
     _create_forecast(sign_key="aries", target_date=date(2026, 6, 1))
 
     with _temporary_public_site_url(app, "https://example.com?x=1&y=2"):
-        response = client.get("/sitemap.xml?include_home=0")
+        response = client.get(
+            "/sitemap.xml"
+            "?include_home=0"
+            "&include_archive_months=0"
+        )
 
     assert response.status_code == 200
 
