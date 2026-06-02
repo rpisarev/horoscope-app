@@ -1,7 +1,8 @@
+import os
 from calendar import monthrange
 from datetime import date, timedelta
 
-from flask import Blueprint, abort, jsonify, request
+from flask import Blueprint, abort, current_app, jsonify, request
 from sqlalchemy import distinct, extract, func
 
 from . import db
@@ -14,6 +15,7 @@ from .services import (
     get_forecast,
     save_forecast,
 )
+from .services.sitemap_service import build_sitemap_entries
 
 bp = Blueprint("api", __name__)
 
@@ -52,6 +54,39 @@ def _parse_date_arg(name: str) -> date:
         return date.fromisoformat(raw_value)
     except ValueError:
         abort(400, f"Bad {name} format, expected YYYY-MM-DD")
+
+
+def _parse_optional_date_arg(name: str) -> date | None:
+    raw_value = request.args.get(name)
+    if raw_value is None or raw_value == "":
+        return None
+
+    try:
+        return date.fromisoformat(raw_value)
+    except ValueError:
+        abort(400, f"Bad {name} format, expected YYYY-MM-DD")
+
+
+def _parse_bool_arg(name: str, *, default: bool) -> bool:
+    raw_value = request.args.get(name)
+    if raw_value is None or raw_value == "":
+        return default
+
+    normalized = raw_value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+
+    abort(400, f"Bad {name} format, expected boolean")
+
+
+def _public_site_url() -> str:
+    return (
+        current_app.config.get("PUBLIC_SITE_URL")
+        or os.getenv("PUBLIC_SITE_URL")
+        or "http://localhost:5173"
+    )
 
 
 def _active_sign_count() -> int:
@@ -311,6 +346,46 @@ def archive_months():
             "forecast_type": forecast_type,
             "expected_sign_count": expected_sign_count,
             "months": months,
+        }
+    )
+
+
+@bp.route("/seo/sitemap/urls")
+def sitemap_urls():
+    locale = request.args.get("locale", DEFAULT_LOCALE)
+    forecast_type = request.args.get("type", DEFAULT_FORECAST_TYPE)
+    date_from = _parse_optional_date_arg("from")
+    date_to = _parse_optional_date_arg("to")
+
+    if date_from and date_to and date_from > date_to:
+        abort(400, "Bad date range, 'from' must be less than or equal to 'to'")
+
+    include_home = _parse_bool_arg("include_home", default=True)
+    include_forecasts = _parse_bool_arg("include_forecasts", default=True)
+    include_archive_months = _parse_bool_arg("include_archive_months", default=True)
+
+    entries = build_sitemap_entries(
+        site_url=_public_site_url(),
+        locale=locale,
+        forecast_type=forecast_type,
+        date_from=date_from,
+        date_to=date_to,
+        include_home=include_home,
+        include_forecasts=include_forecasts,
+        include_archive_months=include_archive_months,
+    )
+
+    return jsonify(
+        {
+            "site_url": _public_site_url().strip().rstrip("/"),
+            "locale": locale,
+            "forecast_type": forecast_type,
+            "from": date_from.isoformat() if date_from else None,
+            "to": date_to.isoformat() if date_to else None,
+            "include_home": include_home,
+            "include_forecasts": include_forecasts,
+            "include_archive_months": include_archive_months,
+            "items": [entry.to_dict() for entry in entries],
         }
     )
 
