@@ -72,15 +72,12 @@ APP_TIMEZONE=Europe/Kyiv
 LOG_LEVEL=INFO
 HOROSCOPE_PROVIDER=stub
 RUN_NIGHTLY_ON_START=0
-
 ADMIN_API_ENABLED=0
 ADMIN_API_ALLOW_OPENAI=0
-
 GENERATION_SCHEDULER_USE_QUEUE=0
 GENERATION_SCHEDULED_JOBS_ALLOW_OPENAI=0
 GENERATION_SCHEDULED_TARGET_POLICY=today_and_tomorrow
 GENERATION_SCHEDULED_ROLLING_DAYS=2
-
 GENERATION_JOB_WORKER_ENABLED=0
 GENERATION_JOB_WORKER_ALLOW_OPENAI=0
 ```
@@ -159,6 +156,42 @@ Returns the legacy array format:
 ["aries", "taurus", "...", "ophiuchus"]
 ```
 
+Do not change this response shape without updating the frontend.
+
+### `GET /api/signs/meta`
+
+Returns public metadata for active zodiac signs, ordered by `sort_order`.
+
+Example:
+
+```bash
+curl -s "http://localhost:8000/api/signs/meta" | python -m json.tool
+```
+
+Response shape:
+
+```json
+{
+  "locale": "ru",
+  "items": [
+    {
+      "key": "aries",
+      "name": "Овен",
+      "sort_order": 1,
+      "is_active": true
+    }
+  ]
+}
+```
+
+Supported optional query params:
+
+```text
+locale=ru|uk|en
+```
+
+Only active signs are returned by this public endpoint.
+
 ### `GET /api/forecast`
 
 Example:
@@ -190,17 +223,180 @@ Response includes old and new aliases:
 
 Returns years available in published forecasts.
 
+Optional query params:
+
+```text
+sign=aries
+locale=ru
+type=daily
+```
+
 If the database has no published forecasts, it falls back to:
 
 ```text
 2024..current_year
 ```
 
+## Public Archive API
+
+Archive endpoints are read-only public endpoints for frontend archive views and future SEO/sitemap integration.
+
+General rules:
+
+```text
+Only published forecasts are counted.
+Only active zodiac signs are considered.
+expected_sign_count is calculated from active zodiac_signs.
+locale defaults to ru.
+type defaults to daily.
+```
+
+### `GET /api/archive/day`
+
+Returns coverage and published forecasts for one date.
+
+Example:
+
+```bash
+curl -s "http://localhost:8000/api/archive/day?date=2026-06-01" | python -m json.tool
+```
+
+Required query params:
+
+```text
+date=YYYY-MM-DD
+```
+
+Optional query params:
+
+```text
+locale=ru
+type=daily
+```
+
+Response shape:
+
+```json
+{
+  "date": "2026-06-01",
+  "locale": "ru",
+  "forecast_type": "daily",
+  "expected_sign_count": 13,
+  "forecast_count": 13,
+  "has_full_coverage": true,
+  "missing_count": 0,
+  "forecasts": [
+    {
+      "id": 1,
+      "sign": "aries",
+      "sign_key": "aries",
+      "day": "2026-06-01",
+      "date": "2026-06-01",
+      "text": "...",
+      "forecast": "...",
+      "status": "published",
+      "source": "openai",
+      "model_version": "gpt-5.4-mini",
+      "model_name": "gpt-5.4-mini",
+      "prompt_version": "daily-ru-v1"
+    }
+  ]
+}
+```
+
+### `GET /api/archive/month`
+
+Returns per-day coverage for a calendar month.
+
+Example:
+
+```bash
+curl -s "http://localhost:8000/api/archive/month?year=2026&month=6" | python -m json.tool
+```
+
+Required query params:
+
+```text
+year=YYYY
+month=1..12
+```
+
+Optional query params:
+
+```text
+locale=ru
+type=daily
+```
+
+Response shape:
+
+```json
+{
+  "year": 2026,
+  "month": 6,
+  "locale": "ru",
+  "forecast_type": "daily",
+  "expected_sign_count": 13,
+  "days": [
+    {
+      "date": "2026-06-01",
+      "forecast_count": 13,
+      "has_full_coverage": true,
+      "missing_count": 0
+    }
+  ]
+}
+```
+
+### `GET /api/archive/months`
+
+Returns month summaries for a year. The endpoint returns all 12 months, including empty ones, so the frontend can decide what to show as active or disabled.
+
+Example:
+
+```bash
+curl -s "http://localhost:8000/api/archive/months?year=2026" | python -m json.tool
+```
+
+Required query params:
+
+```text
+year=YYYY
+```
+
+Optional query params:
+
+```text
+locale=ru
+type=daily
+```
+
+Response shape:
+
+```json
+{
+  "year": 2026,
+  "locale": "ru",
+  "forecast_type": "daily",
+  "expected_sign_count": 13,
+  "months": [
+    {
+      "year": 2026,
+      "month": 1,
+      "days_in_month": 31,
+      "forecast_count": 13,
+      "covered_day_count": 1,
+      "full_coverage_day_count": 1,
+      "has_forecasts": true,
+      "has_full_month_coverage": false
+    }
+  ]
+}
+```
+
 ## Forecast generation rules
 
-Forecast text is sign-agnostic.
-
-The backend may use `sign_key` and `target_date` for routing, storage, deterministic variation selection, audit metadata, and API compatibility, but they must not be used as user-facing creative instructions in prompt messages.
+Forecast text is sign-agnostic. The backend may use `sign_key` and `target_date` for routing, storage, deterministic variation selection, audit metadata, and API compatibility, but they must not be used as user-facing creative instructions in prompt messages.
 
 Generated text should address the reader directly:
 
@@ -250,10 +446,7 @@ get_horoscope_provider()
 OpenAI provider is a thin adapter:
 
 ```text
-ProviderRequest
-  -> OpenAI Responses API call
-  -> structured JSON parsing
-  -> ProviderResult
+ProviderRequest -> OpenAI Responses API call -> structured JSON parsing -> ProviderResult
 ```
 
 It does not build prompts, choose sign names, write forecasts, or manage lifecycle state. Those responsibilities belong to service-layer code.
@@ -315,11 +508,11 @@ For a full 13-sign daily package, the pipeline deterministically spreads all 13 
 The app separates queue orchestration from execution audit trail.
 
 ```text
-generation_jobs       what should be executed
-generation_runs       execution run / audit record
-generation_items      per-sign execution records
-generation_attempts   provider attempts
-forecasts             published result
+generation_jobs      what should be executed
+generation_runs      execution run / audit record
+generation_items     per-sign execution records
+generation_attempts  provider attempts
+forecasts            published result
 ```
 
 `generation_service.py` remains responsible for executing one generation run.
@@ -429,6 +622,7 @@ rolling             create scheduled work for N days starting from today
 ```
 
 `GENERATION_SCHEDULED_ROLLING_DAYS` is only used when `GENERATION_SCHEDULED_TARGET_POLICY=rolling`.
+
 For example:
 
 ```env
@@ -457,16 +651,13 @@ Production-like OpenAI queue mode requires all relevant gates:
 ```env
 HOROSCOPE_PROVIDER=openai
 OPENAI_API_KEY=your_openai_api_key_here
-
 GENERATION_SCHEDULER_USE_QUEUE=1
 GENERATION_SCHEDULED_JOBS_ALLOW_OPENAI=1
 GENERATION_SCHEDULED_TARGET_POLICY=today_and_tomorrow
 GENERATION_SCHEDULED_ROLLING_DAYS=2
-
 GENERATION_JOB_WORKER_ENABLED=1
 GENERATION_JOB_WORKER_ALLOW_OPENAI=1
 GENERATION_JOB_WORKER_MAX_JOBS_PER_TICK=1
-
 GENERATION_OPENAI_MAX_BACKFILL_DAYS=7
 GENERATION_OPENAI_MAX_JOBS_PER_RUN=1
 GENERATION_OPENAI_MAX_JOBS_PER_DAY=10
@@ -529,12 +720,12 @@ These are count-based safety guards. The project intentionally does not track a 
 
 Behavior:
 
-* `GENERATION_OPENAI_MAX_BACKFILL_DAYS` limits OpenAI backfill job creation through both CLI and Admin API.
-* `GENERATION_OPENAI_MAX_JOBS_PER_RUN` limits how many OpenAI jobs a worker run/tick may execute.
-* `GENERATION_OPENAI_MAX_JOBS_PER_DAY` limits how many OpenAI jobs may be started per UTC day.
-* When the worker reaches an OpenAI execution limit, matching OpenAI jobs stay `queued`.
-* OpenAI jobs are not marked as `failed` for a quota/safety condition.
-* The worker may still process non-OpenAI queued jobs in the same run.
+- `GENERATION_OPENAI_MAX_BACKFILL_DAYS` limits OpenAI backfill job creation through both CLI and Admin API.
+- `GENERATION_OPENAI_MAX_JOBS_PER_RUN` limits how many OpenAI jobs a worker run/tick may execute.
+- `GENERATION_OPENAI_MAX_JOBS_PER_DAY` limits how many OpenAI jobs may be started per UTC day.
+- When the worker reaches an OpenAI execution limit, matching OpenAI jobs stay `queued`.
+- OpenAI jobs are not marked as `failed` for a quota/safety condition.
+- The worker may still process non-OpenAI queued jobs in the same run.
 
 ## Admin API
 
@@ -843,6 +1034,12 @@ Use the safe isolated test database script:
 bash scripts/backend-test.sh
 ```
 
+Latest locally confirmed result for `feature/backend-api-updates`:
+
+```text
+166 passed in 7.61s
+```
+
 Keep test database after run:
 
 ```bash
@@ -864,6 +1061,17 @@ docker compose exec -T backend python utils/process_generation_jobs.py \
   --limit 1 \
   --worker-id local-manual \
   --show-jobs
+```
+
+### Public archive API smoke
+
+Create or generate forecasts first, then check public coverage endpoints:
+
+```bash
+curl -s "http://localhost:8000/api/signs/meta" | python -m json.tool
+curl -s "http://localhost:8000/api/archive/day?date=2026-06-01" | python -m json.tool
+curl -s "http://localhost:8000/api/archive/month?year=2026&month=6" | python -m json.tool
+curl -s "http://localhost:8000/api/archive/months?year=2026" | python -m json.tool
 ```
 
 ### Scheduler queue-mode smoke with stub
