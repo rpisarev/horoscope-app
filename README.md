@@ -72,17 +72,27 @@ APP_TIMEZONE=Europe/Kyiv
 LOG_LEVEL=INFO
 HOROSCOPE_PROVIDER=stub
 RUN_NIGHTLY_ON_START=0
-
 ADMIN_API_ENABLED=0
 ADMIN_API_ALLOW_OPENAI=0
-
 GENERATION_SCHEDULER_USE_QUEUE=0
 GENERATION_SCHEDULED_JOBS_ALLOW_OPENAI=0
 GENERATION_SCHEDULED_TARGET_POLICY=today_and_tomorrow
 GENERATION_SCHEDULED_ROLLING_DAYS=2
-
 GENERATION_JOB_WORKER_ENABLED=0
 GENERATION_JOB_WORKER_ALLOW_OPENAI=0
+```
+
+SEO/sitemap-related optional env:
+
+```env
+PUBLIC_SITE_URL=http://localhost:5173
+SITEMAP_CHUNK_SIZE=50000
+```
+
+`PUBLIC_SITE_URL` is used when backend generates absolute frontend URLs for sitemap output. In production, set it to the public frontend origin, for example:
+
+```env
+PUBLIC_SITE_URL=https://example.com
 ```
 
 OpenAI should stay disabled by default in local automation unless you explicitly enable all relevant gates.
@@ -137,8 +147,8 @@ generation_jobs
 Seed/reference data:
 
 ```text
-zodiac_signs     13 signs, including ophiuchus
-prompt_versions  daily-ru-v1
+zodiac_signs      13 signs, including ophiuchus
+prompt_versions   daily-ru-v1
 ```
 
 The forecast uniqueness rule is:
@@ -158,6 +168,42 @@ Returns the legacy array format:
 ```json
 ["aries", "taurus", "...", "ophiuchus"]
 ```
+
+Do not change this response shape without updating the frontend.
+
+### `GET /api/signs/meta`
+
+Returns public metadata for active zodiac signs, ordered by `sort_order`.
+
+Example:
+
+```bash
+curl -s "http://localhost:8000/api/signs/meta" | python -m json.tool
+```
+
+Response shape:
+
+```json
+{
+  "locale": "ru",
+  "items": [
+    {
+      "key": "aries",
+      "name": "Овен",
+      "sort_order": 1,
+      "is_active": true
+    }
+  ]
+}
+```
+
+Supported optional query params:
+
+```text
+locale=ru|uk|en
+```
+
+Only active signs are returned by this public endpoint.
 
 ### `GET /api/forecast`
 
@@ -190,10 +236,348 @@ Response includes old and new aliases:
 
 Returns years available in published forecasts.
 
+Optional query params:
+
+```text
+sign=aries
+locale=ru
+type=daily
+```
+
 If the database has no published forecasts, it falls back to:
 
 ```text
 2024..current_year
+```
+
+## Public Archive API
+
+Archive endpoints are read-only public endpoints for frontend archive views and SEO/sitemap integration.
+
+General rules:
+
+```text
+Only published forecasts are counted.
+Only active zodiac signs are considered.
+expected_sign_count is calculated from active zodiac_signs.
+locale defaults to ru.
+type defaults to daily.
+```
+
+### `GET /api/archive/day`
+
+Returns coverage and published forecasts for one date.
+
+Example:
+
+```bash
+curl -s "http://localhost:8000/api/archive/day?date=2026-06-01" | python -m json.tool
+```
+
+Required query params:
+
+```text
+date=YYYY-MM-DD
+```
+
+Optional query params:
+
+```text
+locale=ru
+type=daily
+```
+
+Response shape:
+
+```json
+{
+  "date": "2026-06-01",
+  "locale": "ru",
+  "forecast_type": "daily",
+  "expected_sign_count": 13,
+  "forecast_count": 13,
+  "has_full_coverage": true,
+  "missing_count": 0,
+  "forecasts": [
+    {
+      "id": 1,
+      "sign": "aries",
+      "sign_key": "aries",
+      "day": "2026-06-01",
+      "date": "2026-06-01",
+      "text": "...",
+      "forecast": "...",
+      "status": "published",
+      "source": "openai",
+      "model_version": "gpt-5.4-mini",
+      "model_name": "gpt-5.4-mini",
+      "prompt_version": "daily-ru-v1"
+    }
+  ]
+}
+```
+
+### `GET /api/archive/month`
+
+Returns per-day coverage for a calendar month.
+
+Example:
+
+```bash
+curl -s "http://localhost:8000/api/archive/month?year=2026&month=6" | python -m json.tool
+```
+
+Required query params:
+
+```text
+year=YYYY
+month=1..12
+```
+
+Optional query params:
+
+```text
+locale=ru
+type=daily
+```
+
+Response shape:
+
+```json
+{
+  "year": 2026,
+  "month": 6,
+  "locale": "ru",
+  "forecast_type": "daily",
+  "expected_sign_count": 13,
+  "days": [
+    {
+      "date": "2026-06-01",
+      "forecast_count": 13,
+      "has_full_coverage": true,
+      "missing_count": 0
+    }
+  ]
+}
+```
+
+### `GET /api/archive/months`
+
+Returns month summaries for a year.
+
+The endpoint returns all 12 months, including empty ones, so the frontend can decide what to show as active or disabled.
+
+Example:
+
+```bash
+curl -s "http://localhost:8000/api/archive/months?year=2026" | python -m json.tool
+```
+
+Required query params:
+
+```text
+year=YYYY
+```
+
+Optional query params:
+
+```text
+locale=ru
+type=daily
+```
+
+Response shape:
+
+```json
+{
+  "year": 2026,
+  "locale": "ru",
+  "forecast_type": "daily",
+  "expected_sign_count": 13,
+  "months": [
+    {
+      "year": 2026,
+      "month": 1,
+      "days_in_month": 31,
+      "forecast_count": 13,
+      "covered_day_count": 1,
+      "full_coverage_day_count": 1,
+      "has_forecasts": true,
+      "has_full_month_coverage": false
+    }
+  ]
+}
+```
+
+## Sitemap and SEO endpoints
+
+Sitemap endpoints are generated from published forecasts and active zodiac signs. They do not create forecasts and do not call providers.
+
+General rules:
+
+```text
+Only published forecasts are included.
+Only active zodiac signs are included.
+locale defaults to ru.
+type defaults to daily.
+PUBLIC_SITE_URL controls the absolute frontend URL origin.
+```
+
+Canonical URL policy:
+
+```text
+/                                         included as home URL by default
+/horoscope/{sign}/{YYYY-MM-DD}            included for each published forecast
+/archive/{sign}/{YYYY}/{MM}               included for sign/month pairs with published forecasts
+/archive/{sign}/{YYYY}/{MM}/{DD}          intentionally not included to avoid duplicate day URLs
+```
+
+Common optional query params:
+
+```text
+locale=ru
+type=daily
+from=YYYY-MM-DD
+to=YYYY-MM-DD
+include_home=1|0
+include_forecasts=1|0
+include_archive_months=1|0
+```
+
+Boolean params also accept `true/false`, `yes/no`, and `on/off`.
+
+### `GET /api/seo/sitemap/urls`
+
+Debug/source endpoint that returns sitemap URL entries as JSON.
+
+Example:
+
+```bash
+curl -s "http://localhost:8000/api/seo/sitemap/urls?from=2026-06-01&to=2026-06-30" \
+  | python -m json.tool
+```
+
+Response shape:
+
+```json
+{
+  "site_url": "https://example.com",
+  "locale": "ru",
+  "forecast_type": "daily",
+  "from": "2026-06-01",
+  "to": "2026-06-30",
+  "include_home": true,
+  "include_forecasts": true,
+  "include_archive_months": true,
+  "items": [
+    {
+      "type": "home",
+      "loc": "https://example.com/",
+      "path": "/",
+      "lastmod": null
+    },
+    {
+      "type": "forecast",
+      "loc": "https://example.com/horoscope/aries/2026-06-01",
+      "path": "/horoscope/aries/2026-06-01",
+      "lastmod": "2026-06-01T10:15:00+00:00",
+      "sign_key": "aries",
+      "date": "2026-06-01"
+    },
+    {
+      "type": "archive_month",
+      "loc": "https://example.com/archive/aries/2026/06",
+      "path": "/archive/aries/2026/06",
+      "lastmod": "2026-06-01T10:15:00+00:00",
+      "sign_key": "aries",
+      "year": 2026,
+      "month": 6
+    }
+  ]
+}
+```
+
+### `GET /sitemap.xml`
+
+Returns a single XML sitemap document.
+
+Example:
+
+```bash
+curl -s "http://localhost:8000/sitemap.xml"
+```
+
+Filtered example:
+
+```bash
+curl -s "http://localhost:8000/sitemap.xml?from=2026-06-01&to=2026-06-30&include_home=0"
+```
+
+### `GET /sitemap-index.xml`
+
+Returns an XML sitemap index pointing to split sitemap chunks under `/sitemaps/`.
+
+Example:
+
+```bash
+curl -s "http://localhost:8000/sitemap-index.xml"
+```
+
+The split size is controlled by:
+
+```env
+SITEMAP_CHUNK_SIZE=50000
+```
+
+The app validates this value and expects `1..50000`.
+
+### `GET /sitemaps/<filename>`
+
+Returns one split sitemap XML chunk.
+
+Example:
+
+```bash
+curl -s "http://localhost:8000/sitemaps/sitemap-1.xml"
+```
+
+The query params must match the index request if you are manually testing filtered sitemap chunks, for example:
+
+```bash
+curl -s "http://localhost:8000/sitemap-index.xml?from=2026-06-01&to=2026-06-30&include_home=0"
+curl -s "http://localhost:8000/sitemaps/sitemap-1.xml?from=2026-06-01&to=2026-06-30&include_home=0"
+```
+
+### `GET /api/seo/sitemap/documents`
+
+Debug/source endpoint that returns split sitemap document metadata as JSON.
+
+Example:
+
+```bash
+curl -s "http://localhost:8000/api/seo/sitemap/documents" | python -m json.tool
+```
+
+Response shape:
+
+```json
+{
+  "site_url": "https://example.com",
+  "locale": "ru",
+  "forecast_type": "daily",
+  "chunk_size": 50000,
+  "url_count": 120,
+  "document_count": 1,
+  "documents": [
+    {
+      "name": "sitemap-1.xml",
+      "loc": "https://example.com/sitemaps/sitemap-1.xml",
+      "path": "/sitemaps/sitemap-1.xml",
+      "lastmod": "2026-06-01T10:15:00+00:00",
+      "url_count": 120
+    }
+  ]
+}
 ```
 
 ## Forecast generation rules
@@ -250,10 +634,7 @@ get_horoscope_provider()
 OpenAI provider is a thin adapter:
 
 ```text
-ProviderRequest
-  -> OpenAI Responses API call
-  -> structured JSON parsing
-  -> ProviderResult
+ProviderRequest -> OpenAI Responses API call -> structured JSON parsing -> ProviderResult
 ```
 
 It does not build prompts, choose sign names, write forecasts, or manage lifecycle state. Those responsibilities belong to service-layer code.
@@ -422,13 +803,14 @@ GENERATION_SCHEDULED_ROLLING_DAYS=2
 Supported policies:
 
 ```text
-today               create scheduled work for the current app date only
-tomorrow            create scheduled work for current app date + 1 day only
-today_and_tomorrow  create scheduled work for today and tomorrow; default and recommended production mode
-rolling             create scheduled work for N days starting from today
+today                create scheduled work for the current app date only
+tomorrow             create scheduled work for current app date + 1 day only
+today_and_tomorrow   create scheduled work for today and tomorrow; default and recommended production mode
+rolling              create scheduled work for N days starting from today
 ```
 
 `GENERATION_SCHEDULED_ROLLING_DAYS` is only used when `GENERATION_SCHEDULED_TARGET_POLICY=rolling`.
+
 For example:
 
 ```env
@@ -457,16 +839,13 @@ Production-like OpenAI queue mode requires all relevant gates:
 ```env
 HOROSCOPE_PROVIDER=openai
 OPENAI_API_KEY=your_openai_api_key_here
-
 GENERATION_SCHEDULER_USE_QUEUE=1
 GENERATION_SCHEDULED_JOBS_ALLOW_OPENAI=1
 GENERATION_SCHEDULED_TARGET_POLICY=today_and_tomorrow
 GENERATION_SCHEDULED_ROLLING_DAYS=2
-
 GENERATION_JOB_WORKER_ENABLED=1
 GENERATION_JOB_WORKER_ALLOW_OPENAI=1
 GENERATION_JOB_WORKER_MAX_JOBS_PER_TICK=1
-
 GENERATION_OPENAI_MAX_BACKFILL_DAYS=7
 GENERATION_OPENAI_MAX_JOBS_PER_RUN=1
 GENERATION_OPENAI_MAX_JOBS_PER_DAY=10
@@ -529,12 +908,12 @@ These are count-based safety guards. The project intentionally does not track a 
 
 Behavior:
 
-* `GENERATION_OPENAI_MAX_BACKFILL_DAYS` limits OpenAI backfill job creation through both CLI and Admin API.
-* `GENERATION_OPENAI_MAX_JOBS_PER_RUN` limits how many OpenAI jobs a worker run/tick may execute.
-* `GENERATION_OPENAI_MAX_JOBS_PER_DAY` limits how many OpenAI jobs may be started per UTC day.
-* When the worker reaches an OpenAI execution limit, matching OpenAI jobs stay `queued`.
-* OpenAI jobs are not marked as `failed` for a quota/safety condition.
-* The worker may still process non-OpenAI queued jobs in the same run.
+- `GENERATION_OPENAI_MAX_BACKFILL_DAYS` limits OpenAI backfill job creation through both CLI and Admin API.
+- `GENERATION_OPENAI_MAX_JOBS_PER_RUN` limits how many OpenAI jobs a worker run/tick may execute.
+- `GENERATION_OPENAI_MAX_JOBS_PER_DAY` limits how many OpenAI jobs may be started per UTC day.
+- When the worker reaches an OpenAI execution limit, matching OpenAI jobs stay `queued`.
+- OpenAI jobs are not marked as `failed` for a quota/safety condition.
+- The worker may still process non-OpenAI queued jobs in the same run.
 
 ## Admin API
 
@@ -843,6 +1222,12 @@ Use the safe isolated test database script:
 bash scripts/backend-test.sh
 ```
 
+Latest locally confirmed result for `feature/backend-api-updates`:
+
+```text
+188 passed in 8.66s
+```
+
 Keep test database after run:
 
 ```bash
@@ -864,6 +1249,22 @@ docker compose exec -T backend python utils/process_generation_jobs.py \
   --limit 1 \
   --worker-id local-manual \
   --show-jobs
+```
+
+### Public archive and sitemap API smoke
+
+Create or generate forecasts first, then check public coverage and sitemap endpoints:
+
+```bash
+curl -s "http://localhost:8000/api/signs/meta" | python -m json.tool
+curl -s "http://localhost:8000/api/archive/day?date=2026-06-01" | python -m json.tool
+curl -s "http://localhost:8000/api/archive/month?year=2026&month=6" | python -m json.tool
+curl -s "http://localhost:8000/api/archive/months?year=2026" | python -m json.tool
+curl -s "http://localhost:8000/api/seo/sitemap/urls" | python -m json.tool
+curl -s "http://localhost:8000/api/seo/sitemap/documents" | python -m json.tool
+curl -s "http://localhost:8000/sitemap.xml"
+curl -s "http://localhost:8000/sitemap-index.xml"
+curl -s "http://localhost:8000/sitemaps/sitemap-1.xml"
 ```
 
 ### Scheduler queue-mode smoke with stub
@@ -893,7 +1294,6 @@ from app import create_app
 from app.models import GenerationJob
 
 app = create_app()
-
 with app.app_context():
     for job in GenerationJob.query.order_by(GenerationJob.id.desc()).limit(10).all():
         print(
@@ -950,4 +1350,5 @@ Keep OpenAI disabled by default in local/dev automation.
 Use queued jobs for backfill and scheduled automation.
 Use generation_runs/items/attempts as execution audit trail.
 Prefer small commits with tests.
+Keep sitemap URLs canonical and avoid duplicate day URLs.
 ```
