@@ -4,7 +4,7 @@ from flask import Blueprint, abort, jsonify, request
 from sqlalchemy import extract
 
 from . import db
-from .models import Forecast
+from .models import Forecast, ZodiacSign
 from .services import (
     DEFAULT_FORECAST_TYPE,
     DEFAULT_LOCALE,
@@ -16,6 +16,15 @@ from .services import (
 
 
 bp = Blueprint("api", __name__)
+
+
+def _localized_sign_name(sign: ZodiacSign, locale: str) -> str:
+    if locale == "uk" and sign.name_uk:
+        return sign.name_uk
+    if locale == "en" and sign.name_en:
+        return sign.name_en
+
+    return sign.name_ru
 
 
 @bp.route("/forecast")
@@ -63,6 +72,32 @@ def forecast():
 def signs():
     # Keep the current frontend-compatible response shape for now.
     return jsonify(SIGNS)
+
+
+@bp.route("/signs/meta")
+def signs_meta():
+    locale = request.args.get("locale", DEFAULT_LOCALE)
+
+    rows = (
+        ZodiacSign.query.filter_by(is_enabled=True)
+        .order_by(ZodiacSign.sort_order.asc())
+        .all()
+    )
+
+    return jsonify(
+        {
+            "locale": locale,
+            "items": [
+                {
+                    "key": sign.key,
+                    "name": _localized_sign_name(sign, locale),
+                    "sort_order": sign.sort_order,
+                    "is_active": bool(sign.is_enabled),
+                }
+                for sign in rows
+            ],
+        }
+    )
 
 
 @bp.route("/years")
