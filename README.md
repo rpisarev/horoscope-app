@@ -346,6 +346,8 @@ Response shape:
 
 Returns per-day coverage for a calendar month.
 
+Without `sign`, the aggregate response below is unchanged. Optional `sign=<sign_key>` adds a boolean `has_forecast` to every day: true only for that enabled sign's published forecast matching the date, locale, and type. Aggregate fields still describe all enabled signs; `expected_sign_count` is computed from the database. Unknown or disabled signs return `400`.
+
 Example:
 
 ```bash

@@ -1,7 +1,9 @@
 from datetime import date
 
+import pytest
+
 from app import db
-from app.models import Forecast
+from app.models import Forecast, ZodiacSign
 from app.services import DEFAULT_FORECAST_TYPE, DEFAULT_LOCALE, SIGNS
 
 
@@ -104,6 +106,8 @@ def test_archive_month_returns_daily_coverage_for_calendar_month(client):
     assert data["forecast_type"] == "daily"
     assert data["expected_sign_count"] == 13
     assert len(data["days"]) == 30
+    assert set(data) == {"year", "month", "locale", "forecast_type", "expected_sign_count", "days"}
+    assert all(set(day) == {"date", "forecast_count", "missing_count", "has_full_coverage"} for day in data["days"])
 
     days_by_date = {item["date"]: item for item in data["days"]}
     assert days_by_date["2026-06-01"] == {
@@ -203,3 +207,101 @@ def test_archive_endpoints_reject_bad_query_params(client):
     assert client.get("/api/archive/day?date=bad-date").status_code == 400
     assert client.get("/api/archive/month?year=2026&month=13").status_code == 400
     assert client.get("/api/archive/months?year=not-a-year").status_code == 400
+
+
+def test_archive_month_sign_availability_supplements_aggregate_contract(client):
+    _create_forecast(sign_key="aries", target_date=date(2026, 9, 18))
+    _create_forecast(sign_key="taurus", target_date=date(2026, 9, 19))
+    _create_forecast(sign_key="aries", target_date=date(2026, 8, 31))
+    _create_forecast(sign_key="aries", target_date=date(2026, 10, 1))
+
+    aggregate = client.get("/api/archive/month?year=2026&month=9").get_json()
+    response = client.get("/api/archive/month?year=2026&month=9&sign=aries")
+    assert response.status_code == 200
+    data = response.get_json()
+    assert {day["date"] for day in data["days"] if day["has_forecast"]} == {"2026-09-18"}
+    assert all(isinstance(day["has_forecast"], bool) for day in data["days"])
+    assert data["days"][18]["has_forecast"] is False  # Only Taurus is published.
+    assert data["days"][18]["forecast_count"] == 1
+    assert {
+        **data,
+        "days": [{key: value for key, value in day.items() if key != "has_forecast"} for day in data["days"]],
+    } == aggregate
+
+
+@pytest.mark.parametrize("status", ["draft", "failed", "archived"])
+def test_archive_month_selected_sign_must_be_published(client, status):
+    _create_forecast(sign_key="aries", target_date=date(2026, 9, 18), status=status)
+    _create_forecast(sign_key="taurus", target_date=date(2026, 9, 18))
+    response = client.get("/api/archive/month?year=2026&month=9&sign=aries")
+    assert response.status_code == 200
+    data = response.get_json()
+    day = data["days"][17]
+    assert day["has_forecast"] is False
+    assert day["forecast_count"] == 1
+    assert day["missing_count"] == data["expected_sign_count"] - 1
+
+
+@pytest.mark.parametrize("locale,forecast_type", [("uk", "daily"), ("ru", "weekly"), ("uk", "weekly")])
+def test_archive_month_sign_availability_matches_locale_and_type(client, locale, forecast_type):
+    for sign_key, day in [("aries", 18), ("taurus", 19)]:
+        _create_forecast(sign_key=sign_key, target_date=date(2026, 9, day), locale=locale, forecast_type=forecast_type)
+
+    default = client.get("/api/archive/month?year=2026&month=9&sign=aries").get_json()
+    assert not any(day["has_forecast"] for day in default["days"])
+    response = client.get(f"/api/archive/month?year=2026&month=9&sign=aries&locale={locale}&type={forecast_type}")
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data["locale"] == locale
+    assert data["forecast_type"] == forecast_type
+    assert {day["date"] for day in data["days"] if day["has_forecast"]} == {"2026-09-18"}
+    assert data["days"][18]["forecast_count"] == 1
+
+
+@pytest.mark.parametrize("sign", ["not-a-sign", "", "ARIES"])
+def test_archive_month_rejects_unknown_or_empty_sign(client, sign):
+    response = client.get(f"/api/archive/month?year=2026&month=9&sign={sign}")
+    assert response.status_code == 400
+    assert "Unknown or inactive sign" in response.get_data(as_text=True)
+
+
+def test_archive_month_rejects_disabled_sign_even_with_published_forecast(client):
+    _create_forecast(sign_key="aries", target_date=date(2026, 9, 18))
+    sign = db.session.get(ZodiacSign, "aries")
+    was_enabled = sign.is_enabled
+    try:
+        sign.is_enabled = False
+        db.session.commit()
+        response = client.get("/api/archive/month?year=2026&month=9&sign=aries")
+        assert response.status_code == 400
+        assert "Unknown or inactive sign" in response.get_data(as_text=True)
+    finally:
+        sign.is_enabled = was_enabled
+        db.session.commit()
+
+
+@pytest.mark.parametrize("active_keys", [{"aries"}, {"aries", "taurus"}])
+def test_archive_month_counts_active_signs_dynamically_with_or_without_sign(client, active_keys):
+    _create_forecast(sign_key="aries", target_date=date(2026, 9, 18))
+    _create_forecast(sign_key="taurus", target_date=date(2026, 9, 18))
+    signs = ZodiacSign.query.all()
+    original_flags = {sign.key: sign.is_enabled for sign in signs}
+    try:
+        for sign in signs:
+            sign.is_enabled = sign.key in active_keys
+        db.session.commit()
+        for suffix in ("", "&sign=aries"):
+            response = client.get(f"/api/archive/month?year=2026&month=9{suffix}")
+            assert response.status_code == 200
+            data = response.get_json()
+            assert data["expected_sign_count"] == len(active_keys)
+            assert data["days"][17]["forecast_count"] == len(active_keys)
+            assert data["days"][17]["missing_count"] == 0
+            assert data["days"][17]["has_full_coverage"] is True
+            assert data["days"][16]["missing_count"] == len(active_keys)
+            if suffix:
+                assert data["days"][17]["has_forecast"] is True
+    finally:
+        for sign in signs:
+            sign.is_enabled = original_flags[sign.key]
+        db.session.commit()

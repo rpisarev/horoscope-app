@@ -48,10 +48,10 @@ Home refreshes `/api/meta` before sign navigation; it does not fetch forecast co
 | `/api/forecast` | Published-only lookup by sign/date/locale/type; `200` with existing aliases, or `404` with `error: forecast_not_published` and `message: Forecast is not published`. Never generates or writes. Existing published stubs still return `200`; invalid input retains `400`. |
 | `/api/years` | Published years, optional sign filter, exact locale/type filters; **no active-sign filter**. Empty filtered results fall back to `2024..business-current-year`. |
 | `/api/archive/day` | Published forecasts for active signs, ordered by sign order, plus coverage for the requested date. Actual sign keys are present in `forecasts`. |
-| `/api/archive/month` | Every calendar day with aggregate `forecast_count`, `missing_count`, `has_full_coverage`; no sign filter or per-sign availability. |
+| `/api/archive/month` | Every calendar day with aggregate `forecast_count`, `missing_count`, `has_full_coverage`. Optional active `sign` adds boolean `has_forecast` per day for that sign/date/locale/type; aggregates remain unchanged. Unknown, empty, or disabled supplied sign returns `400`. |
 | `/api/archive/months` | All 12 months with forecast totals, covered/full day totals, and availability/full-month booleans. Aggregate across active signs. |
 
-Archive locale/type are exact database filters, defaulting to `ru`/`daily`, not validated enums. `expected_sign_count` counts enabled `zodiac_signs` at request time; it is not hardcoded to 13. With N active signs, empty/partial/full days have counts 0 / between 0 and N / N; missing is `max(N-count, 0)`. Full coverage requires N > 0. Existing archive tests use the 13-sign seed and verify empty, partial, full, draft, locale, and type cases.
+Archive locale/type are exact database filters, defaulting to `ru`/`daily`, not validated enums. `expected_sign_count` counts enabled `zodiac_signs` at request time; it is not hardcoded to 13. With N active signs, empty/partial/full days have counts 0 / between 0 and N / N; missing is `max(N-count, 0)`. Full coverage requires N > 0. Archive tests verify empty/partial/full summaries, selected-sign published availability, locale/type/status filtering, and dynamic coverage after enabling only one or two signs. Without `sign`, response keys and semantics remain unchanged.
 
 ## Zodiac metadata
 
@@ -103,7 +103,7 @@ Scheduler target dates use `APP_TIMEZONE` (default `Europe/Kyiv`) and default to
 
 | Check | Command and actual result |
 | --- | --- |
-| Backend | `bash scripts/backend-test.sh` — **207 passed in 15.07s**, isolated PostgreSQL database, migrations through `0005`. |
+| Backend | `bash scripts/backend-test.sh` — **220 passed in 16.81s**, isolated PostgreSQL database, migrations through `0005`. |
 | Frontend tests | From `frontend/`: `npm test -- --run` — **41 passed in 5.22s** (6 files; total Vitest duration). Coverage includes metadata timeout/abort/retry/deduplication, nonblocking App/explicit-date rendering, isolated Home/redirect navigation, date labels/limits, and forecast published/404/error states; broader interaction coverage remains limited. |
 | Production bundle | From `frontend/`: `npm run build` — **passed in 6.97s**, Vite 6.3.5. |
 | Typecheck / vue-tsc | **Not available** as a configured repository check; no declared compiler/checker tooling or script. `strict` is not enabled; JS checking is off. |
@@ -117,7 +117,7 @@ Build and Vitest emitted Vite's CJS Node API deprecation warning. Before full ve
 - **RESOLVED THIS MILESTONE:** Public forecast GET no longer creates stubs or exposes draft/non-published rows. `test_api_forecast.py` covers published normal/stub responses, exact missing/draft responses, repeated missing reads with no forecast/audit rows or commits, blocked generation/provider calls, scope filters, and invalid inputs. Old tests requiring GET-created stubs were replaced; year tests now seed data explicitly.
 - **HISTORICAL DATA / OPEN QUESTION:** Existing published stubs remain readable and still count toward generation skip rules, archive coverage, and sitemaps. This task does not clean or replace them; their future treatment is undecided.
 
-- **CONFIRMED — month coverage is not sign-aware.** On `/archive/aries/2026/06`, a partial day's aggregate count cannot identify whether Aries exists. `/api/archive/day` can answer for one day via its forecast list; month/months cannot. `/api/years?sign=aries` only answers at year granularity and has synthetic fallback years.
+- **RESOLVED THIS MILESTONE:** Optional `sign` makes month coverage explicit for the selected sign even on partial aggregate days. The original aggregate contract is preserved. `/api/archive/months` remains aggregate-only; `/api/years?sign=aries` still has synthetic fallback years and cannot establish daily availability.
 - **RESOLVED THIS MILESTONE:** Product today has a shared configurable business timezone and a backend authority. Deterministic tests cover winter/summer midnight boundaries, DST transitions, timezone overrides, API defaults, year rollover, model defaults, and scheduler agreement. Operational UTC clocks remain separate intentionally.
 
 - **VERIFIED — README/configuration gaps.** README's old `188 passed in 8.66s` is historical. Its OpenAI per-run limit example is 1; the service default is 2 (scheduler total jobs per tick separately defaults to 1). Compose does not pass through `PUBLIC_SITE_URL`, `SITEMAP_CHUNK_SIZE`, scheduler target-policy/rolling settings, or `GENERATION_OPENAI_MAX_*`; putting them only in root `.env` does not inject them into these containers. README now documents the forecast read contract and `/api/meta`; unrelated configuration gaps were not changed.
@@ -131,7 +131,7 @@ Build and Vitest emitted Vite's CJS Node API deprecation warning. Before full ve
 
 ## Open decisions
 
-**OPEN QUESTION:** Treatment of existing published stubs; sign-aware month availability; consistent invalid-route behavior; frontend canonical handling; and sign metadata/presentation ownership during Home/archive integration remain unresolved. The missing forecast contract (`404`) and business-date policy are now implemented; the other decisions were not part of this milestone.
+**OPEN QUESTION:** Treatment of existing published stubs; consistent invalid-route behavior; frontend canonical handling; and sign metadata/presentation ownership during Home/archive integration remain unresolved. The missing forecast contract (`404`) and business-date policy are now implemented; the other decisions were not part of this milestone.
 
 ## Historical branch context
 

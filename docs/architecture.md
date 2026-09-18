@@ -146,9 +146,9 @@ Flask /api/archive/day|month|months
 
 Coverage queries in [`routes.py`](../backend/app/routes.py) match locale and type exactly, count only published forecasts of enabled signs, and derive expected sign count from enabled database rows. Count uses distinct sign keys for grouped days. Month includes empty days; months includes empty months. Daily full coverage requires a positive expected count and enough forecasts; missing count is floored at zero.
 
-There is no `sign` filter or list of present signs in month/months responses. A partial aggregate day therefore cannot establish whether the currently selected sign exists. `/api/archive/day` returns the forecast records needed to answer that question for a single date. `/api/years` can filter by sign, but has no active-sign join and returns synthetic fallback years when its query is empty. It cannot establish daily availability.
+Without `sign`, `/api/archive/month` keeps its original envelope and daily fields: `date`, `forecast_count`, `missing_count`, and `has_full_coverage`. With `sign`, the handler first validates an enabled database row, then reuses `_published_archive_counts` with a sign filter for one additional grouped month query. Every day gains a boolean `has_forecast`; aggregate counts still include all enabled signs. Unknown, empty, or disabled supplied signs return the existing Flask `400` error convention. Another sign's forecast, a non-published selected-sign row, or a locale/type mismatch cannot make `has_forecast` true.
 
-Both coverage handlers and the separate forecast handler used by the archive-day UI are now read-only. Tests in `test_api_archive.py` cover published filtering, scope, and empty/partial/full summaries. Frontend tests cover archive-day published/missing/error rendering; calendar availability integration remains out of scope.
+Both coverage handlers and the separate forecast handler used by the archive-day UI are now read-only. Tests in `test_api_archive.py` cover aggregate compatibility, selected-sign scope/status, enabled-sign validation, and dynamic active counts. Frontend tests cover archive-day published/missing/error rendering; calendar availability integration remains out of scope.
 
 ## Zodiac metadata ownership
 

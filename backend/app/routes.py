@@ -182,8 +182,9 @@ def _published_archive_counts(
     end_date: date,
     locale: str,
     forecast_type: str,
+    sign: str | None = None,
 ) -> dict[date, int]:
-    rows = (
+    query = (
         db.session.query(
             Forecast.target_date.label("target_date"),
             func.count(distinct(Forecast.sign_key)).label("forecast_count"),
@@ -197,9 +198,10 @@ def _published_archive_counts(
             Forecast.status == "published",
             ZodiacSign.is_enabled.is_(True),
         )
-        .group_by(Forecast.target_date)
-        .all()
     )
+    if sign is not None:
+        query = query.filter(Forecast.sign_key == sign)
+    rows = query.group_by(Forecast.target_date).all()
 
     return {row.target_date: int(row.forecast_count) for row in rows}
 
@@ -369,6 +371,9 @@ def archive_month():
     month = _parse_int_arg("month", min_value=1, max_value=12)
     locale = request.args.get("locale", DEFAULT_LOCALE)
     forecast_type = request.args.get("type", DEFAULT_FORECAST_TYPE)
+    sign = request.args.get("sign")
+    if sign is not None and not ZodiacSign.query.filter_by(key=sign, is_enabled=True).first():
+        abort(400, f"Unknown or inactive sign '{sign}'")
     expected_sign_count = _active_sign_count()
 
     start_date, end_date, days_in_month = _month_bounds(year, month)
@@ -387,6 +392,20 @@ def archive_month():
         )
         for offset in range(days_in_month)
     ]
+
+    if sign is not None:
+        published_dates = {
+            day.isoformat()
+            for day in _published_archive_counts(
+                start_date=start_date,
+                end_date=end_date,
+                locale=locale,
+                forecast_type=forecast_type,
+                sign=sign,
+            )
+        }
+        for day in days:
+            day["has_forecast"] = day["date"] in published_dates
 
     return jsonify(
         {
