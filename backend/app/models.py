@@ -1,9 +1,8 @@
-from datetime import date
-
 from sqlalchemy import func
 from sqlalchemy.dialects.postgresql import JSONB
 
 from . import db
+from .business_date import business_today
 
 
 json_type = JSONB().with_variant(db.JSON(), "sqlite")
@@ -98,7 +97,7 @@ class Forecast(TimestampMixin, db.Model):
         nullable=False,
         index=True,
     )
-    target_date = db.Column(db.Date, nullable=False, default=date.today, index=True)
+    target_date = db.Column(db.Date, nullable=False, default=business_today, index=True)
     locale = db.Column(db.String(8), nullable=False, server_default="ru")
     forecast_type = db.Column(db.String(32), nullable=False, server_default="daily")
     title = db.Column(db.String(255), nullable=True)

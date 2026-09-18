@@ -40,7 +40,7 @@ def get_published_forecast(
 
 def generate_horoscope(sign: str, day: date) -> str:
     """
-    Backward-compatible generator used by the current API fallback.
+    Legacy standalone stub generator; public reads never call it.
 
     The sign argument is intentionally ignored here. Sign keys are important
     for DB routing and frontend display, but the generated text itself is

@@ -72,6 +72,8 @@ def _env_int(
 
 
 class Config:
+    APP_TIMEZONE = os.getenv("APP_TIMEZONE", "Europe/Kyiv")
+
     SQLALCHEMY_DATABASE_URI = (
         os.getenv("DATABASE_URL")
         or _build_postgres_uri()

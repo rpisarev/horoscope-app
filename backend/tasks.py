@@ -1,11 +1,11 @@
 import logging
 import os
 from datetime import datetime
-from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.blocking import BlockingScheduler
 
 from app import create_app
+from app.business_date import business_datetime
 from app.services import (
     DEFAULT_FORECAST_TYPE,
     DEFAULT_LOCALE,
@@ -76,7 +76,6 @@ def env_int(
     return value
 
 
-APP_TIMEZONE = os.getenv("APP_TIMEZONE", "Europe/Kyiv")
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 
 SCHEDULE_HOUR = env_int("SCHEDULE_HOUR", 1, min_value=0, max_value=23)
@@ -189,11 +188,13 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 app = create_app()
+APP_TIMEZONE = app.config["APP_TIMEZONE"]
 scheduler = BlockingScheduler(timezone=APP_TIMEZONE)
 
 
 def current_app_datetime() -> datetime:
-    return datetime.now(ZoneInfo(APP_TIMEZONE))
+    with app.app_context():
+        return business_datetime()
 
 
 def scheduled_target_dates():

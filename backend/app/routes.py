@@ -6,14 +6,13 @@ from flask import Blueprint, Response, abort, current_app, jsonify, request
 from sqlalchemy import distinct, extract, func
 
 from . import db
+from .business_date import business_today, business_timezone
 from .models import Forecast, ZodiacSign
 from .services import (
     DEFAULT_FORECAST_TYPE,
     DEFAULT_LOCALE,
     SIGNS,
-    generate_horoscope,
-    get_forecast,
-    save_forecast,
+    get_published_forecast,
 )
 from .services.sitemap_service import (
     DEFAULT_SITEMAP_CHUNK_SIZE,
@@ -183,8 +182,9 @@ def _published_archive_counts(
     end_date: date,
     locale: str,
     forecast_type: str,
+    sign: str | None = None,
 ) -> dict[date, int]:
-    rows = (
+    query = (
         db.session.query(
             Forecast.target_date.label("target_date"),
             func.count(distinct(Forecast.sign_key)).label("forecast_count"),
@@ -198,9 +198,10 @@ def _published_archive_counts(
             Forecast.status == "published",
             ZodiacSign.is_enabled.is_(True),
         )
-        .group_by(Forecast.target_date)
-        .all()
     )
+    if sign is not None:
+        query = query.filter(Forecast.sign_key == sign)
+    rows = query.group_by(Forecast.target_date).all()
 
     return {row.target_date: int(row.forecast_count) for row in rows}
 
@@ -250,6 +251,16 @@ def split_sitemap_xml(filename: str):
     abort(404, f"Unknown sitemap file '{filename}'")
 
 
+@bp.route("/meta")
+def meta():
+    response = jsonify({
+        "business_date": business_today().isoformat(),
+        "timezone": business_timezone().key,
+    })
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 @bp.route("/forecast")
 def forecast():
     sign = request.args.get("sign")
@@ -266,9 +277,9 @@ def forecast():
         except ValueError:
             abort(400, "Bad date format, expected YYYY-MM-DD")
     else:
-        target_day = date.today()
+        target_day = business_today()
 
-    fc = get_forecast(
+    fc = get_published_forecast(
         sign=sign,
         day=target_day,
         locale=locale,
@@ -276,17 +287,10 @@ def forecast():
     )
 
     if not fc:
-        text = generate_horoscope(sign, target_day)
-        fc = save_forecast(
-            sign=sign,
-            day=target_day,
-            text=text,
-            model_version="stub",
-            locale=locale,
-            forecast_type=forecast_type,
-            status="published",
-            source="stub",
-        )
+        return jsonify({
+            "error": "forecast_not_published",
+            "message": "Forecast is not published",
+        }), 404
 
     return jsonify(fc.to_dict())
 
@@ -367,6 +371,9 @@ def archive_month():
     month = _parse_int_arg("month", min_value=1, max_value=12)
     locale = request.args.get("locale", DEFAULT_LOCALE)
     forecast_type = request.args.get("type", DEFAULT_FORECAST_TYPE)
+    sign = request.args.get("sign")
+    if sign is not None and not ZodiacSign.query.filter_by(key=sign, is_enabled=True).first():
+        abort(400, f"Unknown or inactive sign '{sign}'")
     expected_sign_count = _active_sign_count()
 
     start_date, end_date, days_in_month = _month_bounds(year, month)
@@ -385,6 +392,20 @@ def archive_month():
         )
         for offset in range(days_in_month)
     ]
+
+    if sign is not None:
+        published_dates = {
+            day.isoformat()
+            for day in _published_archive_counts(
+                start_date=start_date,
+                end_date=end_date,
+                locale=locale,
+                forecast_type=forecast_type,
+                sign=sign,
+            )
+        }
+        for day in days:
+            day["has_forecast"] = day["date"] in published_dates
 
     return jsonify(
         {
@@ -514,7 +535,7 @@ def years():
 
     if not forecast_years:
         start_year = 2024
-        current_year = date.today().year
+        current_year = business_today().year
         forecast_years = list(range(start_year, current_year + 1))
 
     return jsonify(forecast_years)
