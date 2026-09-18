@@ -21,7 +21,10 @@ const props = defineProps<{ modelValue: string }>()
 const emit = defineEmits<{ (e:'update:modelValue', v:string):void }>()
 
 const label = computed(() => prettifyDate(props.modelValue))
-const isMax = computed(() => props.modelValue >= maxForwardDate)
+const isMax = computed(() => {
+  const limit = maxForwardDate()
+  return !limit || props.modelValue >= limit
+})
 const isMin = computed(() => props.modelValue <= '1970-01-01') // safe floor
 
 function prev(){ if(!isMin.value) emit('update:modelValue', isoAddDays(props.modelValue,-1)) }

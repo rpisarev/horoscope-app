@@ -169,7 +169,12 @@
               px-4 py-3 font-lato text-sm leading-6 text-white/65"
             >
               <span class="mr-2 text-amber-300">ⓘ</span>
-              Доступны только прошедшие дни. Сегодняшний прогноз открывается отдельно.
+              <template v-if="todayForecastLink">
+                Доступны только прошедшие дни. Сегодняшний прогноз открывается отдельно.
+              </template>
+              <template v-else>
+                Текущая дата недоступна. Выбор дня появится после её загрузки.
+              </template>
             </div>
 
           </section>
@@ -202,6 +207,7 @@
         </router-link>
 
         <router-link
+          v-if="todayForecastLink"
           :to="todayForecastLink"
           class="inline-flex min-h-14 items-center justify-center rounded-2xl border border-amber-200/55
           bg-amber-300/85 px-6 font-lato text-base font-bold text-slate-950
@@ -236,9 +242,6 @@ import { todayIso } from '../constants/zodiac'
 
 const route = useRoute()
 const router = useRouter()
-
-const fallbackYear = dayjs().year()
-const fallbackMonth = dayjs().month() + 1
 
 const years = ref<number[]>([])
 const isYearsLoaded = ref(false)
@@ -338,7 +341,7 @@ function getRouteYear() {
     return routeValidation.value.params.year
   }
 
-  return parseYearParam(route.params.year) ?? fallbackYear
+  return parseYearParam(route.params.year) ?? NaN // Invalid routes render NotFound.
 }
 
 function getRouteMonth() {
@@ -346,7 +349,7 @@ function getRouteMonth() {
     return routeValidation.value.params.month
   }
 
-  return parseMonthParam(route.params.month) ?? fallbackMonth
+  return parseMonthParam(route.params.month) ?? NaN
 }
 
 const sign = ref(getRouteSign())
@@ -423,13 +426,13 @@ const mainLink = computed(() => ({
   name: 'home',
 }))
 
-const todayForecastLink = computed(() => ({
-  name: 'horoscope',
-  params: {
-    sign: sign.value,
-    day: todayIso(),
-  },
-}))
+const todayForecastLink = computed(() => {
+  const today = todayIso()
+  return today ? {
+    name: 'horoscope',
+    params: { sign: sign.value, day: today },
+  } : null
+})
 
 onMounted(async () => {
   try {
@@ -448,7 +451,7 @@ const weekDays = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']
 const calendarDays = computed(() => {
   const firstDay = dayjs(`${year.value}-${pad2(month.value)}-01`)
   const daysInMonth = firstDay.daysInMonth()
-  const today = dayjs()
+  const today = todayIso()
 
   const items: {
     key: string
@@ -476,9 +479,10 @@ const calendarDays = computed(() => {
 
   for (let d = 1; d <= daysInMonth; d++) {
     const date = dayjs(`${year.value}-${pad2(month.value)}-${pad2(d)}`)
-    const isFuture = date.isAfter(today, 'day')
-    const isToday = date.isSame(today, 'day')
-    const active = !isFuture && !isToday
+    const calendarDate = `${year.value}-${pad2(month.value)}-${pad2(d)}`
+    const isFuture = today !== null && calendarDate > today
+    const isToday = calendarDate === today
+    const active = today !== null && !isFuture && !isToday
     const weekDay = date.day()
     const isWeekend = weekDay === 0 || weekDay === 6
 

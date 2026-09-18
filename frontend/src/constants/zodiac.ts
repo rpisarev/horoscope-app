@@ -1,3 +1,6 @@
+import { todayIso } from '../utils/businessDate'
+export { todayIso } from '../utils/businessDate'
+
 export interface Zodiac {
   key: string
   nameEn: string
@@ -97,8 +100,6 @@ export const HOME_ZODIACS: HomeZodiacItem[] = HOME_ORDER
 
 // date utils (ISO YYYY-MM-DD)
 
-export const todayIso = () => new Date().toISOString().slice(0, 10)
-
 export const isoAddDays = (iso: string, d: number) => {
   const dt = new Date(iso)
   dt.setUTCDate(dt.getUTCDate() + d)
@@ -110,10 +111,12 @@ const human = (iso: string) =>
     day: 'numeric',
     month: 'long',
     year: 'numeric',
+    timeZone: 'UTC', // Format a plain domain date without shifting its calendar day.
   })
 
 export const prettifyDate = (iso: string) => {
   const today = todayIso()
+  if (!today) return human(iso)
 
   if (iso === today) return `Сегодня — ${human(iso)}`
   if (iso === isoAddDays(today, -1)) return `Вчера — ${human(iso)}`
@@ -122,4 +125,7 @@ export const prettifyDate = (iso: string) => {
   return human(iso)
 }
 
-export const maxForwardDate = isoAddDays(todayIso(), 1)
+export const maxForwardDate = () => {
+  const today = todayIso()
+  return today ? isoAddDays(today, 1) : null
+}

@@ -3,17 +3,15 @@ from datetime import date
 from app.services import save_forecast
 
 
-def test_years_endpoint_returns_fallback_when_no_forecasts_exist(client):
+def test_years_endpoint_returns_fallback_when_no_forecasts_exist(client, monkeypatch):
+    monkeypatch.setattr("app.routes.business_today", lambda: date(2027, 1, 1))
     response = client.get("/api/years")
 
     assert response.status_code == 200
 
     data = response.get_json()
 
-    assert isinstance(data, list)
-    assert 2024 in data
-    assert date.today().year in data
-    assert all(isinstance(year, int) for year in data)
+    assert data == [2024, 2025, 2026, 2027]
 
 
 def test_years_endpoint_returns_years_from_published_forecasts(client, app):

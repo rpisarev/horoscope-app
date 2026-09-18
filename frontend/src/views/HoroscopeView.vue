@@ -325,7 +325,6 @@ const ZODIAC_ASSETS: Record<ZodiacKey, ZodiacAssets> = {
 }
 
 const FALLBACK_SIGN: ZodiacKey = 'capricorn'
-const FALLBACK_DAY = new Date().toISOString().slice(0, 10)
 
 const route = useRoute()
 const router = useRouter()
@@ -338,7 +337,7 @@ const routeError = computed(() => {
 })
 
 const sign = ref(initialRouteValidation.ok ? initialRouteValidation.params.sign : FALLBACK_SIGN)
-const day = ref(initialRouteValidation.ok ? initialRouteValidation.params.day : FALLBACK_DAY)
+const day = ref(initialRouteValidation.ok ? initialRouteValidation.params.day : '')
 
 const forecastText = ref('')
 const isLoading = ref(false)

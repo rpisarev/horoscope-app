@@ -205,9 +205,21 @@ locale=ru|uk|en
 
 Only active signs are returned by this public endpoint.
 
+### `GET /api/meta`
+
+Returns the authoritative product calendar date and timezone:
+
+```json
+{"business_date":"2026-09-17","timezone":"Europe/Kyiv"}
+```
+
+The existing `APP_TIMEZONE` setting controls this policy and defaults to `Europe/Kyiv`.
+This response is not cached. Frontend navigation, date defaults, labels, and limits use
+this date; forecast dates remain plain `YYYY-MM-DD` and operational timestamps remain UTC.
+
 ### `GET /api/forecast`
 
-Read-only and published-only.
+Read-only and published-only. An omitted `date` uses the business date from `/api/meta`.
 Published forecasts return `200`, including existing `source=stub` rows. Missing or
 non-published forecasts return `404` with exactly:
 
@@ -260,6 +272,8 @@ If the database has no published forecasts, it falls back to:
 ```text
 2024..current_year
 ```
+
+Here `current_year` is the year of the configured business date.
 
 ## Public Archive API
 

@@ -1,5 +1,8 @@
 <template>
-  <section class="relative min-h-screen overflow-hidden text-slate-100">
+  <p v-if="!hasDate" role="status" class="p-6 text-center text-slate-300">
+    {{ businessDateError || 'Загрузка…' }}
+  </p>
+  <section v-else class="relative min-h-screen overflow-hidden text-slate-100">
     <!-- Page background -->
     <div class="pointer-events-none absolute inset-0 -z-30 bg-slate-950" />
 
@@ -221,6 +224,7 @@
 </template>
 
 <script setup lang="ts">
+import { businessDateError, todayIso } from '../utils/businessDate'
 import { computed, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 
@@ -367,12 +371,15 @@ const FALLBACK_SIGN: ZodiacKey = 'capricorn'
 const route = useRoute()
 const router = useRouter()
 
-const now = new Date()
+const todayParts = computed(() => todayIso()?.split('-').map(Number))
 
 const sign = ref<string>(normalizeSign(route.params.sign))
-const year = ref(parseNumberParam(route.params.year, now.getFullYear()))
-const month = ref(parseNumberParam(route.params.month, now.getMonth() + 1))
-const day = ref(parseNumberParam(route.params.day, now.getDate()))
+const year = ref(parseNumberParam(route.params.year, todayParts.value?.[0] ?? NaN))
+const month = ref(parseNumberParam(route.params.month, todayParts.value?.[1] ?? NaN))
+const day = ref(parseNumberParam(route.params.day, todayParts.value?.[2] ?? NaN))
+const hasDate = computed(() => [year.value, month.value, day.value].every(Number.isFinite) && year.value >= 1)
+// Only the existing invalid-date fallback needs metadata; explicit dates render immediately.
+const canNormalizeDate = computed(() => hasDate.value || Boolean(todayParts.value))
 
 const years = ref<number[]>([])
 const forecastText = ref('')
@@ -405,7 +412,7 @@ function pad(value: number) {
 }
 
 function daysInMonth(targetYear: number, targetMonth: number) {
-  return new Date(targetYear, targetMonth, 0).getDate()
+  return new Date(Date.UTC(targetYear, targetMonth, 0)).getUTCDate()
 }
 
 function formatRuDate(targetYear: number, targetMonth: number, targetDay: number) {
@@ -481,11 +488,16 @@ function normalizeState() {
   }
 
   if (!Number.isFinite(year.value) || year.value < 1) {
-    year.value = now.getFullYear()
+    year.value = todayParts.value![0]
     changed = true
   }
 
-  if (!Number.isFinite(month.value) || month.value < 1) {
+  if (!Number.isFinite(month.value)) {
+    month.value = todayParts.value![1]
+    changed = true
+  }
+
+  if (month.value < 1) {
     month.value = 1
     changed = true
   }
@@ -497,7 +509,12 @@ function normalizeState() {
 
   const maxDay = daysInMonth(year.value, month.value)
 
-  if (!Number.isFinite(day.value) || day.value < 1) {
+  if (!Number.isFinite(day.value)) {
+    day.value = todayParts.value![2]
+    changed = true
+  }
+
+  if (day.value < 1) {
     day.value = 1
     changed = true
   }
@@ -645,8 +662,9 @@ watch(
 )
 
 watch(
-  [sign, year, month, day],
+  [sign, year, month, day, canNormalizeDate],
   async () => {
+    if (!canNormalizeDate.value) return
     if (normalizeState()) return
 
     await replaceRouteIfNeeded()

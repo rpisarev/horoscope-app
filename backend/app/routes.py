@@ -6,6 +6,7 @@ from flask import Blueprint, Response, abort, current_app, jsonify, request
 from sqlalchemy import distinct, extract, func
 
 from . import db
+from .business_date import business_today, business_timezone
 from .models import Forecast, ZodiacSign
 from .services import (
     DEFAULT_FORECAST_TYPE,
@@ -248,6 +249,16 @@ def split_sitemap_xml(filename: str):
     abort(404, f"Unknown sitemap file '{filename}'")
 
 
+@bp.route("/meta")
+def meta():
+    response = jsonify({
+        "business_date": business_today().isoformat(),
+        "timezone": business_timezone().key,
+    })
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 @bp.route("/forecast")
 def forecast():
     sign = request.args.get("sign")
@@ -264,7 +275,7 @@ def forecast():
         except ValueError:
             abort(400, "Bad date format, expected YYYY-MM-DD")
     else:
-        target_day = date.today()
+        target_day = business_today()
 
     fc = get_published_forecast(
         sign=sign,
@@ -505,7 +516,7 @@ def years():
 
     if not forecast_years:
         start_year = 2024
-        current_year = date.today().year
+        current_year = business_today().year
         forecast_years = list(range(start_year, current_year + 1))
 
     return jsonify(forecast_years)

@@ -11,17 +11,20 @@ import { useRouter } from 'vue-router'
 
 import Starfield from '../components/Starfield.vue'
 import ZodiacWheel from '../components/ZodiacWheel.vue'
-import { HOME_ZODIACS, todayIso } from '../constants/zodiac'
+import { HOME_ZODIACS } from '../constants/zodiac'
+import { refreshBusinessDate } from '../utils/businessDate'
 
 const router = useRouter()
 
-function goToHoroscope(zodiac) {
-  router.push({
-    name: 'horoscope',
-    params: {
-      sign: zodiac.slug,
-      day: todayIso(),
-    },
-  })
+async function goToHoroscope(zodiac) {
+  try {
+    const { business_date } = await refreshBusinessDate()
+    await router.push({
+      name: 'horoscope',
+      params: { sign: zodiac.slug, day: business_date },
+    })
+  } catch {
+    // App displays the metadata error and retry action.
+  }
 }
 </script>
