@@ -53,6 +53,8 @@ Use non-watch tests. A Vite build does not type-check the application. Report ch
 ## Frontend guardrails
 
 - Inspect both route definitions and affected view validators before changing navigation.
+- Forecast-day identity is `/horoscope/:sign/:YYYY-MM-DD`; legacy archive-day URLs only validate and replace to that route. Invalid explicit signs/dates render contextual NotFound without fallback or clamping.
+- ArchiveMonth clickability comes from sign-scoped `/api/archive/month` `has_forecast`, not calendar position or aggregate counts. Metadata failure must not block explicit-month availability.
 - Preserve intended interactions, including Wheel selection on click/Enter/Space, unless the task changes them. Preserve animation cleanup.
 - Distinguish source evidence and reproduced bugs from speculative synchronization risks.
 

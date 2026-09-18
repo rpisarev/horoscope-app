@@ -108,7 +108,7 @@
               </h2>
             </div>
 
-            <div class="grid grid-cols-7 gap-2">
+            <div class="grid grid-cols-7 gap-2" aria-label="Календарь архива" :aria-busy="isMonthLoading">
               <div
                 v-for="d in weekDays"
                 :key="d"
@@ -122,11 +122,15 @@
                 <router-link
                   v-if="day.active"
                   :to="day.to"
+                  :aria-current="day.isToday ? 'date' : undefined"
                   class="group relative flex min-h-12 items-center justify-center rounded-2xl border
                   border-white/10 bg-white/[0.05] font-lato text-lg font-semibold
                   transition duration-200 hover:-translate-y-0.5 hover:border-amber-300/55
                   hover:bg-amber-300/15 hover:text-amber-100 hover:shadow-[0_0_24px_rgba(251,191,36,0.18)]"
-                  :class="day.isWeekend ? 'text-amber-100' : 'text-white'"
+                  :class="[
+                    day.isWeekend ? 'text-amber-100' : 'text-white',
+                    day.isToday ? 'border-amber-300/45 bg-amber-300/10' : '',
+                  ]"
                 >
                   {{ day.number }}
 
@@ -169,12 +173,9 @@
               px-4 py-3 font-lato text-sm leading-6 text-white/65"
             >
               <span class="mr-2 text-amber-300">ⓘ</span>
-              <template v-if="todayForecastLink">
-                Доступны только прошедшие дни. Сегодняшний прогноз открывается отдельно.
-              </template>
-              <template v-else>
-                Текущая дата недоступна. Выбор дня появится после её загрузки.
-              </template>
+              <span v-if="isMonthLoading" role="status">Загрузка доступных прогнозов…</span>
+              <span v-else-if="monthError" role="alert">{{ monthError }}</span>
+              <span v-else>Доступны дни с опубликованным прогнозом для выбранного знака.</span>
             </div>
 
           </section>
@@ -222,7 +223,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import type { RouteLocationRaw } from 'vue-router'
 import dayjs from 'dayjs'
@@ -245,6 +246,15 @@ const router = useRouter()
 
 const years = ref<number[]>([])
 const isYearsLoaded = ref(false)
+const loadedYearsSign = ref('')
+const availableDates = ref(new Set<string>())
+const availabilityScope = ref('')
+const isMonthLoading = ref(false)
+const monthError = ref('')
+const locale = 'ru'
+const forecastType = 'daily'
+let monthRequestId = 0
+let yearsRequestId = 0
 
 const zodiacMeta: Record<string, {
   name: string
@@ -318,10 +328,17 @@ const zodiacMeta: Record<string, {
   },
 }
 
+const requestedMonth = computed(() => validateArchiveMonthRoute(route.params))
+const monthScope = computed(() => {
+  if (!requestedMonth.value.ok) return ''
+  const { sign, year, month } = requestedMonth.value.params
+  return `${sign}/${year}/${month}`
+})
+
 const routeValidation = computed(() => validateArchiveMonthRoute(
   route.params,
   years.value,
-  isYearsLoaded.value
+  isYearsLoaded.value && loadedYearsSign.value === routeParamToString(route.params.sign)
 ))
 
 const routeError = computed(() => (
@@ -434,16 +451,74 @@ const todayForecastLink = computed(() => {
   } : null
 })
 
-onMounted(async () => {
+watch(
+  () => requestedMonth.value.ok ? requestedMonth.value.params.sign : '',
+  async selectedSign => {
+    const localRequestId = ++yearsRequestId
+    years.value = []
+    isYearsLoaded.value = false
+    loadedYearsSign.value = ''
+    if (!selectedSign) {
+      isYearsLoaded.value = true
+      return
+    }
+
+    try {
+      const query = new URLSearchParams({ sign: selectedSign, locale, type: forecastType })
+      const response = await fetch(`/api/years?${query}`)
+      if (!response.ok) throw new Error(`years status ${response.status}`)
+      const payload = await response.json()
+      if (localRequestId !== yearsRequestId) return
+      years.value = Array.isArray(payload) ? payload.map(Number).filter(Number.isInteger) : []
+    } catch (error) {
+      if (localRequestId === yearsRequestId) console.error('Failed to load years list', error)
+    } finally {
+      if (localRequestId === yearsRequestId) {
+        loadedYearsSign.value = selectedSign
+        isYearsLoaded.value = true
+        syncRouteToState()
+      }
+    }
+  },
+  { immediate: true }
+)
+
+watch(monthScope, async scope => {
+  const localRequestId = ++monthRequestId
+  availableDates.value = new Set()
+  availabilityScope.value = ''
+  monthError.value = ''
+  isMonthLoading.value = false
+  if (!requestedMonth.value.ok) return
+
+  const { sign: selectedSign, year: selectedYear, month: selectedMonth } = requestedMonth.value.params
+  isMonthLoading.value = true
   try {
-    const res = await fetch('/api/years')
-    years.value = await res.json()
-  } catch (err) {
-    console.error('Failed to load years list', err)
+    const query = new URLSearchParams({
+      year: String(selectedYear), month: String(selectedMonth), sign: selectedSign,
+      locale, type: forecastType,
+    })
+    const response = await fetch(`/api/archive/month?${query}`)
+    if (!response.ok) throw new Error(`archive month status ${response.status}`)
+    const payload = await response.json()
+    if (!Array.isArray(payload?.days)) throw new Error('Invalid archive month response')
+    if (localRequestId !== monthRequestId || scope !== monthScope.value) return
+    availableDates.value = new Set(payload.days
+      .filter((day: { date?: string; has_forecast?: boolean }) => typeof day?.date === 'string' && day.has_forecast === true)
+      .map((day: { date: string }) => day.date))
+    availabilityScope.value = scope
+  } catch {
+    if (localRequestId === monthRequestId && scope === monthScope.value) {
+      monthError.value = 'Не удалось загрузить доступные прогнозы. Попробуйте ещё раз позже.'
+    }
   } finally {
-    isYearsLoaded.value = true
-    syncRouteToState()
+    if (localRequestId === monthRequestId && scope === monthScope.value) isMonthLoading.value = false
   }
+}, { immediate: true })
+
+onUnmounted(() => {
+  ++monthRequestId
+  ++yearsRequestId
 })
 
 const weekDays = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']
@@ -458,7 +533,6 @@ const calendarDays = computed(() => {
     number: number | null
     active: boolean
     isToday: boolean
-    isFuture: boolean
     isWeekend: boolean
     to: RouteLocationRaw | string
   }[] = []
@@ -471,7 +545,6 @@ const calendarDays = computed(() => {
       number: null,
       active: false,
       isToday: false,
-      isFuture: false,
       isWeekend: false,
       to: '',
     })
@@ -480,9 +553,9 @@ const calendarDays = computed(() => {
   for (let d = 1; d <= daysInMonth; d++) {
     const date = dayjs(`${year.value}-${pad2(month.value)}-${pad2(d)}`)
     const calendarDate = `${year.value}-${pad2(month.value)}-${pad2(d)}`
-    const isFuture = today !== null && calendarDate > today
     const isToday = calendarDate === today
-    const active = today !== null && !isFuture && !isToday
+    const active = availabilityScope.value === `${sign.value}/${year.value}/${month.value}`
+      && availableDates.value.has(calendarDate)
     const weekDay = date.day()
     const isWeekend = weekDay === 0 || weekDay === 6
 
@@ -491,16 +564,10 @@ const calendarDays = computed(() => {
       number: d,
       active,
       isToday,
-      isFuture,
       isWeekend,
       to: {
-        name: 'archive-forecast',
-        params: {
-          sign: sign.value,
-          year: date.format('YYYY'),
-          month: date.format('MM'),
-          day: date.format('DD'),
-        },
+        name: 'horoscope',
+        params: { sign: sign.value, day: calendarDate },
       },
     })
   }

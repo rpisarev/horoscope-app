@@ -94,7 +94,7 @@ export function parseMonthParam(value: unknown): number | null {
 export function parseArchiveDayParam(value: unknown): number | null {
   const text = routeParamToString(value)
 
-  if (!/^-?\d+$/.test(text)) {
+  if (!/^\d{1,2}$/.test(text)) {
     return null
   }
 
@@ -229,7 +229,7 @@ export function validateArchiveForecastRoute(
     return failure('ARCHIVE_YEAR_NOT_FOUND')
   }
 
-  if (day === null || day < 1 || day > daysInMonth(year, month)) {
+  if (day === null || !isRealIsoDate(`${String(year).padStart(4, '0')}-${pad2(month)}-${pad2(day)}`)) {
     return failure('DAY_NOT_FOUND')
   }
 

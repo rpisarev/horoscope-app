@@ -49,7 +49,6 @@ describe('business-date navigation', () => {
     '/',
     '/horoscope/aries/2026-05-12',
     '/archive/aries/2026/05',
-    '/archive/aries/2026/05/12',
     '/not-a-route',
     '/horoscope/invalid/not-a-date',
     '/archive/aries/not-a-year/05',

@@ -1,6 +1,6 @@
 # Current architecture
 
-This describes the current source on `update-frontend`, based on `feature/main-page-start` at the documentation checkpoint `bbdb9ef`, plus the implemented read-only forecast and business-date milestone. The branch contains substantially more than Home-page work. Known issues, risks, and historical changes are identified explicitly; this is not a proposed replacement architecture. See [CURRENT_STATE.md](CURRENT_STATE.md) for the dated snapshot, verification results, and open decisions. [README.md](../README.md) remains the setup reference.
+This describes the current source on `update-frontend`, based on `feature/main-page-start` at the documentation checkpoint `bbdb9ef`, plus the read-only forecast/business-date milestone and sign-aware archive integration. The branch contains substantially more than Home-page work. Known issues, risks, and historical changes are identified explicitly; this is not a proposed replacement architecture. See [CURRENT_STATE.md](CURRENT_STATE.md) for the dated snapshot, verification results, and open decisions. [README.md](../README.md) remains the setup reference.
 
 ## System overview and entry points
 
@@ -24,7 +24,7 @@ The frontend runs Vite's dev server on 5173; Flask runs its development server o
 
 ## Frontend structure and main-page flow
 
-[`router/index.ts`](../frontend/src/router/index.ts) owns the route table; `index.js` is a compatibility re-export. Views are eagerly imported. `Home.vue`, `HoroscopeView.vue`, `ArchiveMonth.vue`, `ArchiveForecast.vue`, and `NotFound.vue` remain the active screens. A small `utils/businessDate.ts` helper holds the server date context; there is no general API client, shared forecast composable, or central store.
+[`router/index.ts`](../frontend/src/router/index.ts) owns the route table; `index.js` is a compatibility re-export. Views are eagerly imported. `Home.vue`, `HoroscopeView.vue`, `ArchiveMonth.vue`, and `NotFound.vue` are content views; `ArchiveForecast.vue` is only a legacy-route validation/redirect shim. A small `utils/businessDate.ts` helper holds the server date context; there is no general API client, shared forecast composable, or central store.
 
 ```text
 / -> Home -> Starfield + ZodiacWheel + ZodiacTooltip
@@ -35,11 +35,11 @@ The frontend runs Vite's dev server on 5173; Flask runs its development server o
 
 Home uses static English names, glyphs, date ranges, and a dedicated display order derived from shared `ZODIACS`. It refreshes `/api/meta` before navigation but does not fetch signs or forecasts. Wheel hover pauses rotation and displays a tooltip; click/Enter/Space emits selection. Starfield's canvas animation releases interval/frame/listener resources on unmount. These components are on the normal route and bundled in the production build; there is no separate prototype path. **Historical context:** earlier forecast tooltip placeholders and modal/card navigation were superseded.
 
-Forecast and archive-day screens render API text with loading, explicit unpublished (`404 forecast_not_published`), generic error, and empty-content states. Both contain their own response parsing, paragraph splitting, request-ID handling, route/model watchers, and asset maps. Zodiac illustrations and constellations live under `frontend/src/assets/zodiac/`; Home itself uses glyphs rather than those forecast hero images.
+`HoroscopeView` renders forecast API text with loading, explicit unpublished (`404 forecast_not_published`), generic error, and empty-content states. It owns forecast response parsing, paragraph splitting, request-ID handling, route/model watchers, and asset maps. `ArchiveForecast` no longer fetches or renders forecast content. Zodiac illustrations and constellations live under `frontend/src/assets/zodiac/`; Home itself uses glyphs rather than those forecast hero images.
 
-Routing uses browser history. The navigation guard fetches business metadata only for `/horoscope` and `/archive` convenience redirects. Home, explicit dated routes, and not-found routes resolve without it. `/horoscope` and `/archive` then redirect to Capricorn and backend-supplied current dates, preserving trailing-slash matching and query/hash handling. `HoroscopeView` validates the sign and real ISO day; `ArchiveMonth` validates sign/year/month and a loaded nonempty year list. They render contextual `NotFound` without rewriting invalid routes. ArchiveMonth pads month URLs. ArchiveForecast instead falls back to Capricorn, normalizes/clamps numeric dates, and replaces its URL; it no longer calls `validateArchiveForecastRoute`. Its year list feeds the swiper rather than enforcing year membership. Catch-all routes render `NotFound`/`CosmicGate404`. These are client-side UI states, not configured server HTTP status handling.
+Routing uses browser history. The navigation guard fetches business metadata only for `/horoscope` and `/archive` convenience redirects. Home, explicit dated routes, and not-found routes resolve without it. `/horoscope` and `/archive` then redirect to Capricorn and backend-supplied current dates, preserving trailing-slash matching and query/hash handling. `HoroscopeView` validates the sign and real ISO day; `ArchiveMonth` validates sign/year/month and a loaded nonempty year list. They render contextual `NotFound` without rewriting invalid routes. ArchiveMonth pads month URLs. `ArchiveForecast` calls `validateArchiveForecastRoute` without fetching a year list or metadata. For a known explicit sign and real calendar date it calls `router.replace` to `/horoscope/:sign/:YYYY-MM-DD`, preserving query/hash. Valid one- or two-digit legacy month/day values are padded; malformed/impossible dates and unknown signs render contextual NotFound without clamping, guessing a date, or choosing Capricorn. Catch-all routes render `NotFound`/`CosmicGate404`. These are client-side UI states, not configured server HTTP status handling.
 
-**VERIFIED / RISK:** `ZodiacCarousel` synchronizes `v-model` with Swiper's `realIndex` and `slideToLoop`; all three detail/archive views also synchronize model and route state. It lacks invalid-index and programmatic-event guards. This is an untested synchronization risk, not a reproduced arrow/reset failure. `YearSwiper` and `MonthSwiper` have separate index checks and synchronization flags.
+**VERIFIED / RISK:** `ZodiacCarousel` synchronizes `v-model` with Swiper's `realIndex` and `slideToLoop`; `HoroscopeView` and `ArchiveMonth` also synchronize model and route state. It lacks invalid-index and programmatic-event guards. This is an untested synchronization risk, not a reproduced arrow/reset failure. `YearSwiper` and `MonthSwiper` have separate index checks and synchronization flags.
 
 ## PostgreSQL and persistence
 
@@ -62,16 +62,17 @@ Migration sequence: `0001_initial_schema` creates persistence/reference tables a
 ## Public forecast read: published-only and read-only
 
 ```text
-HoroscopeView / ArchiveForecast
-  -> GET /api/forecast?sign=…&date=…[&locale=…&type=…]
-       -> routes.forecast -> get_published_forecast
-            published row -> 200, existing serializer/aliases
-            missing or only non-published -> 404 forecast_not_published
+ArchiveMonth day link / valid legacy archive-day replacement
+  -> /horoscope/{sign}/{ISO-day} -> HoroscopeView
+       -> GET /api/forecast?sign=…&date=…[&locale=…&type=…]
+            -> routes.forecast -> get_published_forecast
+                 published row -> 200, existing serializer/aliases
+                 missing or only non-published -> 404 forecast_not_published
 ```
 
 [`forecast_service.py`](../backend/app/services/forecast_service.py) already provides `get_published_forecast`; the public route now reuses it. Sign validation still uses static `SIGNS`, not active database metadata. An omitted day uses `business_today()`. Locale/type default to `ru`/`daily` and remain exact lookup filters; invalid sign/date input retains its existing `400` behavior.
 
-**VERIFIED:** The missing response is exactly `{"error":"forecast_not_published","message":"Forecast is not published"}`. No public GET invokes a provider, generation lifecycle, queue, or persistence. Successful responses preserve `sign`/`sign_key`, `day`/`date`, `text`/`forecast`, and `model_version`/`model_name`. Both frontend forecast views show “Прогноз ещё не опубликован” for this response. Regression tests explicitly forbid generation/provider calls and commits and assert repeated missing reads create no forecast or audit rows.
+**VERIFIED:** The missing response is exactly `{"error":"forecast_not_published","message":"Forecast is not published"}`. No public GET invokes a provider, generation lifecycle, queue, or persistence. Successful responses preserve `sign`/`sign_key`, `day`/`date`, `text`/`forecast`, and `model_version`/`model_name`. `HoroscopeView` shows “Прогноз ещё не опубликован” for this response; legacy day routes reach this same page. Regression tests explicitly forbid generation/provider calls and commits and assert repeated missing reads create no forecast or audit rows.
 
 **HISTORICAL CONTEXT / DATA REMAINS:** The previous GET-created published stub path was removed. The legacy standalone `generate_horoscope` helper remains available outside the public route. Existing published stubs are returned normally and still count toward controlled-generation skip rules, archive coverage, and sitemaps; no cleanup or replacement policy changed.
 
@@ -124,31 +125,39 @@ APP_TIMEZONE -> business_date.py -> GET /api/meta (no-store)
                                       {business_date, timezone}
                                 -> frontend utils/businessDate.ts
                                      -> router/Home navigation
-                                     -> defaults, labels, limits, archive comparisons
+                                     -> defaults, labels, limits, archive today link/highlight
 ```
 
 `/api/meta` is public, read-only, and exposes only `business_date` and `timezone`. The frontend requests it with `cache: no-store`, validates the response, and shares one reactive snapshot; concurrent requests are deduplicated. A five-second deadline covers fetch and body reading. Timeout aborts the request; success, failure, abort, and timeout release pending state and clear the deadline, allowing later retries. A late response cannot overwrite a newer snapshot. No browser clock is used to derive product today. App starts the initial load without gating its router view and owns the only periodic refresh (every minute while visible after initialization, plus visibility changes), cleaning up its timer/listener on unmount. Home selection and the two convenience redirects request metadata on demand; individual views do not poll.
 
-Initial failure offers retry/reload while explicit-date content, Home, and not-found views remain renderable. Convenience redirects cannot proceed without a successfully refreshed authoritative date. Until a snapshot exists, `todayIso` returns null: date labels remain absolute, forward-day navigation is disabled, and archive today links/past-day selection are unavailable. ArchiveForecast defers only its existing invalid-date fallback when that fallback needs today; explicit valid dates load immediately. Refresh failures show an error and retain the last server value; no local-clock fallback is used. Thus an idle page can lag midnight until the next refresh, or longer when offline. Relative labels, limits, and archive comparisons react to the shared snapshot; normal loaded-date availability rules are unchanged. UTC arithmetic and UTC formatting of plain date strings preserve calendar dates; they do not establish a separate UTC-today policy.
+Initial failure offers retry/reload while explicit-date content, Home, and not-found views remain renderable. Convenience redirects cannot proceed without a successfully refreshed authoritative date. Until a snapshot exists, `todayIso` returns null: date labels remain absolute, forward-day navigation is disabled, and archive today links/highlighting are unavailable. ArchiveMonth published availability and legacy-day validation/redirects do not depend on that snapshot. Refresh failures show an error and retain the last server value; no local-clock fallback is used. Thus an idle page can lag midnight until the next refresh, or longer when offline. Relative labels, limits, and archive today highlighting react to the shared snapshot; month clickability instead depends exclusively on the published-availability response. UTC arithmetic and UTC formatting of plain date strings preserve calendar dates; they do not establish a separate UTC-today policy.
 
 ## Public archive read flow
 
 ```text
-Current Vue ArchiveMonth -> GET /api/years -> published year query -> PostgreSQL
-                         -> calendar (past business days clickable)
-                         -> ArchiveForecast -> published-only GET /api/forecast
+Vue ArchiveMonth (explicit sign/year/month)
+  -> GET /api/years?sign=…&locale=ru&type=daily -> published year query
+  -> GET /api/archive/month?year=…&month=…&sign=…&locale=ru&type=daily
+       -> published forecasts JOIN enabled zodiac_signs -> PostgreSQL
+       -> aggregate daily coverage + selected-sign has_forecast
+            -> clickable iff has_forecast=true
+            -> /horoscope/{sign}/{ISO-day} -> HoroscopeView
 
-Implemented coverage flow, not yet connected to Vue archive UI:
-Flask /api/archive/day|month|months
-  -> published forecasts JOIN active zodiac metadata -> PostgreSQL
-  -> coverage summaries (day also returns actual forecast/sign records)
+Legacy /archive/{sign}/{year}/{month}/{day}
+  -> ArchiveForecast: strict sign/date validation
+       valid -> router.replace to /horoscope/{sign}/{ISO-day}
+       invalid -> contextual NotFound (no forecast/meta/year fetch)
 ```
 
 Coverage queries in [`routes.py`](../backend/app/routes.py) match locale and type exactly, count only published forecasts of enabled signs, and derive expected sign count from enabled database rows. Count uses distinct sign keys for grouped days. Month includes empty days; months includes empty months. Daily full coverage requires a positive expected count and enough forecasts; missing count is floored at zero.
 
 Without `sign`, `/api/archive/month` keeps its original envelope and daily fields: `date`, `forecast_count`, `missing_count`, and `has_full_coverage`. With `sign`, the handler first validates an enabled database row, then reuses `_published_archive_counts` with a sign filter for one additional grouped month query. Every day gains a boolean `has_forecast`; aggregate counts still include all enabled signs. Unknown, empty, or disabled supplied signs return the existing Flask `400` error convention. Another sign's forecast, a non-published selected-sign row, or a locale/type mismatch cannot make `has_forecast` true.
 
-Both coverage handlers and the separate forecast handler used by the archive-day UI are now read-only. Tests in `test_api_archive.py` cover aggregate compatibility, selected-sign scope/status, enabled-sign validation, and dynamic active counts. Frontend tests cover archive-day published/missing/error rendering; calendar availability integration remains out of scope.
+ArchiveMonth fetches one month per normalized sign/year/month scope, never one request per day. It clears availability when the scope changes and accepts only `has_forecast === true`. Past, today, and future days follow the same rule. Loading or request failure leaves days unavailable; a minimal status/error message replaces the old past-date guidance. A request ID and captured scope check reject late success/error responses; unmount invalidates pending IDs. Only today highlighting and the today link use business metadata, so metadata failure cannot block explicit-month availability.
+
+The view requests `/api/years` for the selected sign and the same locale/type, refetching on sign changes and ignoring old responses. Existing validation against a loaded nonempty year list remains. The years endpoint has no active-sign join and returns synthetic fallback years when its query is empty; it does not establish day availability. `/api/archive/day` still returns forecast records with sign keys, and `/api/archive/months` remains aggregate-only. These two endpoints are not consumed by the frontend. All archive reads remain read-only.
+
+`test_api_archive.py` covers aggregate compatibility, selected-sign scope/status, enabled-sign validation, and dynamic active counts. Frontend tests cover request scope, loading/errors, past/today/future flags, metadata independence, stale responses, canonical links, and strict legacy replacement without a duplicate history entry. Real Swiper interactions are not covered by these tests.
 
 ## Zodiac metadata ownership
 
@@ -171,7 +180,7 @@ There are no `date_start`, `date_end`, or `date_range` columns/properties in tho
 
 Illustrations and constellation art are separate PNG files under `frontend/src/assets/zodiac/illustrations/` and `constellations/`, imported by view maps. They are not glyphs or database image fields. Russian grammatical/genitive labels are local `ArchiveMonth` metadata; the database's translated sign names do not provide those grammatical variants.
 
-Home derives its items from the shared constants; Carousel starts with Capricorn, while Home starts with Aries and positions Ophiuchus differently from backend sort order. ArchiveMonth duplicates names/glyphs and adds genitives; ArchiveForecast duplicates names/glyphs/assets; HoroscopeView has another asset map. **RISK:** separately maintained presentation values can drift from server metadata; no live metadata mismatch was reproduced. The four-field public response cannot replace all current frontend data. Future ownership and API expansion remain **OPEN QUESTIONS**.
+Home derives its items from the shared constants; Carousel starts with Capricorn, while Home starts with Aries and positions Ophiuchus differently from backend sort order. ArchiveMonth duplicates names/glyphs and adds genitives; HoroscopeView owns the forecast asset maps. The legacy ArchiveForecast presentation maps were removed with its content-rendering role. **RISK:** separately maintained presentation values can drift from server metadata; no live metadata mismatch was reproduced. The four-field public response cannot replace all current frontend data. Future ownership and API expansion remain **OPEN QUESTIONS**.
 
 ## Sitemap policy and frontend SEO
 
@@ -179,7 +188,7 @@ Home derives its items from the shared constants; Carousel starts with Capricorn
 
 Flask exposes JSON URL/document inspection under `/api/seo/sitemap/urls` and `/api/seo/sitemap/documents`, flat `/sitemap.xml`, `/sitemap-index.xml`, and numbered `/sitemaps/sitemap-N.xml` chunks. Chunk size defaults to 50,000; public origin defaults to localhost:5173. These handlers do not generate forecasts.
 
-**KNOWN ISSUE:** Frontend `index.html` has a static title and no canonical/robots policy; views do not add one. Archive-day URLs still render content instead of redirecting to the horoscope URL. Sitemap exclusion is therefore only backend URL-selection policy. Root sitemap requests also require public serving/routing beyond Vite's `/api` proxy, which this repository does not configure.
+**VERIFIED:** Legacy archive-day URLs now validate and replace to the canonical horoscope route in the client, removing the duplicate forecast screen. **STILL ABSENT / OUT OF SCOPE:** Frontend `index.html` has a static title and no canonical/robots tags; views do not add them. There are no server HTTP redirects or SSR changes. Sitemap selection and client history replacement do not supply these SEO mechanisms. Root sitemap requests also require public serving/routing beyond Vite's `/api` proxy, which this repository does not configure.
 
 ## Configuration and safety boundaries
 
@@ -191,4 +200,4 @@ OpenAI job creation and execution have distinct opt-ins. Admin additionally requ
 
 Backend verification uses `bash scripts/backend-test.sh`: it starts the DB service, creates a disposable `horoscope_test`, applies migrations, runs pytest, and drops that test DB. Fixtures truncate mutable tables while retaining seeds and refuse the default development DB unless explicitly overridden. Do not use that override or run raw pytest against development data. The audit exercised only the isolated test workflow, not generation smoke examples against development data.
 
-Frontend has Vitest/jsdom with focused tests for the server date context, navigation, labels/limits, refresh cleanup, and forecast rendering. Broader UI/Swiper coverage remains limited. Vite build transpiles TS but does not type-check it. There is no configured vue-tsc/typecheck/lint check, and TS strict mode is not enabled. GitHub Actions currently runs only backend/Compose checks. Current command results and the limits of verification are recorded in [CURRENT_STATE.md](CURRENT_STATE.md).
+Frontend has Vitest/jsdom with focused tests for the server date context, navigation/history replacement, strict legacy validation, labels/limits, refresh cleanup, forecast rendering, and sign-scoped month availability including loading/failure and stale-response handling. Broader UI/Swiper coverage remains limited. Vite build transpiles TS but does not type-check it. There is no configured vue-tsc/typecheck/lint check, and TS strict mode is not enabled. GitHub Actions currently runs only backend/Compose checks. Current command results and the limits of verification are recorded in [CURRENT_STATE.md](CURRENT_STATE.md).
