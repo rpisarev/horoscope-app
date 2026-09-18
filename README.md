@@ -207,6 +207,17 @@ Only active signs are returned by this public endpoint.
 
 ### `GET /api/forecast`
 
+Read-only and published-only.
+Published forecasts return `200`, including existing `source=stub` rows. Missing or
+non-published forecasts return `404` with exactly:
+
+```json
+{"error":"forecast_not_published","message":"Forecast is not published"}
+```
+
+This GET never generates, queues, or saves a forecast. Invalid sign/date inputs retain
+`400` responses. Existing published stub rows are not removed or regenerated.
+
 Example:
 
 ```bash

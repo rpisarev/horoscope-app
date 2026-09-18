@@ -574,6 +574,16 @@ async function loadForecast() {
 
     const response = await fetch(`/api/forecast?${query.toString()}`)
 
+    if (response.status === 404) {
+      const payload = await response.json()
+      if (payload?.error === 'forecast_not_published') {
+        if (localRequestId !== requestId) return
+        forecastText.value = ''
+        forecastError.value = 'Прогноз ещё не опубликован'
+        return
+      }
+    }
+
     if (!response.ok) {
       throw new Error(`forecast status ${response.status}`)
     }

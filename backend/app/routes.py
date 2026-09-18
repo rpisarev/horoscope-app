@@ -11,9 +11,7 @@ from .services import (
     DEFAULT_FORECAST_TYPE,
     DEFAULT_LOCALE,
     SIGNS,
-    generate_horoscope,
-    get_forecast,
-    save_forecast,
+    get_published_forecast,
 )
 from .services.sitemap_service import (
     DEFAULT_SITEMAP_CHUNK_SIZE,
@@ -268,7 +266,7 @@ def forecast():
     else:
         target_day = date.today()
 
-    fc = get_forecast(
+    fc = get_published_forecast(
         sign=sign,
         day=target_day,
         locale=locale,
@@ -276,17 +274,10 @@ def forecast():
     )
 
     if not fc:
-        text = generate_horoscope(sign, target_day)
-        fc = save_forecast(
-            sign=sign,
-            day=target_day,
-            text=text,
-            model_version="stub",
-            locale=locale,
-            forecast_type=forecast_type,
-            status="published",
-            source="stub",
-        )
+        return jsonify({
+            "error": "forecast_not_published",
+            "message": "Forecast is not published",
+        }), 404
 
     return jsonify(fc.to_dict())
 

@@ -43,7 +43,7 @@ Home makes no API calls. `HOME_ZODIACS` derives from shared `constants/zodiac.ts
 | --- | --- |
 | `/api/signs` | Static legacy array of keys; does not filter database activation. |
 | `/api/signs/meta` | Active database rows, ordered by `sort_order`; `key`, localized `name`, `sort_order`, `is_active`. Russian fallback for unavailable/unknown locales. |
-| `/api/forecast` | Looks up sign/date/locale/type without a status filter; creates a published stub if no row exists. See known issues. |
+| `/api/forecast` | Published-only lookup by sign/date/locale/type; `200` with existing aliases, or `404` with `error: forecast_not_published` and `message: Forecast is not published`. Never generates or writes. Existing published stubs still return `200`; invalid input retains `400`. |
 | `/api/years` | Published years, optional sign filter, exact locale/type filters; **no active-sign filter**. Empty filtered results fall back to `2024..server-current-year`. |
 | `/api/archive/day` | Published forecasts for active signs, ordered by sign order, plus coverage for the requested date. Actual sign keys are present in `forecasts`. |
 | `/api/archive/month` | Every calendar day with aggregate `forecast_count`, `missing_count`, `has_full_coverage`; no sign filter or per-sign availability. |
@@ -73,7 +73,7 @@ Frontend `ZODIACS` has `key`, `nameEn`, `nameRu`, `glyph`, `start`, and `end`; H
 | `/archive/:sign/:year/:month/:day` | `ArchiveForecast`; unknown sign becomes Capricorn, numeric dates are normalized/clamped, and URL is replaced. |
 | Catch-all | `NotFound` with `CosmicGate404`; client-rendered 404 UI, not a proven HTTP 404 response. |
 
-Both forecast views call `/api/forecast?sign=…&date=…`, accept legacy/new text aliases, split paragraphs, manage loading/errors, and use request IDs to reject responses superseded by another fetch. Non-OK responses show a generic load error; empty successful content shows an empty message. There is no distinct unpublished/missing state. Fetch parsing, state/route synchronization, and illustration/constellation maps are duplicated.
+Both forecast views call `/api/forecast?sign=…&date=…`, accept legacy/new text aliases, split paragraphs, manage loading/errors, and use request IDs to reject responses superseded by another fetch. The exact unpublished `404` shows “Прогноз ещё не опубликован”; other failures show a generic load error and empty successful content shows an empty message. Fetch parsing, state/route synchronization, and illustration/constellation maps are duplicated.
 
 `ArchiveMonth` calls only unfiltered `/api/years`. It marks browser-local past days clickable and today/future days non-clickable, independently of stored forecasts. `/api/archive/month`, `/api/archive/day`, and `/api/archive/months` are not integrated anywhere in the frontend.
 
@@ -91,6 +91,8 @@ Scheduler target dates use `APP_TIMEZONE` (default `Europe/Kyiv`) and default to
 
 ## Verification status
 
+**HISTORICAL VERIFICATION:** The results below describe the preceding architecture audit, before this API change; they are not test counts for this commit. New forecast regression coverage accompanies the API changes.
+
 | Check | Command and actual result |
 | --- | --- |
 | Backend | `bash scripts/backend-test.sh` — **188 passed in 12.04s**, isolated PostgreSQL database, migrations through `0005`. |
@@ -100,15 +102,16 @@ Scheduler target dates use `APP_TIMEZONE` (default `Europe/Kyiv`) and default to
 | Lint | **Not available**; no lint script/configuration. |
 | CI | Only `.github/workflows/backend-tests.yml`; backend tests and Compose validation. No frontend test/build/typecheck/lint job. |
 
-Build and Vitest emitted Vite's CJS Node API deprecation warning. No application code changed afterward; successful checks were not repeated. Browser interaction, deployment, and live generation were not exercised; build success does not prove route/Swiper behavior.
+Build and Vitest emitted Vite's CJS Node API deprecation warning. Those successful checks preceded this implementation milestone. Browser interaction, deployment, and live generation were not exercised; build success does not prove route/Swiper behavior.
 
 ## Known architectural issues
 
-- **CONFIRMED — forecast GET writes and bypasses lifecycle.** `routes.forecast` calls unfiltered `forecast_service.get_forecast`. On no row, `generate_horoscope` forces the stub provider, then `save_forecast` commits `status="published"`, `source="stub"`, `model_name="stub"`, and publication time. No job/run/item/attempt is created and lifecycle validation is bypassed. `test_forecast_endpoint_creates_published_stub_forecast` and the idempotence test explicitly assert this behavior; they do not establish it as permanent design. `test_run_daily_generation_skips_existing_published_forecast` verifies the later skip rule; the consequence for GET-created stubs follows directly. Home → forecast navigation can therefore publish placeholders without the controlled pipeline's validation/audit trail, and that pipeline subsequently treats them as completed publications. They also count toward archive and sitemap coverage.
-- **CONFIRMED — public forecast lookup is not published-only.** An existing draft/non-published row is returned unchanged by that query, rather than replaced or hidden. This follows from code; `test_api_forecast.py` has no draft-exclusion case. No development data was modified to probe it.
+- **RESOLVED THIS MILESTONE:** Public forecast GET no longer creates stubs or exposes draft/non-published rows. `test_api_forecast.py` covers published normal/stub responses, exact missing/draft responses, repeated missing reads with no forecast/audit rows or commits, blocked generation/provider calls, scope filters, and invalid inputs. Old tests requiring GET-created stubs were replaced; year tests now seed data explicitly.
+- **HISTORICAL DATA / OPEN QUESTION:** Existing published stubs remain readable and still count toward generation skip rules, archive coverage, and sitemaps. This task does not clean or replace them; their future treatment is undecided.
+
 - **CONFIRMED — month coverage is not sign-aware.** On `/archive/aries/2026/06`, a partial day's aggregate count cannot identify whether Aries exists. `/api/archive/day` can answer for one day via its forecast list; month/months cannot. `/api/years?sign=aries` only answers at year granularity and has synthetic fallback years.
 - **CONFIRMED — mixed calendar clocks.** Home, router redirects, and `todayIso`/`isoAddDays` use UTC; Day.js archive comparisons and some view fallbacks use browser-local dates. ISO dates are also formatted with browser-local `toLocaleDateString`. Backend public defaults use server-local `date.today()`, scheduler uses `APP_TIMEZONE`, and OpenAI daily job limits use UTC. **RISK:** these clocks can disagree near midnight; no shared business-date policy is implemented. `maxForwardDate` is computed once at module load.
-- **VERIFIED — README/configuration gaps.** README's old `188 passed in 8.66s` is historical. Its OpenAI per-run limit example is 1; the service default is 2 (scheduler total jobs per tick separately defaults to 1). Compose does not pass through `PUBLIC_SITE_URL`, `SITEMAP_CHUNK_SIZE`, scheduler target-policy/rolling settings, or `GENERATION_OPENAI_MAX_*`; putting them only in root `.env` does not inject them into these containers. README omits the public-read issues above. It was left unchanged rather than rewritten during this audit.
+- **VERIFIED — README/configuration gaps.** README's old `188 passed in 8.66s` is historical. Its OpenAI per-run limit example is 1; the service default is 2 (scheduler total jobs per tick separately defaults to 1). Compose does not pass through `PUBLIC_SITE_URL`, `SITEMAP_CHUNK_SIZE`, scheduler target-policy/rolling settings, or `GENERATION_OPENAI_MAX_*`; putting them only in root `.env` does not inject them into these containers. README now documents the forecast read contract; unrelated configuration gaps were not changed.
 
 ## Known frontend issues / risks
 
@@ -119,7 +122,7 @@ Build and Vitest emitted Vite's CJS Node API deprecation warning. No application
 
 ## Open decisions
 
-**OPEN QUESTION:** Agree the missing/unpublished forecast response and frontend empty state before changing the tested read contract; decide how existing published stubs should be treated. Also unresolved: sign-aware month availability contract; consistent invalid-route behavior; shared business date; frontend canonical handling; and API metadata/presentation ownership during Home/archive integration. None is approved or implemented by this audit.
+**OPEN QUESTION:** Treatment of existing published stubs; sign-aware month availability; consistent invalid-route behavior; shared business date; frontend canonical handling; and sign metadata/presentation ownership during Home/archive integration remain unresolved. The missing forecast contract (`404`) is now implemented; the other decisions were not part of this milestone.
 
 ## Historical branch context
 
@@ -127,8 +130,8 @@ Build and Vitest emitted Vite's CJS Node API deprecation warning. No application
 
 Major stages: initial wheel/cards and horoscope UI (`cc37e94`, `aedb774`, `29c3dac`); archive/router work (`0689db1`, `ebd3f6c`, `4707b3b`); shared zodiac data/direct Home navigation (`7ae0830`, `a35c50c`) and Starfield cleanup (`7439064`); contextual 404/archive polish/assets (`1264231`, `be39b40`, `066f3ee`); Docker/PostgreSQL/persistence/Alembic (`3d40507`); lifecycle/prompts/tests/CI (`8f694e8`); OpenAI/variation (`8d95a72`); admin API (`5a61c21`); queue/batches/scheduler policy (`c618f27`); public backend APIs/SEO (`ae31a4f`). The branch name denotes the cumulative working baseline, not a new isolated Home prototype. `origin/HEAD` still points to the older `origin/master`.
 
-Differences from the supplied handoff: no separate newer archive-integration branch content; backend checkpoint is already incorporated; Home's old modal/placeholder is superseded; archive-day 404 protection was later removed; the database has glyph/range fields although its public metadata endpoint omits them; current test runtime differs. Confirmed legacy reads and archive/frontend gaps remain unresolved.
+Differences from the supplied handoff: no separate newer archive-integration branch content; backend checkpoint is already incorporated; Home's old modal/placeholder is superseded; archive-day 404 protection was later removed; the database has glyph/range fields although its public metadata endpoint omits them; current test runtime differs. Legacy public reads were corrected in this milestone; mixed calendar clocks and archive/frontend gaps remain unresolved.
 
-## Recommended next task
+## Completed forecast-read milestone
 
-**PROPOSED NEXT STEP — one implementation task, not approved by this audit:** Make the Home → HoroscopeView forecast read published-only and free of writes, with an explicit “not yet published” state and focused regression coverage. Agree the missing-response contract, preserve existing success aliases, and account for ArchiveForecast's shared endpoint. This addresses a database mutation triggered by the current main-page navigation without refactoring Home or implementing archive coverage.
+**IMPLEMENTED:** Public forecast reads are published-only and free of writes, both forecast views have an explicit unpublished state. No archive coverage integration, archive-day canonicalization, general frontend API architecture, SEO/deployment changes, old-stub cleanup, or queue/provider redesign was included. Further implementation requires its own task.

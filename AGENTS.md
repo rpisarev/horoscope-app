@@ -45,6 +45,7 @@ Use non-watch tests. A Vite build does not type-check the application. Report ch
 - Preserve separation between queue orchestration, lifecycle/audit records, prompt construction/validation, providers, and persistence unless redesign is explicitly in scope.
 - The prompt pipeline uses sign/date for routing, storage, variation, and audit metadata, not direct creative instructions. Preserve that constraint unless the task changes it.
 - Preserve public contracts unless explicitly changing them, including the `/api/signs` array and forecast aliases (`sign`/`sign_key`, `day`/`date`, `text`/`forecast`, `model_version`/`model_name`).
+- Public `GET /api/forecast` is read-only and published-only: missing/unpublished data returns `404 forecast_not_published`, including when a provider is configured. Existing published stubs remain readable.
 - Tests encode current behavior, including known issues; they do not make legacy behavior approved permanent design. Scope and test requested contract changes.
 - Derive active-sign coverage from database metadata, not a hardcoded seed count. Check schema, serializers, public API fields, and frontend presentation data separately; similarly named concepts are not necessarily equivalent.
 

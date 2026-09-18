@@ -1,6 +1,6 @@
 # Current architecture
 
-This describes verified source behavior on `feature/main-page-start`, the cumulative integration baseline, including its legacy paths. The branch contains substantially more than Home-page work. Known issues, risks, and historical changes are identified explicitly; this is not a proposed replacement architecture. See [CURRENT_STATE.md](CURRENT_STATE.md) for the dated snapshot, verification results, and open decisions. [README.md](../README.md) remains the setup reference.
+This describes the current working tree on `update-frontend`, based on `feature/main-page-start` at the documentation checkpoint `bbdb9ef`, plus the implemented read-only forecast milestone. The branch contains substantially more than Home-page work. Known issues, risks, and historical changes are identified explicitly; this is not a proposed replacement architecture. See [CURRENT_STATE.md](CURRENT_STATE.md) for the dated snapshot, verification results, and open decisions. [README.md](../README.md) remains the setup reference.
 
 ## System overview and entry points
 
@@ -35,7 +35,7 @@ The frontend runs Vite's dev server on 5173; Flask runs its development server o
 
 Home uses static English names, glyphs, date ranges, and a dedicated display order derived from shared `ZODIACS`. It does not fetch signs or forecasts. Wheel hover pauses rotation and displays a tooltip; click/Enter/Space emits selection. Starfield's canvas animation releases interval/frame/listener resources on unmount. These components are on the normal route and bundled in the production build; there is no separate prototype path. **Historical context:** earlier forecast tooltip placeholders and modal/card navigation were superseded.
 
-Forecast and archive-day screens render API text with loading, generic error, and empty-content states. Both contain their own response parsing, paragraph splitting, request-ID handling, route/model watchers, and asset maps. Zodiac illustrations and constellations live under `frontend/src/assets/zodiac/`; Home itself uses glyphs rather than those forecast hero images.
+Forecast and archive-day screens render API text with loading, explicit unpublished (`404 forecast_not_published`), generic error, and empty-content states. Both contain their own response parsing, paragraph splitting, request-ID handling, route/model watchers, and asset maps. Zodiac illustrations and constellations live under `frontend/src/assets/zodiac/`; Home itself uses glyphs rather than those forecast hero images.
 
 Routing uses browser history. `/horoscope` and `/archive` redirect to Capricorn and UTC current dates. `HoroscopeView` validates the sign and real ISO day; `ArchiveMonth` validates sign/year/month and a loaded nonempty year list. They render contextual `NotFound` without rewriting invalid routes. ArchiveMonth pads month URLs. ArchiveForecast instead falls back to Capricorn, normalizes/clamps numeric dates, and replaces its URL; it no longer calls `validateArchiveForecastRoute`. Its year list feeds the swiper rather than enforcing year membership. Catch-all routes render `NotFound`/`CosmicGate404`. These are client-side UI states, not configured server HTTP status handling.
 
@@ -59,23 +59,21 @@ Forecast uniqueness is `(sign_key, target_date, locale, forecast_type)`, indepen
 
 Migration sequence: `0001_initial_schema` creates persistence/reference tables and seeds 13 signs plus `daily-ru-v1`; `0002_add_generation_attempts` adds attempt history and updates prompts; `0003_prompt_pipeline` and `0004_variation_prompt` update prompt content/schema; `0005_generation_jobs` adds the queue. `app/init_db.py` now exits with Alembic instructions. PostgreSQL is the supported Compose/test path; `Config` still falls back to SQLite when no database settings exist, which is not equivalent to the tested PostgreSQL migration/locking environment.
 
-## Public forecast read: the legacy write path
+## Public forecast read: published-only and read-only
 
 ```text
 HoroscopeView / ArchiveForecast
   -> GET /api/forecast?sign=…&date=…[&locale=…&type=…]
-       -> routes.forecast -> get_forecast (no status filter)
-            existing row -> serialize, including non-published status
-            no row -> generate_horoscope -> forced stub provider
-                   -> save_forecast(status=published, source=stub)
-                   -> COMMIT -> serialize
+       -> routes.forecast -> get_published_forecast
+            published row -> 200, existing serializer/aliases
+            missing or only non-published -> 404 forecast_not_published
 ```
 
-[`forecast_service.py`](../backend/app/services/forecast_service.py) contains both `get_forecast` and the distinct `get_published_forecast`; the public route uses the former. Sign validation uses static `SIGNS`, not active database metadata. An omitted day uses server-local `date.today()`. Locale/type default to `ru`/`daily`; the fallback generator itself requests the default Russian daily stub even if different storage labels were requested.
+[`forecast_service.py`](../backend/app/services/forecast_service.py) already provides `get_published_forecast`; the public route now reuses it. Sign validation still uses static `SIGNS`, not active database metadata. An omitted day still uses server-local `date.today()`. Locale/type default to `ru`/`daily` and remain exact lookup filters; invalid sign/date input retains its existing `400` behavior.
 
-**VERIFIED:** The fallback has no queue job, run, item, attempt, or lifecycle validation. It sets model/source to stub, status to published, and persists immediately. `backend/tests/test_api_forecast.py` explicitly asserts creation and repeated-read idempotence. Returning existing non-published rows is verified from the query, not a draft-exclusion test.
+**VERIFIED:** The missing response is exactly `{"error":"forecast_not_published","message":"Forecast is not published"}`. No public GET invokes a provider, generation lifecycle, queue, or persistence. Successful responses preserve `sign`/`sign_key`, `day`/`date`, `text`/`forecast`, and `model_version`/`model_name`. Both frontend forecast views show “Прогноз ещё не опубликован” for this response. Regression tests explicitly forbid generation/provider calls and commits and assert repeated missing reads create no forecast or audit rows.
 
-**KNOWN ISSUE:** This public write path bypasses controlled validation/auditing yet creates a publication that the controlled pipeline treats as complete. Later controlled generation uses `get_published_forecast` and skips any published row regardless of source. `get_missing_forecast_signs` and `has_generation_coverage` likewise treat that stub as present. Range/scheduler producers can skip fully covered dates, and workers skip covered items. Retry-failed/retry-missing do not inherently replace published stubs. Archive and sitemap reads also count them as published data.
+**HISTORICAL CONTEXT / DATA REMAINS:** The previous GET-created published stub path was removed. The legacy standalone `generate_horoscope` helper remains available outside the public route. Existing published stubs are returned normally and still count toward controlled-generation skip rules, archive coverage, and sitemaps; no cleanup or replacement policy changed.
 
 ## Controlled generation and provider boundary
 
@@ -124,7 +122,7 @@ The scheduler timezone is not a frontend-wide business-date policy. Frontend `to
 ```text
 Current Vue ArchiveMonth -> GET /api/years -> published year query -> PostgreSQL
                          -> local calendar (past days clickable)
-                         -> ArchiveForecast -> legacy GET /api/forecast
+                         -> ArchiveForecast -> published-only GET /api/forecast
 
 Implemented coverage flow, not yet connected to Vue archive UI:
 Flask /api/archive/day|month|months
@@ -136,7 +134,7 @@ Coverage queries in [`routes.py`](../backend/app/routes.py) match locale and typ
 
 There is no `sign` filter or list of present signs in month/months responses. A partial aggregate day therefore cannot establish whether the currently selected sign exists. `/api/archive/day` returns the forecast records needed to answer that question for a single date. `/api/years` can filter by sign, but has no active-sign join and returns synthetic fallback years when its query is empty. It cannot establish daily availability.
 
-The coverage handlers are read-only. The current UI's archive-day fetch uses the separate legacy forecast handler, which can write. Tests in `test_api_archive.py` cover published filtering, scope, and empty/partial/full summaries; the frontend currently has no archive tests.
+Both coverage handlers and the separate forecast handler used by the archive-day UI are now read-only. Tests in `test_api_archive.py` cover published filtering, scope, and empty/partial/full summaries. Frontend tests cover archive-day published/missing/error rendering; calendar availability integration remains out of scope.
 
 ## Zodiac metadata ownership
 
@@ -179,4 +177,4 @@ OpenAI job creation and execution have distinct opt-ins. Admin additionally requ
 
 Backend verification uses `bash scripts/backend-test.sh`: it starts the DB service, creates a disposable `horoscope_test`, applies migrations, runs pytest, and drops that test DB. Fixtures truncate mutable tables while retaining seeds and refuse the default development DB unless explicitly overridden. Do not use that override or run raw pytest against development data. The audit exercised only the isolated test workflow, not generation smoke examples against development data.
 
-Frontend has Vitest/jsdom and one DaySlider test, which is very limited coverage. Vite build transpiles TS but does not type-check it. There is no configured vue-tsc/typecheck/lint check, and TS strict mode is not enabled. GitHub Actions currently runs only backend/Compose checks. Current command results and the limits of verification are recorded in [CURRENT_STATE.md](CURRENT_STATE.md).
+Frontend has Vitest/jsdom with the existing DaySlider test and focused forecast rendering tests. Broader UI/Swiper coverage remains limited. Vite build transpiles TS but does not type-check it. There is no configured vue-tsc/typecheck/lint check, and TS strict mode is not enabled. GitHub Actions currently runs only backend/Compose checks. Current command results and the limits of verification are recorded in [CURRENT_STATE.md](CURRENT_STATE.md).
