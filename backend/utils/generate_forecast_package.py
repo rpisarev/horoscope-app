@@ -234,6 +234,8 @@ def main() -> int:
     args = parse_args()
 
     provider_name = args.provider.strip().lower()
+    if not provider_name:
+        raise SystemExit("--provider must not be empty or whitespace-only.")
     target_date = parse_target_date(args.date)
 
     require_openai_safety_confirmation(
