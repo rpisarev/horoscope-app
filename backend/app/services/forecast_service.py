@@ -7,6 +7,7 @@ from .prompt_service import get_prompt_version
 from .. import db
 from ..models import Forecast
 from ..providers import ProviderRequest, get_horoscope_provider
+from ..providers.publication_policy import require_publication_provider
 
 
 def get_forecast(
@@ -73,7 +74,13 @@ def save_forecast(
     prompt_version_key: str | None = None,
     generation_item_id: int | None = None,
     commit: bool = True,
+    *,
+    publication_provider: str | None = None,
 ) -> Forecast:
+    # Authorize before querying/mutating an existing row. Generic draft saves
+    # remain available; production publication requires caller-supplied identity.
+    if status == "published":
+        require_publication_provider(publication_provider)
     now = datetime.now(timezone.utc)
     prompt_version = get_prompt_version(
         prompt_version_key,

@@ -1,14 +1,13 @@
 # Current Project State
 
-- State updated: 2026-09-18 (Tasks 3, 4, and 6: sign-aware archive availability and canonical day navigation).
+- State updated: 2026-09-29 (provider/publication-safety guard implemented after the provider audit).
 - Main working branch: `feature/main-page-start`
-- Implementation branch: `update-frontend`
-- Implementation baseline HEAD: `5a126528bfa2821f12ace8fcd5e9ea75e418a493` (Tasks 1 + 2 checkpoint before this archive milestone).
-- Origin status at implementation start: remote `update-frontend` matches this HEAD; no local upstream is configured. Remote `feature/main-page-start` remains at `bbdb9efc46116a073049fce719a538b33f8143a7`.
+- Audit baseline HEAD: `34623b27bd69d681edf1a3ab8f8aac31bc74cafa` (`Update frontend (#20)`).
+- Audit baseline working tree: clean; cached tracking ref and live remote `feature/main-page-start` matched HEAD, ahead/behind `0/0`. Guard implementation began at the same HEAD with only the two expected, preserved documentation changes from that audit.
 
 ## Snapshot
 
-**VERIFIED:** Implementation started on clean `update-frontend`. This milestone adds sign-aware month availability, connects ArchiveMonth to published backend data, and makes legacy archive-day URLs strict compatibility redirects. The read-only forecast contract and backend-authoritative business-date policy from Tasks 1 + 2 are unchanged. No pushes, merges, schema changes, paid generation, or development-data cleanup were performed. All database verification used the disposable test DB. This describes the verified implementation, not a verified production deployment or its data.
+**IMPLEMENTED:** The integration baseline includes read-only forecast GET, backend-authoritative business dates, sign-aware archive availability, and canonical forecast-day navigation. The provider audit was followed by a capability-based production publication guard, focused tests, and explicit deployment configuration. Local stub publication remains supported. No existing development forecasts were changed, and no paid generation was run. Test generation uses stub/fake providers in the disposable test database. This change does not establish a production deployment or remediate existing published data.
 
 Read [architecture.md](architecture.md) for source-level flows and [README.md](../README.md) for setup. **VERIFIED/CONFIRMED** means source/test evidence, not permanent design approval. **KNOWN ISSUE**, **RISK**, **OPEN QUESTION**, **HISTORICAL CONTEXT**, and **PROPOSED NEXT STEP** distinguish consequences, uncertainty, history, and proposals.
 
@@ -30,7 +29,7 @@ Home refreshes `/api/meta` before sign navigation; it does not fetch forecast co
 | --- | --- |
 | Forecast persistence, zodiac metadata, migrations | Implemented and used by public routes and generation; seed has 13 signs including Ophiuchus. |
 | Lifecycle, attempts/audit, prompt variation, validation | Implemented and wired into controlled generation; covered by backend tests. |
-| Stub / OpenAI provider abstraction | Both implemented; stub is the code/Compose default. OpenAI tests use fakes, not paid calls. Local-LLM aliases explicitly remain unimplemented. |
+| Stub / OpenAI provider abstraction | Both implemented with shared capability definitions. Factory/Compose default to stub; immediate package CLI defaults to OpenAI. Stub publication is allowed locally and rejected in production. Local-LLM aliases remain unimplemented. |
 | Manual admin generation, coverage and audit APIs | Implemented; admin access is disabled by default and requires a bearer token when enabled. |
 | Queue, range/backfill, worker, batch status/cancel/retry-failed | Implemented and tested; worker is opt-in. Batch cancellation affects queued jobs only. |
 | Scheduled producer / worker | Implemented in `tasks.py`; queue mode and polling worker default off. Legacy direct lifecycle execution remains the default scheduler mode. |
@@ -93,6 +92,35 @@ App starts metadata loading without gating its router view and remains the sole 
 
 Scheduler target dates use `APP_TIMEZONE` (default `Europe/Kyiv`) and default to today + tomorrow. Direct and queued modes share that policy. Queue/admin/CLI paths have explicit OpenAI gates; these are not a universal guard on the legacy direct scheduler or prompt-probe utility. No live OpenAI generation was run.
 
+## Provider policy and publication safety
+
+**CURRENT ENFORCED BEHAVIOR:** `APP_DEPLOYMENT_MODE` accepts `development` (default), `test`, or `production`. In production, publication requires a registered provider that is not development-only, is production-publication capable, and appears in `PRODUCTION_PUBLICATION_PROVIDERS` (default `openai`). Stub is rejected even if listed. Empty/unknown modes and unknown allowlist names fail configuration validation; an empty allowlist denies production publication. Development/test modes retain normal controlled stub publication. Every production generating process must explicitly use production mode; the application cannot infer deployment intent.
+
+Provider definitions and supported names now share a registry; selection defaults remain unchanged. Scheduler/direct factory calls use `HOROSCOPE_PROVIDER` with a stub default; omitted admin/queue-creation provider choices default to stub independently of that environment variable. The package CLI defaults to OpenAI and requires `--allow-openai` and a key. Queued jobs persist provider choice; workers and requeued retries retain it, while model configuration is resolved at execution. Direct retry-missing calls select the caller/current configured provider rather than inheriting a prior run. See the [provider-path audit](architecture.md#current-provider-selection-and-publication-audit) for details.
+
+The shared lifecycle checks authorization before generation and records a failed run on denial. Workers revalidate stored jobs at execution and record a failed job on denial, including retries/backfills. `save_forecast(status="published")` rechecks policy before querying or mutating forecast rows, using the caller's captured execution identity (`publication_provider`), not result source/model fields. Production generic publication without that explicit identity is rejected; generic draft saves remain available. Direct scheduler, admin, and package CLI reach the shared lifecycle; no provider substitution occurs and existing OpenAI gates remain unchanged. Queue creation may still enqueue a stub job; execution in production rejects it. Existing published rows, skip/coverage rules, public reads, archives, and sitemaps are unchanged.
+
+**AGREED PRODUCT/PROVIDER POLICY:** The product has exactly **13 zodiac signs**, including Ophiuchus. Operational active-sign coverage must continue to derive from database metadata. Stub is for development, testing, and cost-free local workflows; it is not intended for public production content. OpenAI is the current real generation provider. The new-write guard now enforces production capability/allowlist approval without an OpenAI-only check. Existing published-stub treatment remains a separate decision.
+
+**FUTURE DIRECTION — NOT IMPLEMENTED:** A local-model adapter may use Ollama or an equivalent runtime, with Qwen as one candidate model family. It must be a separate real provider adapter, reuse lifecycle/validation/attempt audit/persistence/publication, and receive explicit production-publication approval. It must not extend or alias stub. No Ollama/Qwen adapter, runtime, dependencies, or configuration are part of this milestone. The [implemented guard](architecture.md#production-publication-guard) accepts approved future real providers through registry capabilities and configuration.
+
+### Local historical evidence (2026-09-29)
+
+Read-only queries against `horoscope-app-db-1`, database `horoscope`, reconfirmed 196 published forecasts: 169 `openai` / `gpt-5.4-mini`, and 27 `stub` / `stub`. Of the stubs, 26 link to successful lifecycle runs; one is unlinked. No cleanup was performed.
+
+| Recorded run / linked job | Target date | Published stub forecasts | Evidence |
+| --- | --- | --- | --- |
+| Run 1 / job 1 | 2026-05-28 | 13 | Scheduled, successful; job provider and successful item/attempt metadata are `stub`. |
+| Run 2 / job 2 | 2026-05-31 | 13 | Scheduled, successful; job provider and successful item/attempt metadata are `stub`. |
+
+Both jobs record `created_by=scheduler:on_start`, `provider=stub`, and `openai_allowed_at_creation=false`, which does not restrict stub execution. This records scheduler-startup job provenance and a persisted stub choice. Stub selection is consistent with development defaults, including the historical scheduler default; records do not establish whether an operator explicitly selected stub or omitted the setting. Historical environment/default-versus-explicit selection is not snapshotted. The running scheduler now has `HOROSCOPE_PROVIDER=openai`, direct mode (`GENERATION_SCHEDULER_USE_QUEUE=0`), worker enabled, and scheduled/worker OpenAI opt-ins off. Those current queue gates do not guard direct scheduler calls and cannot explain past choices.
+
+The unlinked row is forecast 196, Aries, `2026-02-01`. Lack of linkage is compatible with the removed GET fallback but does not prove its origin. All 27 published stubs satisfy the existing-generation skip condition; preventing new production stub publication will not itself replace them or remove their public eligibility.
+
+**SEPARATE METADATA-INTEGRITY FOLLOW-UP (from the audit):** Stored provider/model result metadata is still not fully validated against the selected adapter. The `ProviderResult.provider` default `unknown` remains truthy; an approved adapter could return inaccurate source/model metadata. Authorization now uses the separately captured execution identity, so result metadata cannot authorize a forbidden provider. This task does not repair metadata integrity; no anomalous source was found in the audited inventory.
+
+**SEPARATE HISTORICAL FOLLOW-UP (from the audit):** Job 2 records `created_at=2026-05-31 12:59:57.678527+00`, after its `started_at=2026-05-31 10:02:47.294568+00` and `finished_at=2026-05-31 10:02:47.748358+00`. Its cause remains unknown; it was not investigated or repaired during guard implementation.
+
 ## SEO / sitemap
 
 **VERIFIED:** `/api/seo/sitemap/urls`, `/api/seo/sitemap/documents`, `/sitemap.xml`, `/sitemap-index.xml`, and `/sitemaps/<filename>` exist. Published rows for active signs produce `/`, `/horoscope/{sign}/{YYYY-MM-DD}`, and populated `/archive/{sign}/{YYYY}/{MM}` URLs. Archive-day URLs are excluded. Tests cover URL policy, filters, inactive signs, XML, and chunk/index behavior.
@@ -100,6 +128,10 @@ Scheduler target dates use `APP_TIMEZONE` (default `Europe/Kyiv`) and default to
 **VERIFIED:** Archive-day → horoscope replacement now establishes one client forecast-day URL; the legacy route does not render duplicate forecast content. **OUT OF SCOPE / STILL ABSENT:** canonical link tags, robots/noindex policy, server HTTP redirects, and SSR. Sitemap selection and client navigation do not implement these SEO mechanisms. Vite proxies `/api` only; serving Flask's root sitemap endpoints at the public frontend origin is not configured here.
 
 ## Verification status
+
+**2026-09-29 provider guard:** Focused backend checks passed: **93 tests in 7.29s**, using the safe disposable-database script with only the pytest selector narrowed. They cover local stub behavior, production capability/allowlist denial, existing-row preservation, scheduler/admin/CLI, stored queue jobs/retries/backfills, a fake future real provider, and final-boundary authorization independent of returned metadata. No frontend source changed, so frontend checks were not repeated. The table below retains earlier archive-milestone results, not new frontend results.
+
+Full guard verification: `bash scripts/backend-test.sh` — **248 passed in 17.82s**, with migrations through `0005` and cleanup of disposable `horoscope_test`. `git diff --check` passed. No paid API calls or development forecast writes were performed. The script managed the DB service as part of normal test setup; no generation scheduler was started by this task.
 
 | Check | Command and actual result |
 | --- | --- |
@@ -113,6 +145,8 @@ Scheduler target dates use `APP_TIMEZONE` (default `Europe/Kyiv`) and default to
 Focused checks passed before full verification: backend archive tests **19 passed in 3.11s**, using a temporary copy of the safe test script with only its pytest selector changed to `tests/test_api_archive.py`; frontend archive-month, archive-day-navigation, business-date-navigation, and forecast-read files **46 passed in 4.91s**. Build and Vitest emitted the existing Vite CJS Node API deprecation warning. `git diff --check` passed. Real-browser interaction, deployment, and live generation were not exercised; build success does not prove Swiper behavior.
 
 ## Known architectural issues
+
+- **NEWLY OBSERVED DURING GUARD IMPLEMENTATION:** The immediate package CLI prints a failed run and its error but retains its existing zero exit code. The guard prevents publication; shell automation must currently inspect the reported status. Exit-code behavior is a separate operational follow-up.
 
 - **RESOLVED IN TASK 1:** Public forecast GET no longer creates stubs or exposes draft/non-published rows. `test_api_forecast.py` covers published normal/stub responses, exact missing/draft responses, repeated missing reads with no forecast/audit rows or commits, blocked generation/provider calls, scope filters, and invalid inputs. Old tests requiring GET-created stubs were replaced; year tests now seed data explicitly.
 - **HISTORICAL DATA / OPEN QUESTION:** Existing published stubs remain readable and still count toward generation skip rules, archive coverage, and sitemaps. This task does not clean or replace them; their future treatment is undecided.
@@ -135,7 +169,7 @@ Focused checks passed before full verification: backend archive tests **19 passe
 
 ## Historical branch context
 
-**HISTORICAL CONTEXT:** At the initial audit, `feature/main-page-start` and `feature/frontend-archive-api-integration`, including their origin refs, pointed to `ae31a4f`. The main working branch has since advanced to the documentation commit `bbdb9ef` (#19), from which clean `update-frontend` started. The local archive-integration branch still points to `ae31a4f`; the documentation commit adds no application functionality, and the archive branch name does not establish completed API integration. The `feature/backend-api-updates` ref is absent after pruning, but checkpoint `b7e92cf` is available. It and `ae31a4f` have identical tree `7ac671d2a18b72a36a8cbb02ee2f037b7e46e317`. PR #18 is the squash result of its seven commits (`8223944` through `b7e92cf`), containing metadata/archive/sitemap work. The older branch's code is fully present; different commit IDs do not imply different content.
+**HISTORICAL CONTEXT (earlier archive milestone):** At the initial audit, `feature/main-page-start` and `feature/frontend-archive-api-integration`, including their origin refs, pointed to `ae31a4f`. The main working branch then advanced to the documentation commit `bbdb9ef` (#19), from which clean `update-frontend` started. At that checkpoint, the local archive-integration branch pointed to `ae31a4f`; the documentation commit added no application functionality, and the archive branch name did not establish completed API integration. The `feature/backend-api-updates` ref was absent after pruning, but checkpoint `b7e92cf` was available. It and `ae31a4f` have identical tree `7ac671d2a18b72a36a8cbb02ee2f037b7e46e317`. PR #18 is the squash result of its seven commits (`8223944` through `b7e92cf`), containing metadata/archive/sitemap work. The older branch's code is fully present; different commit IDs do not imply different content.
 
 Tasks 1 + 2 were committed on `update-frontend` as `1de8f05` (published-only forecast reads) and `5a12652` (business date). The remote implementation branch matched that baseline when this milestone began. The archive milestone is recorded in two local commits: `Add sign-aware archive month availability` and `Use published availability for archive navigation`.
 
@@ -143,6 +177,6 @@ Major stages: initial wheel/cards and horoscope UI (`cc37e94`, `aedb774`, `29c3d
 
 Differences from the supplied handoff: no separate newer archive-integration branch content; backend checkpoint is already incorporated; Home's old modal/placeholder is superseded; archive-day 404 protection was later removed; the database has glyph/range fields although its public metadata endpoint omits them; current test runtime differs. Legacy public reads and mixed product-date clocks were subsequently corrected in Tasks 1 + 2; this milestone implements the month integration and strict archive-day redirect. Other frontend/configuration gaps remain.
 
-## Completed milestone and scope boundary
+## Previous archive milestone and scope boundary
 
 **IMPLEMENTED:** Sign-aware `/api/archive/month` supplements unchanged aggregates; ArchiveMonth uses published availability and canonical day links; legacy day URLs validate and replace to HoroscopeView. Tasks 1 + 2 remain intact: read-only published-only forecast reads, the exact missing `404` payload, published-stub compatibility, and backend-authoritative business date. No shared frontend API layer, Pinia, SEO/SSR/deployment changes, old-stub cleanup, generation/provider/queue redesign, design overhaul, or carousel changes were included. The implementation was reviewed before being recorded in the two local commits above; nothing was pushed.

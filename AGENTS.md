@@ -41,6 +41,7 @@ Use non-watch tests. A Vite build does not type-check the application. Report ch
 
 ## Generation and API guardrails
 
+- Stub is development/test-only: production controlled generation and publication persistence must enforce provider capabilities and approval using execution identity, never returned source/model metadata. Set `APP_DEPLOYMENT_MODE=production` in production; preserve cheap local stub workflows.
 - Keep ordinary verification on stub/fake providers. Do not enable or execute paid OpenAI generation unless explicitly requested. Starting the scheduler or generation utilities can write data; gates differ between execution paths.
 - Preserve separation between queue orchestration, lifecycle/audit records, prompt construction/validation, providers, and persistence unless redesign is explicitly in scope.
 - The prompt pipeline uses sign/date for routing, storage, variation, and audit metadata, not direct creative instructions. Preserve that constraint unless the task changes it.

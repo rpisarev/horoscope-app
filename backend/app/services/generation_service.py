@@ -17,6 +17,7 @@ from ..providers import (
     ProviderResult,
     get_horoscope_provider,
 )
+from ..providers.publication_policy import require_publication_provider
 
 
 logger = logging.getLogger(__name__)
@@ -113,6 +114,8 @@ def run_daily_generation(
 
     try:
         provider = get_horoscope_provider(provider_name)
+        publication_provider = provider.name
+        require_publication_provider(publication_provider)
         prompt_version = get_prompt_version(locale=locale, forecast_type=forecast_type)
         _validate_preflight(
             run=run,
@@ -150,6 +153,7 @@ def run_daily_generation(
             _process_generation_item(
                 item=item,
                 provider=provider,
+                publication_provider=publication_provider,
                 prompt_version=prompt_version,
                 max_attempts=max_attempts,
             )
@@ -281,6 +285,7 @@ def _process_generation_item(
     *,
     item: GenerationItem,
     provider: HoroscopeProvider,
+    publication_provider: str,
     prompt_version: PromptVersion | None,
     max_attempts: int,
 ) -> None:
@@ -350,6 +355,7 @@ def _process_generation_item(
                 source=result.provider or provider.name,
                 prompt_version_key=prompt_version.key if prompt_version else None,
                 generation_item_id=item.id,
+                publication_provider=publication_provider,
                 commit=False,
             )
 
