@@ -1,6 +1,6 @@
 # Current Project State
 
-- State updated: 2026-09-29 (provider/publication-safety guard implemented after the provider audit).
+- State updated: 2026-09-29 (provider/publication-safety guard and Task 5 frontend domain API extraction).
 - Main working branch: `feature/main-page-start`
 - Audit baseline HEAD: `34623b27bd69d681edf1a3ab8f8aac31bc74cafa` (`Update frontend (#20)`).
 - Audit baseline working tree: clean; cached tracking ref and live remote `feature/main-page-start` matched HEAD, ahead/behind `0/0`. Guard implementation began at the same HEAD with only the two expected, preserved documentation changes from that audit.
@@ -62,7 +62,7 @@ Frontend `ZODIACS` has `key`, `nameEn`, `nameRu`, `glyph`, `start`, and `end`; H
 
 ## Frontend / routing / archive
 
-**VERIFIED:** `main.js` → `App.vue` → router view. `router/index.js` re-exports `index.ts`; there is one active route table. The named views/components from the handoff still exist. Older `pages/`, `store.js`, and card/selector components were removed in earlier history. A small `utils/businessDate.ts` helper owns only the server date context; no general API/service/composable layer or store was introduced.
+**VERIFIED:** `main.js` → `App.vue` → router view. `router/index.js` re-exports `index.ts`; there is one active route table. The named views/components from the handoff still exist. Older `pages/`, `store.js`, and card/selector components were removed in earlier history. Task 5 adds only `api/forecast.ts` and `api/archive.ts` for endpoint queries, HTTP handling, and consumed-response parsing. Views retain route and request state. The standalone `utils/businessDate.ts` helper remains unchanged; no generic HTTP layer or store was introduced.
 
 | Route | Behavior |
 | --- | --- |
@@ -77,6 +77,10 @@ Frontend `ZODIACS` has `key`, `nameEn`, `nameRu`, `glyph`, `start`, and `end`; H
 `HoroscopeView` is the forecast-content page. It calls `/api/forecast?sign=…&date=…`, accepts legacy/new text aliases, splits paragraphs, manages loading/errors, and uses request IDs to reject superseded responses. The exact unpublished `404` shows “Прогноз ещё не опубликован”; other failures show a generic load error and empty successful content shows an empty message. `ArchiveForecast` no longer fetches metadata, years, or forecasts, nor duplicates forecast rendering/assets. Valid one- or two-digit legacy month/day values are padded for the canonical URL; malformed or impossible explicit dates are rejected.
 
 `ArchiveMonth` requests `/api/years?sign=…&locale=ru&type=daily` when the selected sign changes and one `/api/archive/month?year=…&month=…&sign=…&locale=ru&type=daily` per sign/year/month scope. Only `has_forecast=true` days link directly to `/horoscope/:sign/:date`, whether past, today, or future. Loading/error states disable all days; there is no past-date fallback or per-day fetch. Request IDs and a scope check reject stale month responses; sign-scoped year requests also reject stale responses. Explicit month availability loads without `/api/meta`; business date only supplies today highlighting/linking. Existing year-list validation/fallback behavior remains, and `/api/archive/day` and `/api/archive/months` remain unused by the frontend.
+
+**TASK 5:** The forecast module preserves JSON strings, `text` before `forecast`, non-JSON text, and explicit empty strings. Missing compatible strings now reject instead of masquerading as empty content. Years parsing requires an array and preserves numeric conversion/integer filtering; failure still leaves valid explicit months usable. Month parsing requires a `days` array and returns only real ISO dates with `has_forecast === true`, ignoring malformed entries. Views keep localized messages, request IDs, scope checks, and navigation. No timeout/cancellation or locale/type behavior was redesigned.
+
+Task 5 verification: focused API/view tests **66 passed**; `npm test -- --run` **111 passed across 10 files**; `npm run build` passed; `git diff --check` passed. Existing Vite CJS deprecation warnings remain. No typecheck, lint, backend suite, or live-browser test was run for this extraction.
 
 ## Business-date policy
 
@@ -157,6 +161,8 @@ Focused checks passed before full verification: backend archive tests **19 passe
 - **VERIFIED — README/configuration gaps.** README's old `188 passed in 8.66s` is historical. Its OpenAI per-run limit example is 1; the service default is 2 (scheduler total jobs per tick separately defaults to 1). Compose does not pass through `PUBLIC_SITE_URL`, `SITEMAP_CHUNK_SIZE`, scheduler target-policy/rolling settings, or `GENERATION_OPENAI_MAX_*`; putting them only in root `.env` does not inject them into these containers. README now documents the forecast read contract and `/api/meta`; unrelated configuration gaps were not changed.
 
 ## Known frontend issues / risks
+
+- **SEPARATE KNOWN ISSUE — NOT FIXED BY TASK 5:** In a reused HoroscopeView, valid → invalid → the same valid route clears content without retriggering its sign/date watcher. Forecast invalid-route and unmount invalidation behavior was deliberately left unchanged by the API extraction.
 
 - **RESOLVED THIS MILESTONE:** ArchiveMonth uses backend-published sign availability; past dates are no longer assumed available.
 - **RESOLVED THIS MILESTONE:** ArchiveForecast now uses `validateArchiveForecastRoute`, rejects malformed/impossible explicit dates and unknown signs, and only replaces valid URLs to HoroscopeView. Historical Capricorn fallback/date clamping and independent rendering were removed.

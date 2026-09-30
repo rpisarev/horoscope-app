@@ -137,6 +137,19 @@ describe('published archive availability', () => {
     expect(requests('/api/meta')).toHaveLength(1) // Only the explicit initial metadata attempt.
   })
 
+  it.each(['http', 'network', 'malformed'])('keeps an explicit month usable after a years %s failure', async failure => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    yearsResponse = () => failure === 'network'
+      ? Promise.reject(new Error('offline'))
+      : response({}, failure === 'http' ? 500 : 200)
+    monthResponse = url => response(monthData(url, [18]))
+    await openMonth()
+    expect(router.currentRoute.value.path).toBe('/archive/aries/2026/09')
+    expect(calendarHrefs()).toEqual(['/horoscope/aries/2026-09-18'])
+    expect(wrapper!.find('[role="alert"]').exists()).toBe(false)
+    expect(requests('/api/archive/month')).toHaveLength(1)
+  })
+
   it('refetches one month per sign/year/month route change, and years only per sign', async () => {
     await openMonth()
     for (const path of ['/archive/taurus/2026/09', '/archive/taurus/2027/09', '/archive/taurus/2027/10']) {
