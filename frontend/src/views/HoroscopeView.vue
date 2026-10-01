@@ -206,6 +206,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
+import { getForecast } from '../api/forecast'
 import ZodiacCarousel from '../components/ZodiacCarousel.vue'
 import DaySlider from '../components/DaySlider.vue'
 import NotFound from './NotFound.vue'
@@ -433,22 +434,6 @@ async function replaceRouteIfNeeded() {
   })
 }
 
-async function readForecastResponse(response: Response) {
-  const contentType = response.headers.get('content-type') ?? ''
-
-  if (contentType.includes('application/json')) {
-    const payload = await response.json()
-
-    if (typeof payload === 'string') return payload
-    if (typeof payload?.text === 'string') return payload.text
-    if (typeof payload?.forecast === 'string') return payload.forecast
-
-    return ''
-  }
-
-  return response.text()
-}
-
 async function loadForecast() {
   if (routeError.value) {
     resetForecastState()
@@ -471,32 +456,17 @@ async function loadForecast() {
   errorText.value = ''
 
   try {
-    const query = new URLSearchParams({
+    const result = await getForecast({
       sign: validation.params.sign,
       date: validation.params.day,
     })
-
-    const response = await fetch(`/api/forecast?${query.toString()}`)
-
-    if (response.status === 404) {
-      const payload = await response.json()
-      if (payload?.error === 'forecast_not_published') {
-        if (localRequestId !== requestId) return
-        forecastText.value = ''
-        errorText.value = 'Прогноз ещё не опубликован'
-        return
-      }
-    }
-
-    if (!response.ok) {
-      throw new Error(`forecast status ${response.status}`)
-    }
-
-    const text = await readForecastResponse(response)
-
     if (localRequestId !== requestId) return
-
-    forecastText.value = text || ''
+    if (result.kind === 'not-published') {
+      forecastText.value = ''
+      errorText.value = 'Прогноз ещё не опубликован'
+      return
+    }
+    forecastText.value = result.text
   } catch (error) {
     if (localRequestId !== requestId) return
 

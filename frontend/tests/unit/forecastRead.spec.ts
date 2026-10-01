@@ -1,4 +1,5 @@
 import { flushPromises, shallowMount } from '@vue/test-utils'
+import { reactive } from 'vue'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const routing = vi.hoisted(() => ({
@@ -56,6 +57,27 @@ describe('HoroscopeView forecast read', () => {
     await flushPromises()
     expect(wrapper.find('[data-testid="not-found"]').exists()).toBe(true)
     expect(fetch).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('loads the selected sign and date after valid route changes', async () => {
+    routing.params = reactive({ sign: 'aries', day: '2026-07-16' })
+    vi.stubGlobal('fetch', vi.fn(async (input: string) => {
+      const url = new URL(input, 'http://localhost')
+      return response(200, { text: `${url.searchParams.get('sign')} ${url.searchParams.get('date')}` })
+    }))
+    const { default: component } = await import('../../src/views/HoroscopeView.vue')
+    const wrapper = shallowMount(component, { global: { stubs: { RouterLink: true } } })
+    await flushPromises()
+    expect(wrapper.text()).toContain('aries 2026-07-16')
+    routing.params.sign = 'taurus'
+    await flushPromises()
+    expect(wrapper.text()).toContain('taurus 2026-07-16')
+    routing.params.day = '2026-07-15'
+    await flushPromises()
+    expect(wrapper.text()).toContain('taurus 2026-07-15')
+    expect(wrapper.text()).not.toContain('aries 2026-07-16')
+    expect(fetch).toHaveBeenCalledTimes(3)
     wrapper.unmount()
   })
 })

@@ -1,6 +1,6 @@
 # Current architecture
 
-This describes the current source on `update-frontend`, based on `feature/main-page-start` at the documentation checkpoint `bbdb9ef`, plus the read-only forecast/business-date milestone and sign-aware archive integration. The branch contains substantially more than Home-page work. Known issues, risks, and historical changes are identified explicitly; this is not a proposed replacement architecture. See [CURRENT_STATE.md](CURRENT_STATE.md) for the dated snapshot, verification results, and open decisions. [README.md](../README.md) remains the setup reference.
+This describes `feature/main-page-start` at `34623b2` plus the provider publication guard implemented on 2026-09-29, including the earlier read-only forecast/business-date milestone and sign-aware archive integration. Current behavior, agreed policy, and future direction are separated below. The publication guard is implemented; an Ollama/Qwen adapter is not. See [CURRENT_STATE.md](CURRENT_STATE.md) for the dated snapshot, verification results, and open decisions. [README.md](../README.md) remains the setup reference.
 
 ## System overview and entry points
 
@@ -24,7 +24,7 @@ The frontend runs Vite's dev server on 5173; Flask runs its development server o
 
 ## Frontend structure and main-page flow
 
-[`router/index.ts`](../frontend/src/router/index.ts) owns the route table; `index.js` is a compatibility re-export. Views are eagerly imported. `Home.vue`, `HoroscopeView.vue`, `ArchiveMonth.vue`, and `NotFound.vue` are content views; `ArchiveForecast.vue` is only a legacy-route validation/redirect shim. A small `utils/businessDate.ts` helper holds the server date context; there is no general API client, shared forecast composable, or central store.
+[`router/index.ts`](../frontend/src/router/index.ts) owns the route table; `index.js` is a compatibility re-export. Views are eagerly imported. `Home.vue`, `HoroscopeView.vue`, `ArchiveMonth.vue`, and `NotFound.vue` are content views; `ArchiveForecast.vue` is only a legacy-route validation/redirect shim. Endpoint-specific [`api/forecast.ts`](../frontend/src/api/forecast.ts) and [`api/archive.ts`](../frontend/src/api/archive.ts) own query construction, HTTP handling, and response parsing. The standalone `utils/businessDate.ts` helper still holds the server date context; there is no general HTTP client, shared forecast composable, or central store.
 
 ```text
 / -> Home -> Starfield + ZodiacWheel + ZodiacTooltip
@@ -35,7 +35,7 @@ The frontend runs Vite's dev server on 5173; Flask runs its development server o
 
 Home uses static English names, glyphs, date ranges, and a dedicated display order derived from shared `ZODIACS`. It refreshes `/api/meta` before navigation but does not fetch signs or forecasts. Wheel hover pauses rotation and displays a tooltip; click/Enter/Space emits selection. Starfield's canvas animation releases interval/frame/listener resources on unmount. These components are on the normal route and bundled in the production build; there is no separate prototype path. **Historical context:** earlier forecast tooltip placeholders and modal/card navigation were superseded.
 
-`HoroscopeView` renders forecast API text with loading, explicit unpublished (`404 forecast_not_published`), generic error, and empty-content states. It owns forecast response parsing, paragraph splitting, request-ID handling, route/model watchers, and asset maps. `ArchiveForecast` no longer fetches or renders forecast content. Zodiac illustrations and constellations live under `frontend/src/assets/zodiac/`; Home itself uses glyphs rather than those forecast hero images.
+`HoroscopeView` renders forecast API text with loading, explicit unpublished (`404 forecast_not_published`), generic error, and empty-content states. `getForecast` returns a published-text or not-published result; other HTTP/network/contract failures reject. JSON strings, string `text` before `forecast`, and non-JSON text remain supported, including explicit empty strings; malformed JSON success shapes reject. The view retains paragraph splitting, request-ID handling, route/model watchers, and asset maps. Invalid-route restoration remains a separate known issue. `ArchiveForecast` no longer fetches or renders forecast content. Zodiac illustrations and constellations live under `frontend/src/assets/zodiac/`; Home itself uses glyphs rather than those forecast hero images.
 
 Routing uses browser history. The navigation guard fetches business metadata only for `/horoscope` and `/archive` convenience redirects. Home, explicit dated routes, and not-found routes resolve without it. `/horoscope` and `/archive` then redirect to Capricorn and backend-supplied current dates, preserving trailing-slash matching and query/hash handling. `HoroscopeView` validates the sign and real ISO day; `ArchiveMonth` validates sign/year/month and a loaded nonempty year list. They render contextual `NotFound` without rewriting invalid routes. ArchiveMonth pads month URLs. `ArchiveForecast` calls `validateArchiveForecastRoute` without fetching a year list or metadata. For a known explicit sign and real calendar date it calls `router.replace` to `/horoscope/:sign/:YYYY-MM-DD`, preserving query/hash. Valid one- or two-digit legacy month/day values are padded; malformed/impossible dates and unknown signs render contextual NotFound without clamping, guessing a date, or choosing Capricorn. Catch-all routes render `NotFound`/`CosmicGate404`. These are client-side UI states, not configured server HTTP status handling.
 
@@ -83,12 +83,12 @@ Admin / CLI / scheduler producer
   -> generation_jobs
        -> queue worker
             -> generation_service.run_daily_generation
-                 -> generation_runs -> generation_items
+                 -> generation_runs -> publication policy -> generation_items
                       -> existing published forecast? skip
                       -> prompt pipeline -> generation_attempts
                            -> stub OR OpenAI provider
                            -> result validation
-                           -> published forecast + audit updates
+                           -> publication policy -> published forecast + audit updates
 
 Admin immediate API / package CLI / legacy scheduler
   -----------------------------------------> same lifecycle (no queue job)
@@ -105,6 +105,62 @@ Providers implement `ProviderRequest` → `ProviderResult` and do not persist fo
 The admin blueprint is `/api/admin`, disabled by default and protected by a bearer token when enabled. Under `/generation`, it exposes coverage; GET/POST runs; retry-missing; run/item attempt detail; GET/POST jobs; backfill; job detail/cancel/retry; and batch status/cancel/retry-failed. Immediate admin generation and queued generation both still exist.
 
 Utilities in `backend/utils/` support immediate packages, queue creation/processing, package reporting, and standalone prompt probing. They are operational commands, not harmless general test commands.
+
+### Current provider selection and publication audit
+
+**CURRENT ENFORCED BEHAVIOR (2026-09-29):** [`providers/factory.py`](../backend/app/providers/factory.py) constructs `stub` and `openai`. It resolves an explicit truthy argument, then `HOROSCOPE_PROVIDER`, then `stub`, and strips/lowercases the name. Unknown names fail; `local`, `local-llm`, and `local_llm` explicitly fail as unimplemented. `ollama` is not registered. There is no fallback from an OpenAI error to stub. The missing-provider default is distinct from error handling.
+
+| Entry point | Selection and defaults | Relevant gates / persistence |
+| --- | --- | --- |
+| Direct lifecycle `run_daily_generation` | Explicit `provider_name`, otherwise factory environment/default. | Shared publication policy before generation; no universal paid-provider opt-in. |
+| Direct scheduler daily and retry-missing | `tasks.py` reads `HOROSCOPE_PROVIDER` at process initialization, default `stub`; Compose also defaults it to `stub`. | Default `GENERATION_SCHEDULER_USE_QUEUE=0` calls lifecycle directly. Queue OpenAI flags do not guard this path. |
+| Scheduler queue producer | Same scheduler provider, passed explicitly into scheduled/retry-missing job creation. | OpenAI creation requires `GENERATION_SCHEDULED_JOBS_ALLOW_OPENAI`; provider persists in each job. |
+| Queue creation service, ranges/backfills | Omitted provider defaults to `stub`, independently of `HOROSCOPE_PROVIDER`; accepts only `stub`/`openai`. | OpenAI needs `allow_openai`; each range member stores the selected provider. |
+| Queue worker / `process_generation_jobs.py` | Uses persisted `job.provider`, not current `HOROSCOPE_PROVIDER`. | Revalidates publication policy at execution. OpenAI still requires worker `allow_openai` and key. Scheduler polling uses `GENERATION_JOB_WORKER_ENABLED` and `GENERATION_JOB_WORKER_ALLOW_OPENAI`; CLI uses `--allow-openai`. OpenAI count limits still apply. |
+| Immediate admin runs/retry-missing; admin jobs/backfill | Request `provider`, omitted/empty defaults to `stub`, independently of `HOROSCOPE_PROVIDER`; accepts only `stub`/`openai`. | API enable/token checks; OpenAI additionally needs `ADMIN_API_ALLOW_OPENAI`, request `allow_openai=true`, and key. Queued work also faces worker gates. |
+| `generate_forecast_package.py` | `--provider` defaults to **`openai`**, overriding the factory environment default. Explicit `--provider stub` is supported. | OpenAI requires `--allow-openai` and key before immediate lifecycle execution. |
+| `create_generation_jobs.py` | `--provider` defaults to `stub`; choices `stub`/`openai`. | OpenAI requires `--allow-openai`; missing key warns at creation, execution still requires it. |
+| `openai_prompt_probe.py` | Standalone OpenAI client; model/options use CLI/environment defaults, ignoring `HOROSCOPE_PROVIDER`. | Generating probes require a key but no `--allow-openai` flag; profile listing does not generate. It does not use lifecycle or publish/persist forecasts. |
+| Legacy `generate_horoscope` helper | Explicitly selects stub and returns text. | Not called by public GET; does not itself persist. Package reporting is read-only and selects no provider. |
+
+Construction, capabilities, and accepted provider names share [`providers/registry.py`](../backend/app/providers/registry.py); admin, queue, and queue CLI derive supported names from that registry. Selection defaults and OpenAI-specific permission checks remain entry-point-specific. Setting `HOROSCOPE_PROVIDER=openai` does not globally prevent stub selection through admin or queue defaults, but production execution rejects a forbidden selection.
+
+Retries within one item reuse the same provider object. Direct retry-missing starts a new run with the supplied/current provider, not the previous run's choice. Retrying a failed job or batch retains its stored provider; worker retries and retry-missing jobs pass that provider to lifecycle. Backfill members likewise retain their selected provider. Jobs do not pin model configuration: adapter/model resolution occurs at execution, so later configuration/prompt changes may affect a retry's model.
+
+OpenAI reads `OPENAI_API_KEY`, `OPENAI_MODEL`, `OPENAI_TIMEOUT_SECONDS` (default 30), and `OPENAI_MAX_OUTPUT_TOKENS` (default 500). Effective model selection is nonblank `OPENAI_MODEL`, otherwise a prompt model other than `stub`, otherwise the adapter model (default `gpt-5.4-mini`). Missing credentials fail when generation is attempted; applicable entry points reject them earlier. Invalid numeric settings are rejected by adapter parsing; invalid credentials/model/API requests fail through error handling, with retryable errors retried. None switches to stub. Omitting OpenAI model settings uses defaults, not a provider change.
+
+**PUBLICATION:** [`generation_service.py`](../backend/app/services/generation_service.py) captures the selected adapter identity and checks the shared publication policy before provider calls or item processing. Once authorized, the existing scope check skips published forecasts by `(sign_key, target_date, locale, forecast_type)`, without a source filter. Successful output passes nonempty-text/forbidden-term validation and reaches `save_forecast(status="published", ..., publication_provider=<captured execution identity>)`, which checks the policy again. Publication remains automatic for allowed providers. Stub therefore still publishes locally, but production stub runs fail before generation. Direct and queued execution share this lifecycle.
+
+[`forecast_service.save_forecast`](../backend/app/services/forecast_service.py) authorizes before querying or mutating any forecast row. In production, publication requires the keyword-only `publication_provider` identity from the trusted caller; `source`, `model_version`, and result payloads cannot supply authorization. Missing identity is rejected. Generic non-published saves remain available, and development/test persistence stays compatible. This is a shared service boundary, not a database constraint or protection against arbitrary direct ORM/SQL writes.
+
+**SEPARATE METADATA-INTEGRITY FOLLOW-UP:** Stored metadata still uses `result.provider or provider.name` and `result.model_name or provider.model_name`, without full consistency validation; even `ProviderResult.provider="unknown"` is truthy. The guard does not solve that audit finding: an approved real adapter can still return inaccurate metadata, but such metadata cannot authorize a forbidden execution provider. No existing metadata was repaired.
+
+### Agreed provider policy and future adapter direction
+
+**AGREED POLICY:** The product has exactly 13 zodiac signs, including Ophiuchus; active generation/archive coverage remains derived from database metadata. Stub is a development/test provider for cost-free local workflows and must never supply public production content. OpenAI is currently the implemented real provider. The write guard now requires production approval through capabilities/allowlists rather than a permanent `provider == "openai"` rule. Existing data and public-read eligibility remain separate from this write guard.
+
+**FUTURE, NOT IMPLEMENTED:** An Ollama or equivalent local-model adapter, potentially running a Qwen model, fits under `backend/app/providers/` and the factory. The existing `HoroscopeProvider.generate(ProviderRequest) -> ProviderResult` interface is sufficient for an initial adapter: messages/schema/metadata enter, normalized content/model metadata/audit payloads or classified errors leave. It should reuse the existing lifecycle, validation, attempts/audit, persistence, and publication flow. Keep provider identity (for example `ollama`) separate from the actual model/version/tag (a specific Qwen model); do not use `stub` as its source or alias.
+
+A future adapter needs one registry definition with its factory and capabilities, plus explicit membership in the production publication allowlist after approval. Supported names in admin/jobs/queue CLI derive from that registry, so the core publication guard does not need provider-specific edits. Adapter-specific credentials, model selection, and operational limits still need design during an actual experiment; OpenAI's existing gates and quotas remain OpenAI-specific. The `local*` aliases remain error placeholders. Do not add Ollama transport, dependencies/services/env wiring, or broaden approval before the experiment. Choosing Qwen alone is not approval.
+
+### Production publication guard
+
+**IMPLEMENTED:** [`publication_policy.py`](../backend/app/providers/publication_policy.py) uses trusted execution identity and the shared provider registry. Definitions distinguish `development_only` and `production_publication_capable`; stub is true/false, OpenAI false/true. Registry keys identify providers; model names remain separate metadata. The guard contains no OpenAI-specific authorization branch.
+
+| Setting | Enforced behavior |
+| --- | --- |
+| `APP_DEPLOYMENT_MODE` | `development` by default to preserve local use; also accepts `test` and `production`. Empty/unknown values fail. Production operators must explicitly select production in every generating process. |
+| `PRODUCTION_PUBLICATION_PROVIDERS` | Comma-separated registry names, default `openai` (the currently approved real provider). Empty denies all production publication; unknown names fail configuration validation. Listing stub cannot override its development-only capability. |
+
+Both settings are validated at Flask app creation and revalidated at publication checks; tests explicitly configure test mode. Compose forwards them to backend and scheduler with unset-only defaults, preserving an explicit empty value for validation/deny-all behavior. This minimal implementation differs from the audit's earlier illustrative design: there is no separate generation allowlist, and absent deployment mode defaults to development rather than denying local startup. `FLASK_DEBUG` never selects policy. Startup validation does not itself generate or touch forecast data.
+
+Lifecycle preflight denial records a failed run with a clear non-retryable `PublicationPolicyError` message and no provider attempt. Workers check the current policy against persisted `job.provider` before execution and record a failed job on denial, even when the job was created in development or requeued. A final persistence denial uses existing failed item/attempt handling and cannot overwrite an existing forecast. Immediate admin returns the existing run-status envelope (including failed status/error); scheduler and package CLI report failed runs through their existing reporting. Job creation is not a promise of later publication and can still enqueue a stub job that production workers reject. No provider substitution occurs; existing OpenAI paid-execution gates are unchanged.
+
+Focused tests cover development/test stub success, production denial including a mistakenly allowlisted stub, no insert/overwrite, direct lifecycle/scheduler/admin/CLI paths, persisted scheduled/manual/retry/backfill jobs and requeues, runtime policy changes at persistence, misleading result metadata, approved fake real providers, and invalid configuration. No paid requests are needed.
+
+**UNCHANGED DATA BOUNDARY:** The new-write guard does not change skip/coverage rules or remove existing rows from forecast reads, archives, or sitemaps. All 27 previously audited local published stubs remain untouched. Before a public rollout, explicitly decide data remediation or matching public-read eligibility enforcement across those surfaces. No cleanup, metadata repair, or public-contract change is part of this implementation.
+
+No Ollama implementation or queue redesign was introduced. See [the dated local evidence](CURRENT_STATE.md#local-historical-evidence-2026-09-29) for the existing stub runs and the separate, unchanged historical timestamp follow-up.
 
 ## Scheduler flow
 
@@ -133,6 +189,8 @@ APP_TIMEZONE -> business_date.py -> GET /api/meta (no-store)
 Initial failure offers retry/reload while explicit-date content, Home, and not-found views remain renderable. Convenience redirects cannot proceed without a successfully refreshed authoritative date. Until a snapshot exists, `todayIso` returns null: date labels remain absolute, forward-day navigation is disabled, and archive today links/highlighting are unavailable. ArchiveMonth published availability and legacy-day validation/redirects do not depend on that snapshot. Refresh failures show an error and retain the last server value; no local-clock fallback is used. Thus an idle page can lag midnight until the next refresh, or longer when offline. Relative labels, limits, and archive today highlighting react to the shared snapshot; month clickability instead depends exclusively on the published-availability response. UTC arithmetic and UTC formatting of plain date strings preserve calendar dates; they do not establish a separate UTC-today policy.
 
 ## Public archive read flow
+
+`getArchiveYears` requires an array and preserves numeric conversion/integer filtering. `getArchiveMonthAvailability` requires a `days` array and returns a date set containing only real ISO dates with strict `has_forecast === true`; malformed entries are ignored. These domain functions expose no aggregate fields. ArchiveMonth retains request IDs, scope checks, unmount invalidation, loading/error state, calendar rendering, and navigation. Years failures remain console-only and do not prevent an explicit month from loading. No generic networking infrastructure, timeout, or cancellation changes accompany this extraction.
 
 ```text
 Vue ArchiveMonth (explicit sign/year/month)
@@ -184,6 +242,19 @@ Home derives its items from the shared constants; Carousel starts with Capricorn
 
 ## Sitemap policy and frontend SEO
 
+The optional [bounded prerender POC](../frontend/poc/README.md) is separate from the
+application/deployment path. It runs the unchanged built SPA in browser iframes,
+captures its actual rendered root, and holds selected HTML artifacts in memory.
+Its loopback HTTP harness reuses route validators and checks Flask read responses
+before serving artifacts; mismatches require explicit recapture, and unpublished
+forecasts remain 404. Refresh plans select a forecast and, only for availability
+changes, its archive month. Business-date refresh covers Home, archive today links,
+and affected relative date labels. A POC bootstrap retains the visible snapshot
+while mounting the existing app offscreen; it does not introduce hydration or SSR.
+Real-data/browser checks and isolated response-fixture simulations are distinct.
+This is disposable evidence, not production routing, cache policy, robots/sitemap
+wiring, durable artifact storage, or a publication freshness guarantee.
+
 [`sitemap_service.py`](../backend/app/services/sitemap_service.py) builds entries from published forecasts joined to enabled signs, with locale/type/date filters and include flags. It emits home, each `/horoscope/{sign}/{ISO-day}`, and each populated `/archive/{sign}/{year}/{MM}` pair. It omits archive-day URLs. Forecast `lastmod` uses the first available timestamp in this order: `published_at`, `updated_at`, `generated_at`, `created_at`. Month entries use the latest of those chosen forecast values.
 
 Flask exposes JSON URL/document inspection under `/api/seo/sitemap/urls` and `/api/seo/sitemap/documents`, flat `/sitemap.xml`, `/sitemap-index.xml`, and numbered `/sitemaps/sitemap-N.xml` chunks. Chunk size defaults to 50,000; public origin defaults to localhost:5173. These handlers do not generate forecasts.
@@ -198,6 +269,8 @@ Compose explicitly maps selected environment variables; root `.env` is not autom
 
 OpenAI job creation and execution have distinct opt-ins. Admin additionally requires its enable/token controls and OpenAI allow flag plus request confirmation. Queue execution requires worker opt-in and an API key; range/per-run/per-UTC-day limits are count-based. Service defaults are seven backfill days, two OpenAI jobs per worker call, and ten started jobs per UTC day. Scheduler's separate total-job limit defaults to one. Legacy direct scheduler execution uses the selected provider directly; the standalone prompt probe can call OpenAI with a configured key. Thus default stub settings and task-level authorization remain essential; queue gates are not universal protection.
 
-Backend verification uses `bash scripts/backend-test.sh`: it starts the DB service, creates a disposable `horoscope_test`, applies migrations, runs pytest, and drops that test DB. Fixtures truncate mutable tables while retaining seeds and refuse the default development DB unless explicitly overridden. Do not use that override or run raw pytest against development data. The audit exercised only the isolated test workflow, not generation smoke examples against development data.
+**PRODUCTION SAFETY:** The shared capability/allowlist policy above guards controlled publication in explicit production mode, including the legacy direct scheduler. Deployment operators must set `APP_DEPLOYMENT_MODE=production`; leaving it unset intentionally preserves development behavior. Default/omitted provider selection may still choose stub, which production execution rejects. Explicit OpenAI failures never fall back to stub. Existing published data and result metadata integrity remain separate follow-ups; the guard is not a production deployment configuration or a database-wide constraint.
+
+Backend verification uses `bash scripts/backend-test.sh`: it starts the DB service, creates a disposable `horoscope_test`, applies migrations, runs pytest, and drops that test DB. Fixtures truncate mutable tables while retaining seeds and refuse the default development DB unless explicitly overridden. Do not use that override or run raw pytest against development data. The provider guard uses this isolated workflow; the preceding read-only audit inspected development data without changing it.
 
 Frontend has Vitest/jsdom with focused tests for the server date context, navigation/history replacement, strict legacy validation, labels/limits, refresh cleanup, forecast rendering, and sign-scoped month availability including loading/failure and stale-response handling. Broader UI/Swiper coverage remains limited. Vite build transpiles TS but does not type-check it. There is no configured vue-tsc/typecheck/lint check, and TS strict mode is not enabled. GitHub Actions currently runs only backend/Compose checks. Current command results and the limits of verification are recorded in [CURRENT_STATE.md](CURRENT_STATE.md).

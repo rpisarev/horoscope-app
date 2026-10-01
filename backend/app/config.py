@@ -72,6 +72,8 @@ def _env_int(
 
 
 class Config:
+    APP_DEPLOYMENT_MODE = os.getenv("APP_DEPLOYMENT_MODE", "development")
+    PRODUCTION_PUBLICATION_PROVIDERS = os.getenv("PRODUCTION_PUBLICATION_PROVIDERS", "openai")
     APP_TIMEZONE = os.getenv("APP_TIMEZONE", "Europe/Kyiv")
 
     SQLALCHEMY_DATABASE_URI = (
