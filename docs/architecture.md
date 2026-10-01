@@ -242,6 +242,19 @@ Home derives its items from the shared constants; Carousel starts with Capricorn
 
 ## Sitemap policy and frontend SEO
 
+The optional [bounded prerender POC](../frontend/poc/README.md) is separate from the
+application/deployment path. It runs the unchanged built SPA in browser iframes,
+captures its actual rendered root, and holds selected HTML artifacts in memory.
+Its loopback HTTP harness reuses route validators and checks Flask read responses
+before serving artifacts; mismatches require explicit recapture, and unpublished
+forecasts remain 404. Refresh plans select a forecast and, only for availability
+changes, its archive month. Business-date refresh covers Home, archive today links,
+and affected relative date labels. A POC bootstrap retains the visible snapshot
+while mounting the existing app offscreen; it does not introduce hydration or SSR.
+Real-data/browser checks and isolated response-fixture simulations are distinct.
+This is disposable evidence, not production routing, cache policy, robots/sitemap
+wiring, durable artifact storage, or a publication freshness guarantee.
+
 [`sitemap_service.py`](../backend/app/services/sitemap_service.py) builds entries from published forecasts joined to enabled signs, with locale/type/date filters and include flags. It emits home, each `/horoscope/{sign}/{ISO-day}`, and each populated `/archive/{sign}/{year}/{MM}` pair. It omits archive-day URLs. Forecast `lastmod` uses the first available timestamp in this order: `published_at`, `updated_at`, `generated_at`, `created_at`. Month entries use the latest of those chosen forecast values.
 
 Flask exposes JSON URL/document inspection under `/api/seo/sitemap/urls` and `/api/seo/sitemap/documents`, flat `/sitemap.xml`, `/sitemap-index.xml`, and numbered `/sitemaps/sitemap-N.xml` chunks. Chunk size defaults to 50,000; public origin defaults to localhost:5173. These handlers do not generate forecasts.

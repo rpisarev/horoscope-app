@@ -9,7 +9,10 @@
     "test": "vitest",
     "test:watch": "vitest --watch",
     "test:coverage": "vitest run --coverage",
-    "typecheck": "vue-tsc --noEmit -p tsconfig.json"
+    "typecheck": "vue-tsc --noEmit -p tsconfig.json",
+    "poc:serve": "node poc/server.mjs",
+    "poc:check": "node --test poc/checks.mjs",
+    "poc:verify": "node poc/verify.mjs"
   },
   "dependencies": {
     "dayjs": "^1.11.11",

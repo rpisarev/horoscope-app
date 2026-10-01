@@ -127,9 +127,20 @@ The unlinked row is forecast 196, Aries, `2026-02-01`. Lack of linkage is compat
 
 ## SEO / sitemap
 
+**BOUNDED POC (2026-10-01), NOT PRODUCTION:** [`frontend/poc`](../frontend/poc/README.md)
+captures selected routes with the existing production Vue bundle in a real browser.
+A disposable loopback harness serves captured HTML with backend-authorized 200/404
+and shared-validation legacy 301 behavior. Explicit fixture-only publication/update/
+withdrawal and business-date refreshes demonstrate incremental invalidation without
+database writes or historical full-site regeneration. The bootstrap retains the
+snapshot while the unchanged SPA starts; no SSR framework, application-view changes,
+dependencies, language changes, or production serving/automation were introduced.
+Artifacts are in memory and require an operator browser to capture. Production
+refresh ownership, persistent artifacts, failure UX and freshness policy remain open.
+
 **VERIFIED:** `/api/seo/sitemap/urls`, `/api/seo/sitemap/documents`, `/sitemap.xml`, `/sitemap-index.xml`, and `/sitemaps/<filename>` exist. Published rows for active signs produce `/`, `/horoscope/{sign}/{YYYY-MM-DD}`, and populated `/archive/{sign}/{YYYY}/{MM}` URLs. Archive-day URLs are excluded. Tests cover URL policy, filters, inactive signs, XML, and chunk/index behavior.
 
-**VERIFIED:** Archive-day → horoscope replacement now establishes one client forecast-day URL; the legacy route does not render duplicate forecast content. **OUT OF SCOPE / STILL ABSENT:** canonical link tags, robots/noindex policy, server HTTP redirects, and SSR. Sitemap selection and client navigation do not implement these SEO mechanisms. Vite proxies `/api` only; serving Flask's root sitemap endpoints at the public frontend origin is not configured here.
+**VERIFIED:** Archive-day → horoscope replacement now establishes one client forecast-day URL; the legacy route does not render duplicate forecast content. **NORMAL APPLICATION / DEPLOYMENT PATH — STILL ABSENT:** canonical link tags, robots/noindex policy, server HTTP redirects, and SSR. The separate POC above does not change that path. Sitemap selection and client navigation do not implement these SEO mechanisms. Vite proxies `/api` only; serving Flask's root sitemap endpoints at the public frontend origin is not configured here.
 
 ## Verification status
 
