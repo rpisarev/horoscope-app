@@ -1,8 +1,9 @@
 # Current architecture
 
-This describes the verified `feature/main-page-start` baseline `2b71659` (PR #23),
-including STAB-007, STAB-001, SAFE-001 and iteration 2's development-port and
-CLI-outcome fixes. Current behavior and accepted but unimplemented architecture are
+This describes iteration 3 on verified `feature/main-page-start` base `4fe11be`
+(PR #24, including accepted STAB-015.01 and prior stabilization fixes). It adds
+the frontend toolchain update, exact-key conflict handling and read-only operational
+diagnostics. Current behavior and accepted but unimplemented architecture are
 separated below. Production publication and paid-execution guards are implemented;
 an Ollama/Qwen adapter is not. See [CURRENT_STATE.md](CURRENT_STATE.md) for dated
 verification and open decisions. [README.md](../README.md) remains the setup reference.
@@ -176,6 +177,17 @@ The CLI sets `PYTHON_DOTENV_DISABLED=1` before app imports; the explicit config 
 honors that opt-out with python-dotenv 1.0.1. Database access still requires an
 authorized operator environment. No new diagnostic HTTP route is exposed.
 
+STAB-015.07b adds a separate [aggregate operations CLI](generation-operations.md)
+using the same snapshot and published-coverage reader. It derives today/tomorrow
+from the existing business-date helper, expects current enabled database signs,
+and evaluates the accepted 06:00 Kyiv deadline. Empty metadata and a non-Kyiv
+product timezone produce explicit configuration conditions. Queue counts span the
+chosen locale/type and all dates; oldest age means time since creation, not worker
+progress. Full current coverage does not establish historical on-time completion.
+Quota/pause/worker-health evidence remains unknown. Both diagnostic CLIs suppress
+implicit dotenv discovery, use safe projected data and redact suspicious display
+identifiers without changing SQL scope. Neither grants execution/recovery authority.
+
 ### Current provider selection and publication audit
 
 **CURRENT ENFORCED BEHAVIOR (2026-09-29):** [`providers/factory.py`](../backend/app/providers/factory.py) constructs `stub` and `openai`. It resolves an explicit truthy argument, then `HOROSCOPE_PROVIDER`, then `stub`, and strips/lowercases the name. Unknown names fail; `local`, `local-llm`, and `local_llm` explicitly fail as unimplemented. `ollama` is not registered. There is no fallback from an OpenAI error to stub. The missing-provider default is distinct from error handling.
@@ -217,7 +229,7 @@ OpenAI reads `OPENAI_API_KEY`, `OPENAI_MODEL`, `OPENAI_TIMEOUT_SECONDS` (default
 
 ### Agreed provider policy and future adapter direction
 
-**AGREED POLICY:** The product has exactly 13 zodiac signs, including Ophiuchus; active generation/archive coverage remains derived from database metadata. Stub is a development/test provider for cost-free local workflows and must never supply public production content. OpenAI is currently the implemented real provider. The write guard now requires production approval through capabilities/allowlists rather than a permanent `provider == "openai"` rule. Existing data and public-read eligibility remain separate from this write guard.
+**AGREED POLICY:** The current seed/presentation set has 13 zodiac signs, including Ophiuchus; accepted D8 derives expected coverage from enabled database metadata, not a permanent count of 13. Stub is a development/test provider for cost-free local workflows and must never supply public production content. OpenAI is currently the implemented real provider. The write guard now requires production approval through capabilities/allowlists rather than a permanent `provider == "openai"` rule. Existing data and public-read eligibility remain separate from this write guard.
 
 **FUTURE, NOT IMPLEMENTED:** An Ollama or equivalent local-model adapter, potentially running a Qwen model, fits under `backend/app/providers/` and the factory. The existing `HoroscopeProvider.generate(ProviderRequest) -> ProviderResult` interface is sufficient for an initial adapter: messages/schema/metadata enter, normalized content/model metadata/audit payloads or classified errors leave. It should reuse the existing lifecycle, validation, attempts/audit, persistence, and publication flow. Keep provider identity (for example `ollama`) separate from the actual model/version/tag (a specific Qwen model); do not use `stub` as its source or alias.
 

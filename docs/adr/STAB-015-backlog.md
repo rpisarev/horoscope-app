@@ -3,7 +3,9 @@
 **D1–D8 Accepted — 2026-11-14; STAB-015.01 COMPLETED (documentation only).**
 **Статуси реалізації нижче оновлюються окремо від Accepted policy.**
 На baseline PR #23, `2b71659`, усі implementation cards були OPEN.
-STAB-015.03a/.05a/.07a завершено в iteration 3; решта, крім .01, поки OPEN.
+STAB-015.03a/.05a/.07a/.07b завершено в iteration 3; решта, крім .01, OPEN.
+STAB-003 toolchain також виконано; residual dependency advisories мають окремий
+follow-up. Це локальна реалізація, не deployment або paid permission.
 Батьківський документ: [ADR STAB-015](STAB-015-generation-execution.md).
 Ці картки не є implementation або дозволом на runtime/DB/paid зміни.
 
@@ -17,8 +19,8 @@ STAB-015.03a/.05a/.07a завершено в iteration 3; решта, крім .
 D1–D8 вже затверджені: повторно питати вибір A/B/C, одиницю cap, scope або SLO
 не потрібно. P1–P8 ADR залишаються implementation/configuration параметрами.
 Кожна implementation task призначається окремо; документація не дозволяє live
-rollout. `.03a` — незалежний existing-contract fix. Ownership наступних п'яти
-кандидатів, включно зі STAB-003, визначено в [handoff](STAB-015-next-iteration.md).
+rollout. `.03a` — незалежний existing-contract fix. Історичні ownership/scope
+п'яти задач iteration 3, включно зі STAB-003, збережено в [handoff](STAB-015-next-iteration.md).
 
 **Не дублювати виконане:** STAB-007 disposable test harness, STAB-001 SDK retries=0
 та structured quota classification, SAFE-001 global paid gate. STAB-004 уже
@@ -36,7 +38,7 @@ development/production DB writes або live rollout як спосіб пере�
 - **Проблема:** потрібен один авторитетний контракт після явного owner approval.
 - **Scope:** Accepted D1–D8, current/future entrypoint matrix, unresolved parameters і узгоджений backlog/handoff; docs only.
 - **Залежності:** виконано: явна owner instruction «STAB-015.01 — Accept Generation Execution Architecture ADR», задана дата рішення 2026-11-14; baseline PR #23.
-- **Acceptance:** policy однозначна; current code не видається за future guarantees; усі інші implementation cards OPEN. D1–D8 не перепогоджуються.
+- **Acceptance:** policy однозначна; current code не видається за future guarantees; на момент acceptance усі implementation cards були OPEN. D1–D8 не перепогоджуються.
 - **Test strategy:** docs-only diff, links/anchors, consistency між ADR/backlog/state/architecture/safety docs і handoff; без DB/provider tests.
 - **Ризики / розмір:** Accepted помилково прочитати як deployment або paid permission; **S**. Завершено лише decision contract.
 
@@ -191,6 +193,12 @@ Server/connection timeouts не є strict total DNS/HTTP deadline; production po
 - **Ризики / розмір:** probe load/restart loops, leaked connection details; **S**. Live Compose healthcheck не перемикається автоматично.
 
 ## STAB-015.07b — aggregate coverage/queue та deadline visibility
+
+**COMPLETED — iteration 3, 2026-11-15.** Bounded local read-only CLI з shared
+coverage, today/tomorrow, 06:00 Kyiv, queue age/counts та explicit unknown causes.
+79 operations/cross-report/redaction/startup regressions пройшли через disposable
+harness. [Контракт і межі](../generation-operations.md). Alert transport, durable
+historical SLO evidence, heartbeat/pause/cost reasons лишаються поза цим scope.
 
 - **Проблема:** success job/no-work exit не доводить complete current-day coverage або D8 SLO.
 - **Scope:** aggregate date/locale/type coverage enabled signs, queue depth/oldest age, last observed run status; 06:00 Europe/Kyiv deadline evaluation. Не per-job recovery report (.05a), pause implementation або нові ledger fields.

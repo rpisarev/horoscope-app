@@ -1,6 +1,26 @@
 # STAB-015.01: handoff наступної ітерації
 
-**Prepared 2026-11-15; implementation NOT started.** Source baseline:
+**Iteration 3 implementation completed locally, 2026-11-15; no rollout.**
+Integration started from verified `4fe11be` (merged PR #24 / Accepted ADR).
+The following table supersedes the original OPEN status; the historical handoff
+below preserves the original scope and evidence, not current unresolved defects.
+
+| Task | Implemented result / current evidence |
+| --- | --- |
+| STAB-003 | [Vite 6.4.6 / Vitest 4.1.12 / Node 22](../frontend-toolchain.md); application versions unchanged; remaining non-Vite advisories explicit. |
+| STAB-015.03a | [Exact-key conflict normalization](../generation-job-deduplication.md), caller ownership and bounded winner-finalization handling; no package admission. |
+| STAB-015.05a | [Per-job read-only CLI](../generation-recovery-inspection.md), bounded evidence and unknown transport outcomes; no recovery actions. |
+| STAB-015.07a | [DB/schema readiness](../database-readiness.md), additive minimal `/health/ready`; connection/statement bounds, not a strict total DNS/HTTP deadline. |
+| STAB-015.07b | [Operations coverage/queue CLI](../generation-operations.md), today/tomorrow and 06:00 Kyiv; no historical on-time or worker-health inference. |
+
+Both reports use an orchestrator-owned independent read-only snapshot and coverage
+helper. Shared app wiring, config opt-out, Compose Node version and documentation
+were integrated centrally. Final verification is in [CURRENT_STATE](../CURRENT_STATE.md).
+Current live bind mounts, containers, credentials, data and scheduler were not changed.
+
+## Historical preparation and scope
+
+**Prepared 2026-11-15; implementation had NOT started at this checkpoint.** Source baseline:
 `2b716598ec078cafe2146c2e4d66f1ec139dfab0`, PR #23. Local і remote
 `feature/main-page-start` збігалися під час preflight. D1–D8 у
 [ADR](STAB-015-generation-execution.md) **Accepted 2026-11-14**; цей handoff
@@ -10,11 +30,11 @@
 
 ## Перевірений статус і незалежність
 
-Усі п'ять кандидатів **OPEN**. Наявність базових API/tests не означає, що
+На цьому історичному checkpoint усі п'ять кандидатів були **OPEN**. Наявність базових API/tests не означала, що
 описані нижче гарантії вже реалізовані. Backend cards зберігають свої IDs і
 acceptance у backlog; тут уточнено delegation boundaries, не створено дублікати.
 
-| Task | Поточний доказ | Результат наступної задачі | Залежності / пріоритет |
+| Task | Доказ до iteration 3 | Запланований результат | Залежності / пріоритет |
 | --- | --- | --- | --- |
 | STAB-003 | Lockfile: root Vite 6.3.5; Vitest 1.6.1 та вкладені Vite 5.4.19. Compatible secure toolchain ще не інтегровано. | Узгоджений patched Vite/Vitest/Vue-plugin/Node tuple і lockfile, чинні frontend checks. | Незалежна від generation ADR; першочерговий security fix. |
 | STAB-015.03a | [create_generation_job:348](../../backend/app/services/generation_job_service.py#L348) робить SELECT, потім unhandled commit/flush; [0005 index](../../backend/migrations/versions/0005_generation_jobs.py) вже забезпечує exact active-key uniqueness. | Контрольований duplicate result після саме цього unique conflict, збережена транзакція caller. | Не чекає ledger/D3 rollout; вузький existing-contract fix. |

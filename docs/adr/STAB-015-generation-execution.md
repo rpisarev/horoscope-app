@@ -32,6 +32,17 @@ STAB-004 інтегровано в commit `900b4c2de2ff383ce6ffe30c948d827013c7a
 safety fixes. Історичні source facts збережено; 397 tests не перезапускалися
 в documentation-only STAB-015.01.
 
+**Implementation delta — iteration 3, 2026-11-15:** На base `4fe11be` (PR #24)
+реалізовано STAB-015.03a exact-key conflict normalization, .05a read-only per-job
+inspection, .07a DB readiness та .07b coverage/queue visibility; окремо STAB-003
+оновлює frontend toolchain. [CURRENT_STATE](../CURRENT_STATE.md) і
+[backlog](STAB-015-backlog.md) містять поточні статуси та verification.
+Source references і таблиці «поточна поведінка» нижче фіксують зазначені історичні
+ревізії; для змінених вузьких ділянок цей delta і linked implementation docs
+уточнюють їх. D1–D8 не змінені. Ledger/admission, fencing/recovery, pause/retry
+policy, async migration, worker-only credentials і queue-default rollout ще не
+реалізовані; нові read-only reports не надають recovery або paid authority.
+
 ## 2. Контекст і перевірені факти
 
 ### Межі доказів
@@ -420,14 +431,15 @@ Live DB writes, generation commands, migrations/restarts/volume operations не 
 
 ## 11. Реалізація прийнятого рішення
 
-**STAB-015.01 completed (documentation only).** Решта карток відкриті.
+**STAB-015.01 completed (documentation only); .03a/.05a/.07a/.07b completed
+в iteration 3.** Решта карток відкриті; production architecture не завершена.
 [Backlog](STAB-015-backlog.md) містить stable IDs і prerequisite chain;
-[next-iteration handoff](STAB-015-next-iteration.md) — ownership п'яти незалежних
-кандидатів. Призначення implementation task не є дозволом на live rollout.
+[iteration-3 handoff](STAB-015-next-iteration.md) зберігає ownership, початковий
+scope та поточні completion markers. Призначення implementation task не є дозволом на live rollout.
 
-1. Ранні незалежні changesets: .03a dedupe, .05a per-job inspection, .07a DB
+1. **Виконано локально:** ранні незалежні changesets .03a dedupe, .05a per-job inspection, .07a DB
    readiness, .07b aggregate coverage/queue/SLO visibility; STAB-003 toolchain
-   upgrade окремо. Їм не потрібен новий ledger.
+   upgrade окремо. Вони не вводять новий ledger або runtime rollout.
 2. .02a schema → .02b execution history → .02c durable request intent; .02d reliable
    usage/estimated cost. .03b package exclusivity; .03c UTC **API-attempt** cap
    з atomic reservation перед кожним transport. Job count не substitute.
