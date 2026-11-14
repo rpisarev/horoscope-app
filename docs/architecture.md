@@ -1,8 +1,9 @@
 # Current architecture
 
-This describes the verified `feature/main-page-start` baseline `2b71659` (PR #23),
-including STAB-007, STAB-001, SAFE-001 and iteration 2's development-port and
-CLI-outcome fixes. Current behavior and accepted but unimplemented architecture are
+This describes iteration 3 on verified `feature/main-page-start` base `4fe11be`
+(PR #24, including accepted STAB-015.01 and prior stabilization fixes). It adds
+the frontend toolchain update, exact-key conflict handling and read-only operational
+diagnostics. Current behavior and accepted but unimplemented architecture are
 separated below. Production publication and paid-execution guards are implemented;
 an Ollama/Qwen adapter is not. See [CURRENT_STATE.md](CURRENT_STATE.md) for dated
 verification and open decisions. [README.md](../README.md) remains the setup reference.
@@ -39,9 +40,16 @@ migration must precede worker-only credentials. The ADR entry-point matrix separ
 enqueue, execution, publication and recovery authority. Numeric cap, measured lease/
 deadline values, migration windows and operational settings remain pending.
 
-[`docker-compose.yml`](../docker-compose.yml) defines PostgreSQL 17 Alpine, a Python 3.12 backend, a scheduler using the same backend image, and a Node 20 frontend. Backend starts with `alembic upgrade head && python run.py`; scheduler waits for backend health. PostgreSQL data and frontend dependencies use named volumes. The database password comes from a local Docker secret.
+[`docker-compose.yml`](../docker-compose.yml) defines PostgreSQL 17 Alpine, a Python 3.12 backend, a scheduler using the same backend image, and a Node 22 frontend. STAB-003 updates the isolated frontend toolchain to Vite 6.4.6 / Vitest 4.1.12; see [version rationale and verification](frontend-toolchain.md). This does not update running images or dependency volumes. Backend starts with `alembic upgrade head && python run.py`; scheduler waits for backend health. PostgreSQL data and frontend dependencies use named volumes. The database password comes from a local Docker secret.
 
 The frontend runs Vite's dev server on 5173; Flask runs its development server on 8000 with debug enabled by default. Source directories are bind-mounted. Vite proxies `/api` to `VITE_API_PROXY_TARGET` or localhost:8000. There is no production reverse proxy/static hosting or SPA fallback deployment configuration here. Flask enables CORS for `/api/*` and registers public, admin, and root sitemap blueprints in [`backend/app/__init__.py`](../backend/app/__init__.py).
+
+STAB-015.07a additionally registers `GET /health/ready` outside `/api`. Its minimal
+200/503 JSON reports PostgreSQL access and exact packaged Alembic revision markers
+through an independent read-only connection. It does not establish content
+freshness, worker health, all schema permissions or a total HTTP/DNS deadline.
+Existing Compose liveness checks remain unchanged; see
+[DB readiness limits and tests](database-readiness.md).
 
 Development host publishing defaults to `127.0.0.1` for database `5432`, backend
 `8000`, and frontend `5173`. `DEV_HOST_IP` explicitly changes all three bindings;
@@ -124,6 +132,18 @@ Admin immediate API / package CLI / legacy scheduler
 
 [`generation_job_service.py`](../backend/app/services/generation_job_service.py) creates manual, backfill, scheduled, and retry-missing jobs, including inclusive date ranges, dry runs, coverage checks, active duplicate checks, and batches. Claims use descending priority then creation time/id; PostgreSQL uses `FOR UPDATE SKIP LOCKED`. Jobs transition from queued/running to success/partial_failed/failed/cancelled. Stale locks are requeued or failed according to attempt limits. Batch status aggregates jobs; cancel affects queued members, while retry-failed requeues failed/partial-failed members. Running jobs cannot be cancelled by the single-job API.
 
+STAB-015.03a normalizes only the existing active dedupe-key unique-index conflict.
+Creation reuses an active winner or raises the existing validation error; a winner
+that finalizes before reload permits at most one additional write. Retry uses the
+same conflict boundary; batch retry skips colliding members under their original
+statuses. `commit=False` uses caller-owned savepoints; committed single creation
+and retries use private transactions, preserving unrelated caller writes. Related
+pending/flushed ORM edits are rejected before refresh or private writes. Raw SQL
+and explicitly acquired caller locks are outside that tracking contract. See
+[transaction ownership and PostgreSQL regressions](generation-job-deduplication.md).
+The hash/index, queue algorithm, providers and broader package-admission races are
+unchanged.
+
 [`generation_service.py`](../backend/app/services/generation_service.py) closes stale runs, returns an existing running run when its date/locale/type lookup finds one, creates per-sign items, skips published forecasts, retries retryable provider errors, validates output, persists successful forecasts, and finalizes counters/status. Default sign selection queries enabled database signs; `sign_service.get_enabled_sign_keys` retains a static `SIGNS` fallback when that query is empty. This fallback differs from archive coverage's zero-active-sign handling.
 
 [`prompt_service.py`](../backend/app/services/prompt_service.py) loads prompts from the database, validates supported template variables, and builds provider requests. Sign/date select deterministic variation profiles and are retained in audit metadata; they are excluded as literal creative instructions from prompt messages. The seeded prompt is Russian/daily; accepting locale/type parameters is not proof of equivalent generated content for every combination. `forecast_validation_service.py` rejects forbidden zodiac terms/phrases in generated text; lifecycle also rejects empty text.
@@ -145,6 +165,28 @@ Those changes remain open in STAB-015.06a/.06b; SDK retries=0 remains required.
 The admin blueprint is `/api/admin`, disabled by default and protected by a bearer token when enabled. Under `/generation`, it exposes coverage; GET/POST runs; retry-missing; run/item attempt detail; GET/POST jobs; backfill; job detail/cancel/retry; and batch status/cancel/retry-failed. Immediate admin generation and queued generation both still exist.
 
 Utilities in `backend/utils/` support immediate packages, queue creation/processing, package reporting, and standalone prompt probing. They are operational commands, not harmless general test commands.
+
+STAB-015.05a adds an explicitly invoked [per-job inspection CLI](generation-recovery-inspection.md)
+with no provider or recovery actions. It reads safe projected columns for one
+linked job/run and bounded items/attempts, preserving uncertain transport outcomes
+as unknown. `generation_read_service` owns a separate read-only repeatable snapshot
+and exact published-coverage calculation; it does not borrow or flush the caller's
+ORM Session. Explicit job signs remain relevant after enablement changes; absent
+stored signs use current enabled metadata and cannot reconstruct historical scope.
+The CLI sets `PYTHON_DOTENV_DISABLED=1` before app imports; the explicit config guard
+honors that opt-out with python-dotenv 1.0.1. Database access still requires an
+authorized operator environment. No new diagnostic HTTP route is exposed.
+
+STAB-015.07b adds a separate [aggregate operations CLI](generation-operations.md)
+using the same snapshot and published-coverage reader. It derives today/tomorrow
+from the existing business-date helper, expects current enabled database signs,
+and evaluates the accepted 06:00 Kyiv deadline. Empty metadata and a non-Kyiv
+product timezone produce explicit configuration conditions. Queue counts span the
+chosen locale/type and all dates; oldest age means time since creation, not worker
+progress. Full current coverage does not establish historical on-time completion.
+Quota/pause/worker-health evidence remains unknown. Both diagnostic CLIs suppress
+implicit dotenv discovery, use safe projected data and redact suspicious display
+identifiers without changing SQL scope. Neither grants execution/recovery authority.
 
 ### Current provider selection and publication audit
 
@@ -187,7 +229,7 @@ OpenAI reads `OPENAI_API_KEY`, `OPENAI_MODEL`, `OPENAI_TIMEOUT_SECONDS` (default
 
 ### Agreed provider policy and future adapter direction
 
-**AGREED POLICY:** The product has exactly 13 zodiac signs, including Ophiuchus; active generation/archive coverage remains derived from database metadata. Stub is a development/test provider for cost-free local workflows and must never supply public production content. OpenAI is currently the implemented real provider. The write guard now requires production approval through capabilities/allowlists rather than a permanent `provider == "openai"` rule. Existing data and public-read eligibility remain separate from this write guard.
+**AGREED POLICY:** The current seed/presentation set has 13 zodiac signs, including Ophiuchus; accepted D8 derives expected coverage from enabled database metadata, not a permanent count of 13. Stub is a development/test provider for cost-free local workflows and must never supply public production content. OpenAI is currently the implemented real provider. The write guard now requires production approval through capabilities/allowlists rather than a permanent `provider == "openai"` rule. Existing data and public-read eligibility remain separate from this write guard.
 
 **FUTURE, NOT IMPLEMENTED:** An Ollama or equivalent local-model adapter, potentially running a Qwen model, fits under `backend/app/providers/` and the factory. The existing `HoroscopeProvider.generate(ProviderRequest) -> ProviderResult` interface is sufficient for an initial adapter: messages/schema/metadata enter, normalized content/model metadata/audit payloads or classified errors leave. It should reuse the existing lifecycle, validation, attempts/audit, persistence, and publication flow. Keep provider identity (for example `ollama`) separate from the actual model/version/tag (a specific Qwen model); do not use `stub` as its source or alias.
 

@@ -5,11 +5,20 @@ Vue + Flask application for sign-agnostic daily horoscope generation.
 Current implementation and verification are recorded in
 [CURRENT_STATE.md](docs/CURRENT_STATE.md) and [architecture.md](docs/architecture.md).
 The [STAB-015 production execution ADR](docs/adr/STAB-015-generation-execution.md)
-is **Accepted (D1–D8, 2026-11-14), not yet implemented**. It defines queue-first
+is **Accepted (D1–D8, 2026-11-14), not yet fully implemented**. It defines queue-first
 production, per-request admission/accounting, conservative recovery and a 06:00
 Europe/Kyiv publication deadline. Acceptance does not change runtime defaults or
 authorize paid generation. The [next-iteration handoff](docs/adr/STAB-015-next-iteration.md)
 separates ready fixes and read-only diagnostics from production rollout prerequisites.
+
+Iteration 3 adds [exact-key queue conflict handling](docs/generation-job-deduplication.md),
+[per-job inspection](docs/generation-recovery-inspection.md),
+[DB/schema readiness](docs/database-readiness.md) and an
+[operations coverage/queue report](docs/generation-operations.md).
+`GET /health/ready` has minimal 200/503 output; detailed diagnostics are explicit
+local CLIs, not public endpoints. Their database reads require an authorized
+environment and never start generation or recover work. Accepted ledger,
+admission, fencing, pause and production-topology changes remain pending.
 
 The project runs locally with Docker Compose and includes:
 
@@ -36,6 +45,13 @@ Docker Engine
 Docker Compose plugin
 Linux shell
 ```
+
+For frontend commands outside Docker, use a current patched Node 22 LTS
+(minimum 22.12), or a compatible supported Node 24+ release. The development
+Compose frontend image is Node 22; CI also uses Node 22. See
+[frontend toolchain verification](docs/frontend-toolchain.md) for the focused
+Vite/Vitest update, commands and remaining dependency advisories. Running containers
+and existing dependency volumes are not updated by changing the lockfile.
 
 Check Docker:
 

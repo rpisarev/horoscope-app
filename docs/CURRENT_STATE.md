@@ -1,13 +1,87 @@
 # Current Project State
 
-- State updated: 2026-11-15 (STAB-015.01 documentation acceptance; decision date 2026-11-14).
+- State updated: 2026-11-15 (stabilization iteration 3 implementation; ADR decision date remains 2026-11-14).
 - Main working branch: `feature/main-page-start`
-- Verified baseline: `2b716598ec078cafe2146c2e4d66f1ec139dfab0` (PR #23 squash merge). Local and remote `feature/main-page-start` matched at preflight; its tree matches iteration 2's `12495a8`, including STAB-002/STAB-004 and the original ADR. PR #22 (`0b4cc05`) already incorporated STAB-007/STAB-001/SAFE-001. STAB-015.01 uses an isolated documentation worktree, not the live bind-mounted checkout.
+- Verified iteration 3 base: `4fe11beaa3109f50a738ddcd274b8cab59fd058e` (PR #24 merged). Local and actual remote `feature/main-page-start` matched; its tree matches STAB-015.01's `7119cf7`, incorporating Accepted D1–D8 and prior PR #23/#22 fixes. Final work is isolated in `integration/project-stabilization-3-verified`; the live bind-mounted checkout on `feature/project-stabilization4` remains at the base.
 - Earlier publication audit baseline: `34623b27bd69d681edf1a3ab8f8aac31bc74cafa` (`Update frontend (#20)`). Results and runtime observations in the historical sections below belong to their recorded checkpoints.
 
 ## Stabilization checkpoint
 
-**STAB-015.01 COMPLETED — ACCEPTED POLICY, NOT IMPLEMENTED:** The owner explicitly
+**ITERATION 3 SCOPE:** STAB-003, STAB-015.03a, .05a, .07a and .07b are implemented
+in five task commits on the dedicated integration branch. D1–D8 remain Accepted;
+this iteration does not implement their ledger, admission, fencing, pause, recovery
+mutations, role isolation or queue-default rollout. No paid activation follows.
+
+**FINAL INTEGRATED VERIFICATION (2026-11-15):** **681 backend tests passed in
+30.39s** in `/tmp/horoscope-iter3-verified` via the unchanged STAB-007 disposable
+harness, sanitized environment, dummy credentials and network/process guards.
+All test projects cleaned up their containers/networks; no test volume is used.
+19 mock safety guards passed before DB testing. Focused results below are additional
+evidence, not substitutes for this combined run. The first full run exposed fake
+model imports leaking Session listeners; mapped-class registration/capture plus
+three regressions fixed it, followed by 126 focused tests and this passing full run.
+Existing safety/publication assertions were not weakened.
+
+Frontend verification used the isolated Node 22.23.5 worktree: `npm ci`, typecheck,
+111 unit tests, build and 22 POC checks passed. All 74 tracked frontend files in
+integration match that tested tree byte-for-byte. Audit still exits 1 with the
+12 documented non-Vite package entries. Static Compose rendering preserves default
+loopback ports, explicit remote override and default-deny paid gates; only the
+frontend image changed to Node 22. These are local results, not a GitHub CI pass
+or an Alpine/live-browser/deployment test. No live report/provider call, generation,
+scheduler restart, container recreate, or development data/schema mutation occurred.
+
+**STAB-015.07b IMPLEMENTED:** A local read-only operations CLI reports backend
+business date, today/tomorrow enabled-sign published coverage, a 06:00 Kyiv verdict,
+scoped queue depth/oldest creation age and last observed run. Empty enabled metadata
+or a non-Kyiv product timezone is a configuration condition. Current full coverage
+does not prove historical on-time publication; worker progress and quota causes
+remain unknown. The shared reader matches per-job coverage while retaining explicit
+historical sign subsets. All 79 operations/cross-report/redaction/CLI regressions
+passed in 4.81s; no live report was invoked. See [operations contract](generation-operations.md).
+
+**STAB-015.07a IMPLEMENTED:** Additive `GET /health/ready` returns minimal
+200/503 JSON after read-only PostgreSQL connectivity and exact packaged Alembic
+head comparison. It is separate from liveness, worker progress and coverage;
+matching revision markers are not a full schema audit. Independent connections
+have server-statement/connection limits, not a whole DNS/HTTP wall-clock deadline.
+33 readiness tests and the then-current 8 shared-reader tests passed (41 total,
+2.82s). Compose healthchecks and live services are unchanged. See
+[readiness contract and limits](database-readiness.md).
+
+**STAB-015.05a IMPLEMENTED:** A bounded per-job JSON inspection CLI exposes safe
+job/run/item/attempt evidence, published/missing coverage and explicit unknowns.
+It grants no retry/recovery authority. A shared read service uses a separate
+PostgreSQL READ ONLY REPEATABLE READ connection; pending/flushed ORM work stays
+caller-owned. Current enabled metadata and an explicit historical job scope remain
+distinct, with no static fallback for an empty set. New diagnostic CLI startup
+disables implicit dotenv discovery through an explicit config guard compatible
+with pinned python-dotenv 1.0.1; normal application startup is unchanged.
+86 recovery/CLI/config tests plus 13 shared-reader tests passed in the 244-test
+combined run below. See [inspection contract](generation-recovery-inspection.md).
+
+**STAB-015.03a IMPLEMENTED:** Exact active-key PostgreSQL unique conflicts now
+produce duplicate reuse or controlled validation errors. Savepoints preserve
+caller transaction ownership; `commit=True` uses an independent transaction,
+while `commit=False` leaves the outer transaction with its caller. Related pending
+or flushed ORM writes receive explicit rejection rather than overwrite/self-lock.
+Winner-finalization retry is bounded; unrelated IntegrityErrors still propagate.
+Single/batch retry collisions preserve the failed member's history. The six-file
+dedupe/admin/worker/CLI selection and recovery/shared-read regressions passed
+together: **244 tests in 11.12s** through the disposable harness. See
+[exact-key transaction contract](generation-job-deduplication.md); this does not
+implement package-level admission, fencing or raw-SQL lock introspection.
+
+**STAB-003 IMPLEMENTED (2026-11-15):** Vite 6.4.6 and Vitest 4.1.12 replace the
+affected root/nested Vite versions; Vue, Router, Swiper and application code are
+unchanged. Compose now selects Node 22, matching CI's major; no running container
+or dependency volume was updated. In the isolated frontend worktree, locked
+installation, typecheck, 111 unit tests, build and 22 POC fixture checks passed.
+`npm audit` changed from 22 to 12 affected package entries (2 critical, 9 high,
+1 moderate remain outside the Vite task). This is not an audit-clean or deployed
+security claim. See [toolchain evidence and residual advisories](frontend-toolchain.md).
+
+**STAB-015.01 COMPLETED — ACCEPTED TARGET, NOT FULLY IMPLEMENTED:** The owner explicitly
 approved D1–D8 in the [production execution ADR](adr/STAB-015-generation-execution.md),
 decision date **2026-11-14**. It is the authoritative target: queue-first production;
 hard UTC-day paid API-attempt cap with immutable intent/reservation; package-level
@@ -20,16 +94,15 @@ need renewed approval; numeric/configuration parameters and rollout remain pendi
 The scheduler's code default is still direct; immediate generation is synchronous;
 the ledger, atomic package admission, final fencing, cross-run pause and credential
 role isolation do not yet exist. Current broad timeout/connection/validation retries
-also differ from accepted D5. No code, schema, settings or deployment changed here.
-The [backlog](adr/STAB-015-backlog.md) closes only .01; .08b is mandatory before
+also differ from accepted D5. Documentation acceptance itself changed no runtime.
+The [backlog](adr/STAB-015-backlog.md) now closes .01/.03a/.05a/.07a/.07b; .08b is mandatory before
 worker-only topology, and admission/accounting/recovery prerequisites precede rollout.
 
-The [five-task handoff](adr/STAB-015-next-iteration.md) verifies STAB-003, .03a,
-.05a, .07a and .07b as open, with file ownership and safe verification boundaries.
-STAB-003 is prioritized by a current Critical Vite advisory affecting locked
-versions; the handoff links the primary evidence. Runtime package exploitability
-was not tested. Per-job recovery inspection (.05a) and aggregate coverage/queue
-visibility (.07b) are separate read-only tasks.
+The [five-task handoff](adr/STAB-015-next-iteration.md) preserves the original
+pre-implementation findings and records the completed iteration 3 scopes.
+The affected Vite lock versions have been replaced; runtime package exploitability
+was not tested and installed live packages were not updated. Per-job recovery
+inspection (.05a) and aggregate coverage/queue visibility (.07b) remain separate.
 
 **STAB-015.01 VERIFICATION BOUNDARY (2026-11-15):** Source/history/configuration
 inspection and documentation consistency checks only. Backend/frontend suites
@@ -227,7 +300,7 @@ Provider definitions and supported names now share a registry; selection default
 
 The shared lifecycle checks authorization before generation and records a failed run on denial. Workers revalidate stored jobs at execution and record a failed job on denial, including retries/backfills. `save_forecast(status="published")` rechecks policy before querying or mutating forecast rows, using the caller's captured execution identity (`publication_provider`), not result source/model fields. Production generic publication without that explicit identity is rejected; generic draft saves remain available. Direct scheduler, admin, and package CLI reach the shared lifecycle; no provider substitution occurs and existing OpenAI gates remain unchanged. Queue creation may still enqueue a stub job; execution in production rejects it. Existing published rows, skip/coverage rules, public reads, archives, and sitemaps are unchanged.
 
-**AGREED PRODUCT/PROVIDER POLICY:** The product has exactly **13 zodiac signs**, including Ophiuchus. Operational active-sign coverage must continue to derive from database metadata. Stub is for development, testing, and cost-free local workflows; it is not intended for public production content. OpenAI is the current real generation provider. The new-write guard now enforces production capability/allowlist approval without an OpenAI-only check. Existing published-stub treatment remains a separate decision.
+**AGREED PRODUCT/PROVIDER POLICY:** The current seed/presentation set has **13 zodiac signs**, including Ophiuchus. Accepted D8 requires operational expected coverage from enabled database metadata; 13 is not a permanent coverage invariant. Stub is for development, testing, and cost-free local workflows; it is not intended for public production content. OpenAI is the current real generation provider. The new-write guard now enforces production capability/allowlist approval without an OpenAI-only check. Existing published-stub treatment remains a separate decision.
 
 **FUTURE DIRECTION — NOT IMPLEMENTED:** A local-model adapter may use Ollama or an equivalent runtime, with Qwen as one candidate model family. It must be a separate real provider adapter, reuse lifecycle/validation/attempt audit/persistence/publication, and receive explicit production-publication approval. It must not extend or alias stub. No Ollama/Qwen adapter, runtime, dependencies, or configuration are part of this milestone. The [implemented guard](architecture.md#production-publication-guard) accepts approved future real providers through registry capabilities and configuration.
 

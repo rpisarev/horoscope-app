@@ -3,12 +3,16 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Iterable
 from uuid import uuid4
 
 from paid_execution_policy import require_paid_execution
+from sqlalchemy import event, inspect
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Mapper, Session
 
 from .. import db
 from ..models import GenerationJob, GenerationRun
@@ -50,6 +54,10 @@ JOB_STATUS_FAILED = "failed"
 JOB_STATUS_CANCELLED = "cancelled"
 
 ACTIVE_JOB_STATUSES = {JOB_STATUS_QUEUED, JOB_STATUS_RUNNING}
+ACTIVE_DEDUPE_CONSTRAINT = "uq_generation_jobs_active_dedupe_key"
+# One additional write if the conflicting winner finishes before it is reloaded.
+DEDUPE_WRITE_ATTEMPTS = 2
+_JOB_WRITES_INFO_KEY = "generation_job_transaction_writes"
 FINAL_JOB_STATUSES = {
     JOB_STATUS_SUCCESS,
     JOB_STATUS_PARTIAL_FAILED,
@@ -66,6 +74,10 @@ RUN_STATUS_TO_JOB_STATUS = {
 
 
 class GenerationJobValidationError(ValueError):
+    pass
+
+
+class _GenerationJobDedupeConflict(GenerationJobValidationError):
     pass
 
 
@@ -345,6 +357,186 @@ def find_active_generation_job(
     )
 
 
+@contextmanager
+def _job_write_session(*, commit: bool):
+    if not commit:
+        yield db.session()
+        return
+
+    # A Session.commit() cannot commit only a savepoint's writes. Use a private
+    # transaction so even already-flushed caller writes remain caller-owned.
+    bind = db.session.get_bind(mapper=GenerationJob)
+    with Session(bind=bind.engine, expire_on_commit=False) as session:
+        with session.begin():
+            yield session
+
+
+def _remember_job_writes(
+    session: Session, flush_context, *, job_model: type = GenerationJob
+) -> None:
+    # Session.new/dirty clear after flush. Remember only job identities/keys for
+    # the lifetime of this outer transaction, including released savepoints.
+    changed = session.new | session.dirty | session.deleted
+    touched = [job for job in changed if isinstance(job, job_model)]
+    if not touched:
+        return
+    record = session.info.setdefault(_JOB_WRITES_INFO_KEY, {"ids": set(), "keys": set()})
+    for job in touched:
+        state = inspect(job)
+        identity = state.identity or (state.dict.get("id"),)
+        if identity[0] is not None:
+            record["ids"].add(identity[0])
+        key = state.dict.get("dedupe_key")
+        if key is not None:
+            record["keys"].add(key)
+        record["keys"].update(state.attrs.dedupe_key.history.deleted)
+
+
+def _forget_job_writes(session: Session, transaction) -> None:
+    if transaction.parent is None:
+        session.info.pop(_JOB_WRITES_INFO_KEY, None)
+
+
+# Standalone policy checks also import this module with fake model dependencies.
+# Those imports must not leave process-wide Session hooks behind. A real hook
+# captures its mapped class above instead of consulting mutable module globals.
+if isinstance(GenerationJob, type) and isinstance(
+    inspect(GenerationJob, raiseerr=False), Mapper
+):
+    event.listen(Session, "after_flush", _remember_job_writes)
+    event.listen(Session, "after_transaction_end", _forget_job_writes)
+
+
+def _check_job_edits(
+    session: Session,
+    *,
+    job_id: int | None = None,
+    dedupe_key: str | None = None,
+    include_flushed: bool = False,
+) -> None:
+    message = "Commit pending changes to this generation job first, or use commit=False."
+    with session.no_autoflush:
+        for job in session.new | session.dirty | session.deleted:
+            if not isinstance(job, GenerationJob):
+                continue
+            if (job_id is not None and job.id == job_id) or (
+                dedupe_key is not None
+                and (
+                    job.dedupe_key == dedupe_key
+                    or dedupe_key in inspect(job).attrs.dedupe_key.history.deleted
+                )
+            ):
+                raise GenerationJobValidationError(message)
+        record = session.info.get(_JOB_WRITES_INFO_KEY) if include_flushed else None
+        if not record:
+            return
+        if job_id in record["ids"] or dedupe_key in record["keys"]:
+            raise GenerationJobValidationError(message)
+        # An expired object's key need not have been loaded during its flush.
+        # Read scalar IDs in the caller transaction; do not refresh ORM state.
+        if (
+            dedupe_key is not None
+            and record["ids"]
+            and session.query(GenerationJob.id).filter(
+                GenerationJob.id.in_(record["ids"]),
+                GenerationJob.dedupe_key == dedupe_key,
+            ).first() is not None
+        ):
+            raise GenerationJobValidationError(message)
+
+
+def _active_job_for_key(session: Session, dedupe_key: str) -> GenerationJob | None:
+    # Check before populate_existing: a duplicate lookup must never discard a
+    # caller's unflushed priority/status/relationship edit under no_autoflush.
+    _check_job_edits(session, dedupe_key=dedupe_key)
+    with session.no_autoflush:
+        return (
+            session.query(GenerationJob)
+            .filter(
+                GenerationJob.dedupe_key == dedupe_key,
+                GenerationJob.status.in_(ACTIVE_JOB_STATUSES),
+            )
+            .populate_existing()
+            .order_by(GenerationJob.created_at.asc(), GenerationJob.id.asc())
+            .first()
+        )
+
+
+def _is_active_dedupe_conflict(session: Session, exc: IntegrityError) -> bool:
+    original = exc.orig
+    return (
+        session.get_bind(mapper=GenerationJob).dialect.name == "postgresql"
+        and getattr(original, "sqlstate", None) == "23505"
+        and getattr(getattr(original, "diag", None), "constraint_name", None)
+        == ACTIVE_DEDUPE_CONSTRAINT
+    )
+
+
+def _duplicate_job_error(job: GenerationJob | None) -> GenerationJobValidationError:
+    if job is not None:
+        return _GenerationJobDedupeConflict(
+            f"Active generation job already exists: id={job.id}."
+        )
+    return _GenerationJobDedupeConflict(
+        "Active generation job changed during deduplication; retry the request."
+    )
+
+
+def _check_caller_job_edits(job: GenerationJob) -> None:
+    # Private transactions must not overwrite pending edits when their result is
+    # attached back to the scoped session. Callers composing job writes use
+    # commit=False; committed retries operate on committed job state.
+    _check_job_edits(
+        db.session(), job_id=job.id, dedupe_key=job.dedupe_key, include_flushed=True
+    )
+
+
+def _attach_job(job: GenerationJob, *, commit: bool) -> GenerationJob:
+    if not commit:
+        return job
+    # load=False attaches the committed snapshot without flushing caller writes.
+    _check_caller_job_edits(job)
+    with db.session.no_autoflush:
+        return db.session.merge(job, load=False)
+
+
+def _insert_generation_job(
+    session: Session, job: GenerationJob, *, skip_duplicate: bool, commit: bool
+) -> tuple[GenerationJob, bool]:
+    for attempt in range(DEDUPE_WRITE_ATTEMPTS):
+        existing_job = _active_job_for_key(session, job.dedupe_key)
+        if existing_job is not None:
+            if not skip_duplicate:
+                raise _duplicate_job_error(existing_job)
+            if commit:
+                _check_caller_job_edits(existing_job)
+            return existing_job, False
+
+        # begin_nested() unconditionally flushes pre-existing pending writes,
+        # even under no_autoflush. Enter BEFORE adding our job and OUTSIDE the
+        # catch, so a caller's pre-savepoint failure is never normalized here.
+        savepoint = session.begin_nested()
+        try:
+            with savepoint:
+                session.add(job)
+                session.flush()
+            return job, True
+        except IntegrityError as exc:
+            if not _is_active_dedupe_conflict(session, exc):
+                raise
+            existing_job = _active_job_for_key(session, job.dedupe_key)
+            if existing_job is not None:
+                if not skip_duplicate:
+                    raise _duplicate_job_error(existing_job) from exc
+                if commit:
+                    _check_caller_job_edits(existing_job)
+                return existing_job, False
+            if attempt + 1 == DEDUPE_WRITE_ATTEMPTS:
+                raise _duplicate_job_error(None) from exc
+
+    raise AssertionError("Unreachable dedupe attempt limit")
+
+
 def create_generation_job(
     *,
     job_type: str = JOB_TYPE_BACKFILL,
@@ -374,7 +566,8 @@ def create_generation_job(
         default=DEFAULT_FORECAST_TYPE,
         name="forecast_type",
     )
-    normalized_signs = normalize_signs(signs)
+    with db.session.no_autoflush:
+        normalized_signs = normalize_signs(signs)
 
     if normalized_job_type == JOB_TYPE_RETRY_MISSING and normalized_signs is not None:
         raise GenerationJobValidationError(
@@ -424,22 +617,8 @@ def create_generation_job(
         signs=normalized_signs,
     )
 
-    existing_job = (
-        GenerationJob.query.filter(
-            GenerationJob.dedupe_key == dedupe_key,
-            GenerationJob.status.in_(ACTIVE_JOB_STATUSES),
-        )
-        .order_by(GenerationJob.created_at.asc(), GenerationJob.id.asc())
-        .first()
-    )
-
-    if existing_job is not None:
-        if skip_duplicate:
-            return existing_job, False
-
-        raise GenerationJobValidationError(
-            f"Active generation job already exists: id={existing_job.id}."
-        )
+    if commit:
+        _check_job_edits(db.session(), dedupe_key=dedupe_key, include_flushed=True)
 
     job = GenerationJob(
         job_type=normalized_job_type,
@@ -459,14 +638,12 @@ def create_generation_job(
         openai_allowed_at_creation=bool(allow_openai),
         created_by=created_by,
     )
-    db.session.add(job)
+    with _job_write_session(commit=commit) as session:
+        job, created = _insert_generation_job(
+            session, job, skip_duplicate=skip_duplicate, commit=commit
+        )
 
-    if commit:
-        db.session.commit()
-    else:
-        db.session.flush()
-
-    return job, True
+    return _attach_job(job, commit=commit), created
 
 
 def create_generation_jobs_for_range(
@@ -983,39 +1160,42 @@ def retry_failed_generation_job_batch(*, batch_id: str) -> dict[str, Any] | None
     if not normalized_batch_id:
         raise GenerationJobValidationError("batch_id must not be empty.")
 
-    jobs = (
-        GenerationJob.query.filter(GenerationJob.batch_id == normalized_batch_id)
-        .order_by(
-            GenerationJob.target_date.asc(),
-            GenerationJob.priority.desc(),
-            GenerationJob.created_at.asc(),
-            GenerationJob.id.asc(),
-        )
-        .all()
-    )
-
-    if not jobs:
-        return None
-
     retried_count = 0
     skipped_status_counts: dict[str, int] = {}
 
-    for job in jobs:
-        if job.status in {JOB_STATUS_FAILED, JOB_STATUS_PARTIAL_FAILED}:
-            job.status = JOB_STATUS_QUEUED
-            job.run_id = None
-            job.error_message = None
-            job.started_at = None
-            job.finished_at = None
-            job.locked_at = None
-            job.locked_by = None
-            retried_count += 1
-            continue
+    with _job_write_session(commit=True) as session:
+        jobs = (
+            session.query(GenerationJob)
+            .filter(GenerationJob.batch_id == normalized_batch_id)
+            .order_by(
+                GenerationJob.target_date.asc(),
+                GenerationJob.priority.desc(),
+                GenerationJob.created_at.asc(),
+                GenerationJob.id.asc(),
+            )
+            .all()
+        )
+        if not jobs:
+            return None
 
-        skipped_status_counts[job.status] = skipped_status_counts.get(job.status, 0) + 1
+        for job in jobs:
+            _check_caller_job_edits(job)
+            if job.status in {JOB_STATUS_FAILED, JOB_STATUS_PARTIAL_FAILED}:
+                try:
+                    _requeue_job_with_dedupe(session, job)
+                except _GenerationJobDedupeConflict:
+                    # Savepoint rollback preserves status, links, timestamps and
+                    # attempts. Other eligible batch members can still retry.
+                    pass
+                else:
+                    retried_count += 1
+                    continue
 
-    if retried_count:
-        db.session.commit()
+            skipped_status_counts[job.status] = skipped_status_counts.get(job.status, 0) + 1
+
+    jobs = [_attach_job(job, commit=True) for job in jobs]
+    with db.session.no_autoflush:
+        batch_status = get_generation_job_batch_status(batch_id=normalized_batch_id)
 
     return {
         "batch_id": normalized_batch_id,
@@ -1024,7 +1204,7 @@ def retry_failed_generation_job_batch(*, batch_id: str) -> dict[str, Any] | None
         "skipped_count": len(jobs) - retried_count,
         "skipped_status_counts": dict(sorted(skipped_status_counts.items())),
         "items": [serialize_generation_job(job) for job in jobs],
-        "batch_status": get_generation_job_batch_status(batch_id=normalized_batch_id),
+        "batch_status": batch_status,
     }
 
 
@@ -1052,27 +1232,49 @@ def cancel_generation_job(job_id: int) -> GenerationJob | None:
     return job
 
 
+def _requeue_job_with_dedupe(session: Session, job: GenerationJob) -> None:
+    for attempt in range(DEDUPE_WRITE_ATTEMPTS):
+        existing_job = _active_job_for_key(session, job.dedupe_key)
+        if existing_job is not None:
+            raise _duplicate_job_error(existing_job)
+
+        savepoint = session.begin_nested()
+        try:
+            with savepoint:
+                job.status = JOB_STATUS_QUEUED
+                job.run_id = None
+                job.error_message = None
+                job.started_at = None
+                job.finished_at = None
+                job.locked_at = None
+                job.locked_by = None
+                session.flush()
+            return
+        except IntegrityError as exc:
+            if not _is_active_dedupe_conflict(session, exc):
+                raise
+            existing_job = _active_job_for_key(session, job.dedupe_key)
+            if existing_job is not None or attempt + 1 == DEDUPE_WRITE_ATTEMPTS:
+                raise _duplicate_job_error(existing_job) from exc
+
+
 def retry_generation_job(job_id: int) -> GenerationJob | None:
-    job = db.session.get(GenerationJob, job_id)
+    _check_job_edits(db.session(), job_id=job_id, include_flushed=True)
+    with _job_write_session(commit=True) as session:
+        job = session.get(GenerationJob, job_id)
 
-    if job is None:
-        return None
+        if job is None:
+            return None
 
-    if job.status not in {JOB_STATUS_FAILED, JOB_STATUS_PARTIAL_FAILED}:
-        raise GenerationJobValidationError(
-            "Only failed or partial_failed jobs can be queued for retry."
-        )
+        _check_caller_job_edits(job)
+        if job.status not in {JOB_STATUS_FAILED, JOB_STATUS_PARTIAL_FAILED}:
+            raise GenerationJobValidationError(
+                "Only failed or partial_failed jobs can be queued for retry."
+            )
 
-    job.status = JOB_STATUS_QUEUED
-    job.run_id = None
-    job.error_message = None
-    job.started_at = None
-    job.finished_at = None
-    job.locked_at = None
-    job.locked_by = None
-    db.session.commit()
+        _requeue_job_with_dedupe(session, job)
 
-    return job
+    return _attach_job(job, commit=True)
 
 
 def _should_use_skip_locked() -> bool:
