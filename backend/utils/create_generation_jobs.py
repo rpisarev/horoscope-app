@@ -80,6 +80,8 @@ def parse_signs(
 
 
 def parse_args() -> argparse.Namespace:
+    from app.providers.registry import PROVIDERS
+
     parser = argparse.ArgumentParser(
         description=(
             "Create queued generation jobs for one date or a date range. "
@@ -115,7 +117,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--provider",
         default=DEFAULT_PROVIDER,
-        choices=["stub", "openai"],
+        choices=sorted(PROVIDERS),
         help=f"Provider name. Default: {DEFAULT_PROVIDER}.",
     )
     parser.add_argument(

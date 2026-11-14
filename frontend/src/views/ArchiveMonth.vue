@@ -226,6 +226,7 @@
 import { ref, computed, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import type { RouteLocationRaw } from 'vue-router'
+import { getArchiveYears, getArchiveMonthAvailability } from '../api/archive'
 import dayjs from 'dayjs'
 import 'dayjs/locale/ru'
 import ZodiacCarousel from '../components/ZodiacCarousel.vue'
@@ -247,7 +248,7 @@ const router = useRouter()
 const years = ref<number[]>([])
 const isYearsLoaded = ref(false)
 const loadedYearsSign = ref('')
-const availableDates = ref(new Set<string>())
+const availableDates = ref<ReadonlySet<string>>(new Set())
 const availabilityScope = ref('')
 const isMonthLoading = ref(false)
 const monthError = ref('')
@@ -464,12 +465,9 @@ watch(
     }
 
     try {
-      const query = new URLSearchParams({ sign: selectedSign, locale, type: forecastType })
-      const response = await fetch(`/api/years?${query}`)
-      if (!response.ok) throw new Error(`years status ${response.status}`)
-      const payload = await response.json()
+      const loadedYears = await getArchiveYears({ sign: selectedSign, locale, type: forecastType })
       if (localRequestId !== yearsRequestId) return
-      years.value = Array.isArray(payload) ? payload.map(Number).filter(Number.isInteger) : []
+      years.value = loadedYears
     } catch (error) {
       if (localRequestId === yearsRequestId) console.error('Failed to load years list', error)
     } finally {
@@ -494,18 +492,12 @@ watch(monthScope, async scope => {
   const { sign: selectedSign, year: selectedYear, month: selectedMonth } = requestedMonth.value.params
   isMonthLoading.value = true
   try {
-    const query = new URLSearchParams({
-      year: String(selectedYear), month: String(selectedMonth), sign: selectedSign,
+    const dates = await getArchiveMonthAvailability({
+      year: selectedYear, month: selectedMonth, sign: selectedSign,
       locale, type: forecastType,
     })
-    const response = await fetch(`/api/archive/month?${query}`)
-    if (!response.ok) throw new Error(`archive month status ${response.status}`)
-    const payload = await response.json()
-    if (!Array.isArray(payload?.days)) throw new Error('Invalid archive month response')
     if (localRequestId !== monthRequestId || scope !== monthScope.value) return
-    availableDates.value = new Set(payload.days
-      .filter((day: { date?: string; has_forecast?: boolean }) => typeof day?.date === 'string' && day.has_forecast === true)
-      .map((day: { date: string }) => day.date))
+    availableDates.value = dates
     availabilityScope.value = scope
   } catch {
     if (localRequestId === monthRequestId && scope === monthScope.value) {

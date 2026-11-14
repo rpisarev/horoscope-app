@@ -69,6 +69,8 @@ Safe local defaults:
 
 ```env
 APP_TIMEZONE=Europe/Kyiv
+APP_DEPLOYMENT_MODE=development
+PRODUCTION_PUBLICATION_PROVIDERS=openai
 LOG_LEVEL=INFO
 HOROSCOPE_PROVIDER=stub
 RUN_NIGHTLY_ON_START=0
@@ -96,6 +98,30 @@ PUBLIC_SITE_URL=https://example.com
 ```
 
 OpenAI should stay disabled by default in local automation unless you explicitly enable all relevant gates.
+
+### Production publication policy
+
+Set `APP_DEPLOYMENT_MODE=production` for every production backend, scheduler,
+and manual generation process. The default is `development` for existing local
+workflows; `test` is also supported. Empty or unknown modes fail configuration
+validation. `FLASK_DEBUG` does not select publication policy.
+
+Production publication requires a registered real provider with production
+publication capability and membership in `PRODUCTION_PUBLICATION_PROVIDERS`
+(comma-separated, default `openai`). An empty list denies all production
+publication; unknown names fail configuration validation. `stub` remains
+forbidden in production even if listed. Both variables are passed through to
+backend and scheduler by Compose; changing a running process's policy requires
+the normal configuration reload/redeployment.
+
+Development/test mode still permits local published stubs. The guard checks
+controlled generation before provider calls, revalidates queued jobs at execution,
+and checks publication persistence using the selected provider identity. Existing
+OpenAI opt-ins and credentials remain necessary; there is no provider fallback.
+Existing published stubs are not changed or hidden by this write guard. See
+[architecture.md](docs/architecture.md#production-publication-guard) for enforcement
+boundaries and the separate remaining metadata-integrity follow-up. Ollama/Qwen
+is not implemented.
 
 ## Run locally
 

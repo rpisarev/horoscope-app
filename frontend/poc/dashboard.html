@@ -1,0 +1,71 @@
+<!doctype html>
+<title>Disposable prerender POC</title>
+<h1>Disposable prerender POC</h1>
+<p id="mode"></p>
+<p>Captures run the unchanged production Vue bundle in a browser. No database writes.</p>
+<button id="initial" disabled>Capture selected route set</button>
+<button id="forecast" disabled>Refresh Gemini June 26</button>
+<button id="date" disabled>Refresh business-date dependants</button>
+<fieldset id="simulation" hidden>
+  <legend>ISOLATED response fixture only — never changes Flask/database</legend>
+  <button data-text="POC published content A">Publish A</button>
+  <button data-text="POC updated content B">Update B</button>
+  <button id="withdraw">Withdraw</button>
+  <label>Fixture business date <input id="day" type="date" value="2026-10-01"></label>
+  <button id="rollover">Set date and refresh</button>
+</fieldset>
+<pre id="result">Loading inventory…</pre>
+<div id="frames"></div>
+<script type="module">
+const result = document.querySelector('#result')
+const post = async (path, body = {}) => {
+  const response = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+  if (!response.ok) throw new Error(await response.text())
+  return response.json()
+}
+const seed = await (await fetch('/__poc/seed')).json()
+document.querySelector('#mode').textContent = seed.fixture ? 'ISOLATED FIXTURE MODE' : 'LIVE READ-ONLY FLASK DATA'
+document.querySelector('#simulation').hidden = !seed.fixture
+result.textContent = JSON.stringify(seed, null, 2)
+async function capture(jobs) {
+  const start = performance.now()
+  for (const job of jobs) {
+    result.textContent = `Capturing ${job.path}`
+    const frame = document.createElement('iframe')
+    frame.style.cssText = 'width:1200px;height:900px;position:absolute;left:-4000px'
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => finish(new Error(`Capture timed out: ${job.path}`)), 18000)
+      const receive = event => {
+        if (event.origin !== location.origin || event.source !== frame.contentWindow || event.data.pocCapture !== job.token) return
+        finish(event.data.ok ? null : new Error(event.data.error))
+      }
+      function finish(error) {
+        clearTimeout(timer); window.removeEventListener('message', receive); frame.remove()
+        error ? reject(error) : resolve()
+      }
+      window.addEventListener('message', receive)
+      frame.src = `${job.path}?__poc_capture=${job.token}`
+      document.querySelector('#frames').append(frame)
+    })
+  }
+  result.textContent = JSON.stringify({ refreshed: jobs.map(j => j.path), elapsedMs: Math.round(performance.now() - start), ...(await (await fetch('/__poc/state')).json()) }, null, 2)
+}
+async function run(action) {
+  document.querySelectorAll('button').forEach(b => b.disabled = true)
+  try { await action() } catch (error) { result.textContent = `FAILED: ${error.message}` }
+  finally { document.querySelectorAll('button').forEach(b => b.disabled = false) }
+}
+document.querySelector('#initial').onclick = () => run(async () => capture(await post('/__poc/refresh', { paths: seed.paths })))
+const refreshForecast = async () => capture(await post('/__poc/forecast', { sign: 'gemini', date: '2026-06-26' }))
+document.querySelector('#forecast').onclick = () => run(refreshForecast)
+document.querySelector('#date').onclick = () => run(async () => capture(await post('/__poc/date')))
+for (const button of document.querySelectorAll('[data-text],#withdraw')) button.onclick = () => run(async () => {
+  await post('/__poc/fixture', { sign: 'gemini', day: '2026-06-26', text: button.dataset.text ?? null })
+  await refreshForecast()
+})
+document.querySelector('#rollover').onclick = () => run(async () => {
+  await post('/__poc/fixture', { date: document.querySelector('#day').value })
+  await capture(await post('/__poc/date'))
+})
+document.querySelectorAll('button').forEach(b => b.disabled = false)
+</script>

@@ -9,6 +9,7 @@ from werkzeug.datastructures import MultiDict
 
 from .. import db
 from ..models import GenerationAttempt, GenerationItem, GenerationJob, GenerationRun
+from ..providers.registry import PROVIDERS
 from .constants import DEFAULT_FORECAST_TYPE, DEFAULT_LOCALE
 from .generation_job_service import (
     JOB_TYPE_BACKFILL,
@@ -37,7 +38,7 @@ class AdminGenerationValidationError(ValueError):
     pass
 
 
-SUPPORTED_ADMIN_PROVIDERS = {"stub", "openai"}
+SUPPORTED_ADMIN_PROVIDERS = PROVIDERS.keys()
 
 
 def _iso(value: Any) -> str | None:

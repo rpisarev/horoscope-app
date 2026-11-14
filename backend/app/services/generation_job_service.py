@@ -10,6 +10,8 @@ from uuid import uuid4
 
 from .. import db
 from ..models import GenerationJob, GenerationRun
+from ..providers.publication_policy import require_publication_provider
+from ..providers.registry import PROVIDERS
 from .constants import DEFAULT_FORECAST_TYPE, DEFAULT_LOCALE
 from .generation_service import (
     get_missing_forecast_signs,
@@ -32,7 +34,7 @@ SUPPORTED_JOB_TYPES = {
     JOB_TYPE_SCHEDULED,
 }
 
-SUPPORTED_JOB_PROVIDERS = {"stub", "openai"}
+SUPPORTED_JOB_PROVIDERS = PROVIDERS.keys()
 
 DEFAULT_OPENAI_MAX_BACKFILL_DAYS = 7
 DEFAULT_OPENAI_MAX_JOBS_PER_RUN = 2
@@ -1325,6 +1327,7 @@ def _ensure_provider_can_execute(
     *,
     allow_openai: bool,
 ) -> None:
+    require_publication_provider(job.provider)
     if job.provider != "openai":
         return
 

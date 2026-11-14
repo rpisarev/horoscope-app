@@ -67,7 +67,13 @@ def _clean_mutable_tables() -> None:
 
 @pytest.fixture(scope="session")
 def app():
-    flask_app = create_app()
+    from app.config import Config
+
+    # Disposable tests must not inherit the operator's deployment policy.
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(Config, "APP_DEPLOYMENT_MODE", "test")
+        patch.setattr(Config, "PRODUCTION_PUBLICATION_PROVIDERS", "openai")
+        flask_app = create_app()
     flask_app.config.update(TESTING=True)
 
     with flask_app.app_context():
