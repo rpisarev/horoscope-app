@@ -1,5 +1,16 @@
 # OpenAI retry ownership
 
+**Current implementation, not the final accepted retry policy.**
+[STAB-015 D5](adr/STAB-015-generation-execution.md) was accepted on 2026-11-14.
+It preserves SDK `max_retries=0` and permanent quota classification, but requires
+cross-run quota/auth/permission pause, operator-controlled resumption and at most
+one additional proven-safe rate-limit attempt with a new counted D2 reservation.
+Unknown outcomes must not repeat automatically; connection failures require proof
+that transport was not reached; text validation must not trigger a new paid request
+by default. Bounded backoff/Retry-After/deadlines still need implementation.
+Those changes are OPEN in .06a/.06b. The table and three-attempt tests below describe
+the baseline, not approval of broad timeout/connection retries for production.
+
 The [OpenAI adapter](../backend/app/providers/openai_provider.py) uses the pinned
 `openai==2.37.0` SDK. The [generation lifecycle](../backend/app/services/generation_service.py)
 owns retries, with a default maximum of three attempts per item. Each call to the

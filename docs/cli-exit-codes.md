@@ -1,5 +1,11 @@
 # Generation CLI exit codes
 
+This is the **current STAB-004 synchronous execution contract**.
+Accepted [STAB-015 D1/D6](adr/STAB-015-generation-execution.md) requires an explicit
+production async enqueue/status migration in .08a; it has not been implemented.
+A future successful enqueue exit must not be described as successful generation.
+Existing run/job reports and exits below remain unchanged by ADR acceptance.
+
 [`generate_forecast_package.py`](../backend/utils/generate_forecast_package.py)
 and [`process_generation_jobs.py`](../backend/utils/process_generation_jobs.py)
 report execution outcomes through their process exit codes. Their stdout headings,

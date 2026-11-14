@@ -1,5 +1,14 @@
 # Paid execution gate
 
+**Implemented SAFE-001; future architecture is separate.**
+[STAB-015 D1–D8](adr/STAB-015-generation-execution.md) is Accepted (2026-11-14)
+but not implemented. Its worker-only production credentials, async producer
+authorization, atomic request accounting, pause/fencing and production probe ban
+remain backlog work. The current probe behavior below has not silently changed.
+SAFE-001 remains required under the accepted design; enabling it alone cannot
+satisfy the new admission guarantees. Acceptance and the publication SLO do not
+authorize live configuration changes or paid generation.
+
 `GENERATION_PAID_EXECUTION_ENABLED` is a process-wide opt-in for paid provider
 execution. Only the exact environment string `1` enables it. Unset, empty, `0`,
 `true`, whitespace-padded values, and every other value deny paid execution.

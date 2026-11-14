@@ -1,6 +1,7 @@
-# STAB-015: запропонований backlog виконання генерації
+# STAB-015: backlog реалізації прийнятої архітектури
 
-**Proposed / Pending owner approval — 2026-11-14.**
+**D1–D8 Accepted — 2026-11-14; STAB-015.01 COMPLETED (documentation only).**
+**Усі інші картки нижче OPEN / not implemented на baseline PR #23, `2b71659`.**
 Батьківський документ: [ADR STAB-015](STAB-015-generation-execution.md).
 Ці картки не є implementation або дозволом на runtime/DB/paid зміни.
 
@@ -10,10 +11,12 @@
 з integration tests. Це відносний розмір, не строк або зобов'язання реалізації.
 Якщо M не вкладається в зрозумілий diff, її слід додатково розбити до початку роботи.
 
-Позначення D1–D8, A01–A14, E01–E24 і T01–T13 посилаються на розділи 6, 12 та 14 ADR.
-Implementation залежних архітектурних карток починається лише після відповідних
-owner decisions. `.03a` є потенційно незалежним bugfix на чинному контракті;
-для нього не потрібен вибір A/B/C, але потрібне окреме призначення задачі.
+Позначення D1–D8, A01–A16, E01–E24 і T01–T13 посилаються на розділи 6, 12 та 14 ADR.
+D1–D8 вже затверджені: повторно питати вибір A/B/C, одиницю cap, scope або SLO
+не потрібно. P1–P8 ADR залишаються implementation/configuration параметрами.
+Кожна implementation task призначається окремо; документація не дозволяє live
+rollout. `.03a` — незалежний existing-contract fix. Ownership наступних п'яти
+кандидатів, включно зі STAB-003, визначено в [handoff](STAB-015-next-iteration.md).
 
 **Не дублювати виконане:** STAB-007 disposable test harness, STAB-001 SDK retries=0
 та structured quota classification, SAFE-001 global paid gate. STAB-004 уже
@@ -26,41 +29,50 @@ DB-backed tests запускає серійно один уповноважен�
 Transport лише fake/MockTransport; no paid calls. Жодна картка не дозволяє
 development/production DB writes або live rollout як спосіб перевірки.
 
-## STAB-015.01 — рішення й контракт admission
+## STAB-015.01 — рішення й контракт admission — COMPLETED
 
-- **Проблема:** A/B/C, одиниця ліміту, scope і uncertain-outcome policy не затверджені.
-- **Scope:** записати D1–D8, state/outcome vocabulary, перелік дозволених callers; без коду/config/schema.
-- **Залежності:** owner answers; E01–E24; реалізований STAB-004.
-- **Acceptance:** для кожного caller визначено enqueue/execution/publication authorization, sync/async response та recovery owner; unknown не прирівнюється до not-sent.
-- **Test strategy:** review таблиці всіх entrypoints і A01–A14 на несуперечність, посилання на чинні contracts.
-- **Ризики / розмір:** непомітне прийняття money budget або paid permission; **S**. Pending.
+- **Проблема:** потрібен один авторитетний контракт після явного owner approval.
+- **Scope:** Accepted D1–D8, current/future entrypoint matrix, unresolved parameters і узгоджений backlog/handoff; docs only.
+- **Залежності:** виконано: явна owner instruction «STAB-015.01 — Accept Generation Execution Architecture ADR», задана дата рішення 2026-11-14; baseline PR #23.
+- **Acceptance:** policy однозначна; current code не видається за future guarantees; усі інші implementation cards OPEN. D1–D8 не перепогоджуються.
+- **Test strategy:** docs-only diff, links/anchors, consistency між ADR/backlog/state/architecture/safety docs і handoff; без DB/provider tests.
+- **Ризики / розмір:** Accepted помилково прочитати як deployment або paid permission; **S**. Завершено лише decision contract.
 
-## STAB-015.02a — additive execution ledger schema
+## STAB-015.02a — additive execution та API-attempt ledger schema
 
-- **Проблема:** job timestamps і `run_id` mutable; немає незмінної історії starts (E06/E11/E16).
-- **Scope:** additive Alembic schema для execution identity/start/origin/policy snapshot та зв'язків; без runtime writer або зміни admission.
-- **Залежності:** .01, D2/D3; retention та historical import policy.
-- **Acceptance:** timestamps starts незмінні; nullable direct job link узгоджений; старі rows/IDs збережені; history до cutover позначена incomplete, не синтезована як точні starts.
-- **Test strategy:** disposable migration/schema tests, nullable/unique/FK/retention semantics; old-data fixture upgrade без реконструкції HTTP counts.
-- **Ризики / розмір:** misleading backfill, schema downgrade з втратою audit; **M**. Без runtime switch.
+- **Проблема:** mutable jobs/links не є immutable history або hard request-attempt ledger (E06/E11/E16).
+- **Scope:** additive schema execution identity/start/origin/policy snapshot, per-request intent/reservation/outcome та зв'язків. Без runtime writer/admission switch.
+- **Залежності:** completed .01; D2/D3/D4, P3 storage/retention design; збереження historical rows.
+- **Acceptance:** execution start не підміняє counted API attempt; UTC admission identity immutable; старі IDs/history збережені, pre-cutover usage unknown. Nullable dev-diagnostic linkage не дає production direct exception.
+- **Test strategy:** disposable migrations, uniqueness/FK/immutable timestamps, old-data upgrade без fabricated request counts.
+- **Ризики / розмір:** misleading backfill, destructive downgrade; **M**. Не активує transport.
 
-## STAB-015.02b — запис кожного execution start
+## STAB-015.02b — незмінна історія execution starts
 
-- **Проблема:** retry/reclaim стирає або повторно використовує daily timestamp; один job не дорівнює одному execution.
-- **Scope:** wire execution-start records на claim та погоджені direct admissions, stable job/execution/run links; read-only count comparison. Старий policy switch не змінювати тут.
-- **Залежності:** .02a; .01 перелік callers та D2 одиниця starts.
-- **Acceptance:** manual single/batch retry і stale reclaim створюють нові execution IDs; denial-before-provider окремо від HTTP attempts; old execution links не стираються; coverage A02.
-- **Test strategy:** stub/fake runs, retry across UTC midnight, preflight denial, failure перед/після start commit; перевірити прямі helpers.
-- **Ризики / розмір:** подвійний запис або пропущений direct caller; **M**. Новий ledger ще не дає atomic cap.
+- **Проблема:** retry/reclaim повторно використовує або очищає job timestamps.
+- **Scope:** execution-start records на claims та дозволені internal/dev paths, stable job/execution/run links; без підміни D2 cap цією одиницею.
+- **Залежності:** .02a; D1/D2/D6.
+- **Acceptance:** retry/reclaim не стирають попередні execution IDs/links; claim/preflight denial відрізняється від paid request admission. A02.
+- **Test strategy:** fake/stub executions, UTC rollover, denial, crash до/після start commit; не викликати provider.
+- **Ризики / розмір:** подвійний start або пропущений caller; **M**. Request accounting завершують .02c/.03c.
 
-## STAB-015.02c — durable attempt intent та unknown outcome
+## STAB-015.02c — durable request intent та unknown outcome
 
-- **Проблема:** attempt flush перед provider не переживає rollback/crash (E02); audit може втратити факт наміру.
-- **Scope:** короткий commit наміру перед transport, correlation/request identity, outcome recording; окремий документований transport protocol. Без auto-retry/refund recovery.
-- **Залежності:** .02a/.02b, D2/D4; збереження STAB-001 і SAFE-001.
-- **Acceptance:** intent durable; **intent без result не доводить sent/not-sent**. Crash безпосередньо до/після transport з однаковим durable state → unknown; pre-transport лише за protocol proof недосяжності transport. A07/A08.
-- **Test strategy:** deterministic fault injection у кожній commit/transport boundary; однакові DB states дають однакову conservative classification; no fake billing claims.
-- **Ризики / розмір:** зайві commits, довгі transactions, помилковий refund; **M**. Не дає exactly-once.
+- **Проблема:** attempt flush до provider не переживає crash/rollback; no-result не доводить not-sent.
+- **Scope:** durable per-paid-request intent/phase protocol та outcome correlation. Перед transport intent і reservation мають спільну atomic boundary з .03c; поки її немає, paid rollout заборонений.
+- **Залежності:** .02a/.02b; D2/D4; final SDK retry ownership і SAFE-001.
+- **Acceptance:** однаковий durable intent без result перед/після transport → unknown / requires_review, без automatic retry/refund. Known pre-transport лише з protocol proof. Кожен дозволений retry має окрему identity; ledger не стирається. A07/A08.
+- **Test strategy:** fault injection на всіх commit/transport boundaries, same-state conservative classification; dummy transport, no billing claims.
+- **Ризики / розмір:** довгі transactions, хибний proof, lost outcome; **M**. Не exactly-once.
+
+## STAB-015.02d — reliable usage та estimated cost
+
+- **Проблема:** D2 usage/cost collection не реалізована нормалізовано; response payload не є повним billing ledger.
+- **Scope:** надійні input/output usage metadata з provenance, model/pricing version і labeled monetary estimate. Hard money cap поза scope.
+- **Залежності:** .02a/.02c; D2, P7 pricing/usage contract.
+- **Acceptance:** missing/ambiguous usage unknown, не 0; estimates не називаються actual billing; unknown outcomes не refund; жодних reconstructed tokens з тексту або job count. A15.
+- **Test strategy:** fake complete/partial/missing usage, unknown pricing/model, duplicate result, crash; decimal/units і redaction checks.
+- **Ризики / розмір:** подвійний облік, outdated price, недовірений returned model; **M**. За потреби два послідовні commits: reliable usage ingestion → labeled pricing estimate.
 
 ## STAB-015.03a — exact-key conflict normalization
 
@@ -71,23 +83,23 @@ development/production DB writes або live rollout як спосіб пере�
 - **Test strategy:** дві sessions з barrier перед INSERT; True/False × commit True/False; parent transaction з unrelated pending writes; unrelated constraint conflict; winner-finalizes race.
 - **Ризики / розмір:** blanket exception swallowing, accidental outer rollback/commit, unbounded retry; **S** за чіткої existing constraint boundary.
 
-## STAB-015.03b — атомарний scope admission
+## STAB-015.03b — атомарний package-level admission
 
-- **Проблема:** exact-key dedupe не покриває overlap; active-run SELECT і retry-cap count не атомарні (E02/E03/E05).
-- **Scope:** DB-enforced reservation для погодженого D3 scope і retry-run admission; normalize busy outcome. Не змінювати count-budget policy або lease recovery.
-- **Залежності:** .01, .02b, D3; plan для existing overlapping rows без їх мовчазного видалення.
-- **Acceptance:** direct+queue/rізні job types/providers/subsets не створюють паралельний admitted scope всупереч D3; existing running run не називається завершеним caller result. A05.
-- **Test strategy:** independent PostgreSQL sessions, concurrent retries на останньому дозволеному run, overlap matrix; no provider calls у loser.
-- **Ризики / розмір:** надто широкий lock, starvation, compatibility busy outcome; **M**. Якщо scope і retry-cap потребують різних mechanisms — окремі commits до review.
+- **Проблема:** active-run SELECT і retry-cap count race; dedupe hashes не покривають overlapping jobs.
+- **Scope:** DB-enforced exclusivity **date + locale + forecast_type** across providers/job types/direct/queue/subsets; controlled busy/deferred. Без sign-level parallelism або нового overwrite behavior.
+- **Залежності:** .01/.02b; D3 accepted; P3 migration/locking contract, історичні overlaps перевірити без видалення.
+- **Acceptance:** один active run на package; loser не робить paid request і не видає чужий running run за finished result. Published preserved, retries missing-only. A05.
+- **Test strategy:** PostgreSQL independent sessions/barriers, overlap matrix, retry-cap race, already-published data; safe harness only.
+- **Ризики / розмір:** broad lock, busy-contract compatibility; **M**. Якщо retry-cap serialization окрема — окремий commit; invariant D3 не послаблювати.
 
-## STAB-015.03c — атомарна count reservation
+## STAB-015.03c — атомарний UTC-day paid API-attempt cap
 
-- **Проблема:** daily count-then-claim дозволяє oversubscription між workers (E06).
-- **Scope:** атомарний reservation погодженої D2 count unit/window з ledger; застосувати до всіх дозволених execution paths. Не впроваджувати hard money budget.
-- **Залежності:** .02b/.02c, .03b, D2/D4; bounded transaction protocol.
-- **Acceptance:** два contenders на останній slot допускають одного; UTC rollover і ручний retry не стирають usage; unknown не refund автоматично. A02/A03.
-- **Test strategy:** PostgreSQL barriers, commit failure/deadlock retry, midnight, reserved-but-never-started та uncertain outcomes; count views узгоджені.
-- **Ризики / розмір:** hot counter row, lock ordering, conservative overcount; **M**. Tokens/money — окрема owner-approved задача за потреби.
+- **Проблема:** job counts не дорівнюють requests, mutable timestamps і count-then-claim не дають hard cap.
+- **Scope:** immutable counted reservation **кожної admitted paid provider request attempt**, включно retry; atomic intent+reservation до transport across authorized paths. Не hard monetary budget.
+- **Залежності:** .02b/.02c/.03b; D2/D4; P1 числовий cap/configuration і P3 protocol. Missing/invalid cap не може означати unlimited paid operation.
+- **Acceptance:** два contenders на останній slot допускають одну request attempt; UTC admission day, history збережена при manual retry/reclaim/crash; unknown без automatic refund; retry потребує нового slot. A02/A03.
+- **Test strategy:** independent sessions, rollback/deadlock, UTC midnight, remaining cap при дозволеному retry, same unknown intent; proof-before-transport release окремо за P3.
+- **Ризики / розмір:** hot counter/lock order, conservative overcount, double reservation; **M**. Live value не встановлювати в межах code task.
 
 ## STAB-015.04a — lease epoch та bounded heartbeat
 
@@ -116,133 +128,148 @@ development/production DB writes або live rollout як спосіб пере�
 - **Test strategy:** barriers для finish/reaper, claim/cancel, retry/new-duplicate, old-owner exception; negative coverage inventory.
 - **Ризики / розмір:** missed writer, changing client-visible conflicts, nested transactions; **M**. За потреби розділити transitions на додаткові leaf commits.
 
-## STAB-015.05a — read-only inspection для recovery
+## STAB-015.05a — read-only per-job recovery inspection
 
-- **Проблема:** оператору важко зіставити jobs, runs і published coverage перед будь-яким повтором або cleanup.
-- **Scope:** bounded read-only report поточних status/owner/timestamps/run links/coverage; явні позначки missing evidence та unknown. Без requeue, refund, provider calls або нового schema.
-- **Залежності:** чинні read contracts; окреме погодження формату звіту. Не потребує ledger, lease redesign або вибору A/B/C; нові поля .02/.04 можна додати пізніше.
-- **Acceptance:** report не змінює дані; старі rows без durable intent не називаються known-not-sent; stale timestamp не доводить, що worker помер; published-but-not-finalized і missing scope видимі окремо.
-- **Test strategy:** disposable fixtures з divergent job/run/content states, відсутніми links, stale/unknown та complete coverage; заборонити commit і provider у read path.
-- **Ризики / розмір:** помилкова впевненість у historical metadata, exposed payload/secrets; **S**. Це inspection, не дозвіл на recovery mutation.
+- **Проблема:** один job/run/content може мати розбіжні states без пояснюваної history.
+- **Scope:** bounded report **конкретного job ID**: owner/timestamps/run link, item/attempt status summaries, published/missing scope, missing evidence/unknown. Не aggregate dashboard, refund/requeue або нова schema.
+- **Залежності:** чинні read contracts; .01 completed. Не потребує ledger/fencing. Proposed module/CLI boundary — [handoff](STAB-015-next-iteration.md).
+- **Acceptance:** SELECT-only; stale timestamp не доказ смерті worker, legacy missing intent не known-not-sent; published-but-not-finalized і missing links видимі. No raw secret/prompt/response exposure; no operational mutation.
+- **Test strategy:** disposable divergent per-job fixtures, query-only enforcement, provider/commit prohibition, deterministic CLI reports. Aggregate deadlines/queue trends належать .07b.
+- **Ризики / розмір:** хибний recovery advice з неповного audit; **S**. Read authority не recovery authority.
 
 ## STAB-015.05b — консервативні recovery mutations
 
-- **Проблема:** crashes залишають розбіжність job/run/content; невідомий remote outcome небезпечно повторювати.
-- **Scope:** bounded reconciliation для durable phases, published-but-not-finalized, stale ownership та unknown; operator inspection/decision path. Без provider-side exactly-once claim.
-- **Залежності:** .05a/.02c/.03c/.04c, D4; provider idempotency/retrieval перевірити окремо перед використанням.
-- **Acceptance:** A07–A09; same intent/no-result crash windows лишаються unknown; немає auto-refund/retry без достатнього доказу; published skip не робить provider call; manual decisions audited.
-- **Test strategy:** deterministic crash matrix, PostgreSQL transaction failures, no-result/late-result fake provider; unknown і proven pre-transport cases окремо.
-- **Ризики / розмір:** manual queue accumulation, помилкова reconciliation, latency; **M**. Лише погоджені bounded mutations; inspection залишається окремою .05a.
+- **Проблема:** crash може залишити unknown remote outcome або published-but-not-finalized work.
+- **Scope:** D4 bounded reconciliation зі збереженням published content; automatic recovery лише durable proof transport-not-reached; authorized audited manual review.
+- **Залежності:** .05a/.02c/.03c/.04c; D4 accepted; P3 transition representation і P5 operator authority.
+- **Acceptance:** intent/no-outcome → unknown / requires_review, без automatic retry/refund; proof не підміняється lease expiry. Historical published rows не overwrite. Manual decisions audited; replay не обходить D2/D5. A07–A10.
+- **Test strategy:** crash matrix, stale-owner responses, same-state ambiguity, published-before-finalization, unauthorized manual recovery rejection.
+- **Ризики / розмір:** accumulated review queue, lost evidence, false proof; **M**. Не exactly-once або provider-side retrieval promise.
 
-## STAB-015.06a — cross-run quota pause
+## STAB-015.06a — quota/auth/permission pause між executions
 
-- **Проблема:** STAB-001 зупиняє лише item retry; future items/runs можуть повторити permanent quota failure.
-- **Scope:** structured failure reason, погоджений provider/account policy scope, pause/resume/cooldown; не розширювати permanent-code allowlist за message heuristics.
-- **Залежності:** .01/.03c, D5; failure-classification compatibility та operator owner.
-- **Acceptance:** підтверджена quota зупиняє подальший admission у погодженому scope; resume audited; transient errors не стають permanent; STAB-001 tests незмінно проходять. A11.
-- **Test strategy:** fake quota across items/runs/processes, concurrent pause/admission, explicit resume, no paid traffic.
-- **Ризики / розмір:** надмірний global pause, endless suppression, необґрунтована account identity; **M**. Не повторна реалізація STAB-001.
+- **Проблема:** STAB-001 quota permanent лише для item; future items/runs можуть повторювати paid failures.
+- **Scope:** structured insufficient_quota → provider/account-scoped pause; auth/permission failures, що потребують operator intervention, блокують automatic admission у відповідному scope. Authorized audited resume, без automatic cooldown-resume.
+- **Залежності:** .01/.03c; D5 accepted; P1 logical scope identity, P5 operator authority.
+- **Acceptance:** pause перевіряється до кожного нового paid request, включно іншими items/runs/processes; transient не стає permanent за message heuristic. SDK retries=0 і quota nonretryable збережені; старі lifecycle counts оновлюються для D5 навмисно. A11.
+- **Test strategy:** fake quota/auth/permission, concurrent pause/admission, cross-process observation, explicit unauthorized/authorized resume; no live traffic.
+- **Ризики / розмір:** overbroad scope, hidden self-resume, credentials leakage; **M**. Не повторна реалізація STAB-001 classifier.
 
-## STAB-015.06b — bounded transient retry policy
+## STAB-015.06b — limited safe transient retry за D5
 
-- **Проблема:** lifecycle loop retryable errors не має backoff/deadline policy.
-- **Scope:** погоджені bounded delay/jitter/deadline для lifecycle retries; SDK retries залишаються 0; attempt numbering/audit збережені.
-- **Залежності:** .01/.02c, D5; узгодження з .04a lease duration.
-- **Acceptance:** transient attempts bounded, quota не retryable, cancellation/lease loss не запускають нову спробу; fake time не затримує tests. A11.
-- **Test strategy:** deterministic clock/random injection, transient 429/timeout/validation, deadline, gate/lease loss між attempts.
-- **Ризики / розмір:** довгий job, hidden retry amplification, test sleeps; **S** після погодження policy.
+- **Проблема:** current retryable boolean широко допускає 429/timeout/connection/validation до 3 attempts і не доводить safe replay.
+- **Scope:** reliable phase/outcome classification; confirmed safe transient rate-limit — максимум **одна додаткова application-level attempt**, bounded backoff/Retry-After/deadline. Unknown не повторювати; connection лише proof transport-not-reached; text validation не створює paid retry за замовчуванням.
+- **Залежності:** .02c/.03c/.04c/.06a; D5 accepted; P2 measured delay/deadline protocol.
+- **Acceptance:** кожен retry з новою D2 reservation; no hidden SDK retries, no reset retry budget через requeue; lease/gate/pause/deadline/cap rechecked. Не всі 429/timeout/connection failures safely retryable. A11.
+- **Test strategy:** fake safe/ambiguous 429, seconds/date Retry-After, timeout після remote acceptance, proven local pre-transport failure, validation rejection, exhausted cap, lease loss; fake clock, no sleeps.
+- **Ризики / розмір:** message-based proof, duplicated requests, hidden retry multiplication; **M**. Розбити на два commits за потреби: evidence/outcome normalization → lifecycle admission/backoff orchestration. SDK/quota regressions зберегти; old three-attempt expectations змінити лише за D5.
 
 ## STAB-015.07a — базова DB readiness
 
-- **Проблема:** static `/api/signs` response не доводить DB readiness або scheduler/worker progress.
-- **Scope:** read-only bounded SELECT та expected schema readiness окремо від чинної API liveness; без worker heartbeat, ledger або execution metrics.
-- **Залежності:** погоджений endpoint/операційний контракт readiness. Не залежить від .01, .02, .03 або .04; D8 може пізніше визначити alert thresholds.
-- **Acceptance:** API up/DB down і API/DB ready розрізняються; readiness не стверджує worker progress/content freshness; жодних provider calls/migrations/writes у health probe. Базова частина A13.
-- **Test strategy:** DB failure/timeouts mocks і disposable integration, schema mismatch, redaction tests.
-- **Ризики / розмір:** health amplification, leaking configuration/secrets, restart loop; **S**. Не змінює publication freshness.
+- **Проблема:** static /api/signs health response не доводить DB readiness.
+- **Scope:** bounded read-only DB SELECT + expected schema readiness окремо від API liveness; без migrations, heartbeat або ledger. Новий endpoint contract інтегрує orchestrator.
+- **Залежності:** .01 completed; [handoff](STAB-015-next-iteration.md) endpoint/budget contract. Не потребує .02/.03/.04.
+- **Acceptance:** API alive/DB down та ready відрізняються; ready не означає worker progress, quota або 06:00 coverage. Response sanitized, жодних provider calls/writes. A13.
+- **Test strategy:** DB failure/timeout/schema mismatch, read-only transaction, no credentials in response; isolated fixtures/mock failures.
+- **Ризики / розмір:** probe load/restart loops, leaked connection details; **S**. Live Compose healthcheck не перемикається автоматично.
 
-## STAB-015.07b — базова coverage та queue visibility
+## STAB-015.07b — aggregate coverage/queue та deadline visibility
 
-- **Проблема:** CLI zero-work success і job success не доводять content freshness; count/quota/denial причини змішані.
-- **Scope:** read-only existing business-date coverage/missing/partial views, queued depth/oldest age та останній відомий run status; без нових reservation/quota/lease fields.
-- **Залежності:** погоджений bounded output scope; чинні public/admin read contracts. Не залежить від ledger, fencing або quota-pause implementation; thresholds/freshness SLO окремо D8. Не змінювати empty enabled-sign policy мовчки.
-- **Acceptance:** active metadata scope, UTC timestamps і business timezone розділені; job/run success не підміняє actual coverage; missing worker evidence позначено unknown; no secrets/raw payload metrics. Базова частина A12/A13.
-- **Test strategy:** zero/partial/full active-sign coverage, midnight/DST, zero processed jobs із непорожньою queue, backlog age; no writes/provider calls.
-- **Ризики / розмір:** high-cardinality labels, хибне «fresh» для old published data; **S**. Наявність published content і його product freshness — різні сигнали.
+- **Проблема:** success job/no-work exit не доводить complete current-day coverage або D8 SLO.
+- **Scope:** aggregate date/locale/type coverage enabled signs, queue depth/oldest age, last observed run status; 06:00 Europe/Kyiv deadline evaluation. Не per-job recovery report (.05a), pause implementation або нові ledger fields.
+- **Залежності:** .01 completed, D8 accepted; existing DB read data і [handoff](STAB-015-next-iteration.md). Не залежить від .02/.04/.06a; channel/alert routing пізніше P5.
+- **Acceptance:** missing/partial після deadline → actionable structured failure; published content збережено. Expected count з enabled rows, нуль не замінюється 13. Liveness/readiness/worker evidence/content deadline різні; відсутній heartbeat/pause evidence — unknown/not implemented, не fabricated cause. Пізня full coverage не доводить historical on-time completion. A12/A13/A16.
+- **Test strategy:** 05:59:59/06:00/after, winter/summer UTC offsets, dynamic enabled signs/zero case, queue with zero processed, partial content; SELECT-only, no raw payload.
+- **Ризики / розмір:** false-green freshness, inferred root cause, cardinality; **S**. Concrete notification transport поза scope.
 
 ## STAB-015.07c — execution та recovery diagnostics
 
-- **Проблема:** нові reservations, leases, quota pause та unknown outcomes потребуватимуть власних пояснюваних сигналів.
-- **Scope:** bounded read-only diagnostics для admission/denial/remaining slots, heartbeat/lease health, pause reason та uncertain outcomes; кореляція без raw payload.
-- **Залежності:** .07a/.07b та реалізовані .02b/.03c/.04a/.06a; D8. Кожен сигнал додається разом із відповідним mechanism, без вигаданих historical counts.
-- **Acceptance:** local limit, quota pause, disabled paid gate, stale lease й unknown remote result не змішуються; no-work exit не приховує blocked coverage; liveness/readiness/freshness окремі. Решта A13.
-- **Test strategy:** fake clock і disposable fixtures для всіх reason codes, absent historical fields, rollover, redaction та cardinality bounds.
-- **Ризики / розмір:** alert fatigue, misleading budget labels, credentials у logs; **S** для погоджених bounded diagnostics, без dashboard framework.
+- **Проблема:** нові reservations/leases/pauses/unknown outcomes потребують причин і correlation.
+- **Scope:** bounded diagnostics counted API attempts/remaining cap, lease/worker progress, quota/auth/permission pause, unknown review queue та D8 deadline reasons; usage estimates labeled окремо.
+- **Залежності:** .07a/.07b/.02d/.03c/.04c/.06a; D8, P5 routing/retention.
+- **Acceptance:** quota pause, worker failure, missed deadline та cap exhaustion не змішуються; no-work не приховує missing content. API counts не money spend; partial historical evidence unknown.
+- **Test strategy:** fake clocks/reason codes, UTC admission vs Kyiv deadline, paused worker/quota and partial coverage, redaction.
+- **Ризики / розмір:** misleading budget labels/alert fatigue; **S**. Dashboard framework не потрібен.
 
-## STAB-015.08a — caller compatibility contract
+## STAB-015.08a — явний async compatibility contract
 
-- **Проблема:** default enqueue може зламати синхронні Admin/CLI clients.
-- **Scope:** additive async request/response/status contract та deprecation window; зберегти STAB-004 exit semantics; без default switch.
-- **Залежності:** .01, D1/D6; existing Admin/job APIs.
-- **Acceptance:** queued intent не маскується як completed run; explicit async selection; old paths працюють за затвердженою policy; empty batch `0` не обіцяє drained queue.
-- **Test strategy:** contract snapshots, CLI main/__main__, sync/async/no-work/busy/failed/partial; no provider transport.
-- **Ризики / розмір:** shell automation break, ambiguous exit codes, indefinite compatibility tail; **M**.
+- **Проблема:** regular production generation має стати async без silent replacement sync run response/exit semantics.
+- **Scope:** additive/versioned API або explicit CLI mode: enqueue/job ID/status/results; deprecation/migration синхронних callers. Local stub direct зберегти.
+- **Залежності:** .01 completed; D1/D6 accepted; P4 конкретний envelope/endpoint/window.
+- **Acceptance:** queued intent не видається за completed run; old synchronous contract не мовчки змінений; production paid direct disabled by default. STAB-004 failure/no-work semantics збережені там, де sync/worker command лишається.
+- **Test strategy:** old/new contract fixtures, CLI main/__main__, enqueue accepted vs execution failed/partial/busy; mocks only.
+- **Ризики / розмір:** ambiguous CLI success, endless deprecation tail; **M**. Не paid activation.
 
-## STAB-015.08b — producer authorization і key boundary
+## STAB-015.08b — обов'язкова keyless producer authorization migration
 
-- **Проблема:** Admin common queue parser зараз вимагає API key для enqueue; простий key removal ламає workflow (E10).
-- **Scope:** відокремити enqueue authorization від execution credentials, зберегти admin enable/token/allow/request confirmation; immediate paid API у keyless process explicit deny/migrate.
-- **Залежності:** .01/.08a, D7; shared execution guards .03c, policy щодо direct exceptions.
-- **Acceptance:** authorized keyless producer може enqueue; unauthorized не може; worker без key/global/local approval не виконує; no credential forwarding у job payload. A14.
-- **Test strategy:** full producer/executor auth matrix, missing key, global denied, production policy denied, explicit stub; dummy credentials only.
-- **Ризики / розмір:** accidental authorization weakening, direct path bypass, confusing creation approval with spend; **S** для обмеженого parser/policy diff.
+- **Проблема:** common Admin parser зараз вимагає OpenAI key навіть для enqueue.
+- **Scope:** separate enqueue authorization і execution credentials; зберегти admin enable/token/allow/request confirmation. Backend/Admin та scheduler producer більше не потребують key для enqueue; execution checks у worker. Фактичне вилучення key references із production roles належить .08e, live secrets migration — .09.
+- **Залежності:** .08a/.03c; D7 accepted, не conditional. Має бути завершено до .08e production credential topology та .08d rollout.
+- **Acceptance:** authorized keyless producer enqueue працює, unauthorized ні; worker без key/global/local/admission/publication permission відмовляє. No key forwarding у payload; legacy paid direct API explicit denied/migrated.
+- **Test strategy:** producer/executor auth matrix з dummy key, missing key, global denied, publication denied, local stub; public read contracts.
+- **Ризики / розмір:** weakening enqueue auth, mistaken consent-to-spend; **S**. Secrets migration лише .09.
 
-## STAB-015.08c — standalone probe policy
+## STAB-015.08c — production probe ban і bounded dev diagnostics
 
-- **Проблема:** probe поза lifecycle ledger/counts і має власні SDK retry defaults.
-- **Scope:** реалізувати погоджений D6 diagnostic-exception або shared-admission contract; не перетворювати probe на production publisher.
-- **Залежності:** .01/.02c/.03c, D6/D7; explicit transport/retry ownership.
-- **Acceptance:** paid gate незмінний, listing read-only; diagnostic requests обліковуються згідно D2 або явно обмежені погодженим exception; не заявляти adapter one-request semantics без відповідного change/test.
-- **Test strategy:** fake SDK/MockTransport, direct helper/main, denial-before-client, listing, request counts; no live probe.
-- **Ризики / розмір:** untracked bypass або втрата простого diagnostic workflow; **S** після чіткого owner choice.
+- **Проблема:** probe має global guard, але не production ban або bounded audited request accounting.
+- **Scope:** **заборонити paid probe в production** main/helper незалежно від global=1; dev diagnostics explicit authorization + SAFE-001 + bounded auditable API-attempt admission. Diagnostic output не publish; read-only listing зберегти.
+- **Залежності:** D6 accepted; production-denial частина незалежна від нового ledger; dev transport enablement потребує .02c/.03c та визначеного dev cap/authority. Повна .08c обов'язкова до .08d, або dev transport залишається explicitly disabled до її завершення.
+- **Acceptance:** немає production diagnostic exception; direct helper не обходить denial/accounting; SDK retry behavior не приховує uncapped attempts. Unknown не auto-replay/refund. A14.
+- **Test strategy:** fake SDK/MockTransport, production deny even enabled global, read-only listing, dev auth/gate/cap matrix і audited request counts; жодного live probe.
+- **Ризики / розмір:** untracked dev requests, accidental production exception; **M**. Два reviewable commits: production ban → bounded dev admission; не лишати enabled unaccounted проміжний стан.
 
-## STAB-015.08d — queue default і direct restriction
+## STAB-015.08e — ізоляція producer/worker credential environments
 
-- **Проблема:** обидва шляхи нині штатні; one-worker policy не прибирає direct helpers або ручний worker.
-- **Scope:** переключити погоджені callers на queue за D1; restrict direct execution включно з внутрішніми helpers; зберегти cheap local stub. Без live activation.
-- **Залежності:** для рекомендованого A — .03b/.03c/.04c/.05b/.07a/.07b/.07c/.08a та D1/D6/D7. `.08b` потрібна лише при keyless-producer рішенні; shared-credential topology може явно позначити її not applicable зі збереженням чинних auth/key tests. `.08c` потрібна для дозволеного paid diagnostic workflow; якщо його заборонено, ця картка натомість має реалізувати й перевірити explicit denial усіх probe paths. Непризначена картка не означає дозволений bypass. При виборі B/C переглянути applicability .08d, не виконувати queue-default автоматично.
-- **Acceptance:** усі entrypoints інвентаризовані й перевірені; жоден paid exception не обходить admission; default flags не вмикають paid generation; public GET лишається read-only. A01/A14.
-- **Test strategy:** entrypoint matrix, scheduler producer-only/worker role, direct denied/allowed, migrations compatibility, no fallback on errors.
-- **Ризики / розмір:** stranded queue, hidden caller, old binary bypass; **M**. Defaults switch лише після dependencies.
+- **Проблема:** нинішній scheduler process може і produce, і execute; Compose передає key також backend.
+- **Scope:** окремі process/service roles для одного producer та одного worker; production configuration mapping без key у backend/Admin/producer. Development defaults окремо; без live recreate/secrets changes.
+- **Залежності:** .08b/.04c; D7, P8 measured role/startup/deployment design. Спільний process із key не є worker-only isolation.
+- **Acceptance:** sanitized rendered production config містить key reference лише worker; worker restart не запускає producer/direct startup generation; role identities/default deny явні.
+- **Test strategy:** static config rendering, startup/role mocks, dummy env inventory; ніяких live keys або запуска scheduler.
+- **Ризики / розмір:** два workers при deploy, accidental direct startup; **M**. За потреби окремі commits role entrypoints → production config wiring; застосування лише .09.
 
-## STAB-015.09 — контрольований rollout і rollback runbook
+## STAB-015.08f — date priority та bounded backfill fairness
 
-- **Проблема:** source/config changes не доводять effective runtime state; старий binary може оминути нові ledger/fences.
-- **Scope:** конкретний операторський runbook для one scheduler/one worker/PostgreSQL/public API, effective settings, readiness/freshness, stop-admission/drain/reconcile/rollback. Без broker або hard money budget за замовчуванням.
-- **Залежності:** .08d, D7/D8; окрема operator authorization на кожен live rollout і paid activation.
-- **Acceptance:** application, schema, role IDs, mapped env і sockets звіряються без credentials output; scheduler не запускається як тест; rollback зберігає ledger та не відновлює uncontrolled direct path.
-- **Test strategy:** documentation/tabletop review і isolated config rendering; disposable fake-provider rehearsal уповноваженим інтегратором; live actions лише за окремим планом.
-- **Ризики / розмір:** mixed versions, overlapping workers, source binds, stale environment, irrecoverable audit loss; **S** як runbook. Implementation/deployment не входять у цю документаційну картку.
+- **Проблема:** чинні numeric priorities не забезпечують today→tomorrow→backfill та anti-starvation при business-date rollover.
+- **Scope:** date-aware queue selection/producer priority policy і bounded fairness, без зміни D2 cap/D3 scope або publication overwrite.
+- **Залежності:** .03c/.07b; D8, P6 measured capacity/fairness parameters.
+- **Acceptance:** current-day deadline має пріоритет; historical work не голодує за достатньої admission capacity. Якщо cap/capacity несумісні з обома вимогами — actionable capacity/starvation signal, не overspend або fabricated content.
+- **Test strategy:** fake Kyiv dates/rollover, backlog arrivals, bounded serving opportunity, exhausted cap/current-day missing; no real generation.
+- **Ризики / розмір:** starvation або deadline regression; **S** після P6. Initial topology лишається one-worker.
 
-## Послідовні checkpoints для малого deployment
+## STAB-015.08d — production queue default і direct restriction
 
-1. **Без зміни execution architecture:** окремо призначити .03a, .05a, .07a і .07b.
-   Результат — передбачуваний duplicate outcome та read-only видимість стану.
-   Paid gate лишається denied; scheduler не відновлюється як перевірка.
-2. **Рішення й invariants:** .01, потім потрібні .02/.03 та .04 leaf-картки за їх
-   залежностями. Після кожної — safe regression suite; частково підключене fencing
-   не дає дозволу на paid reclaim. Money budget і новий broker не входять за замовчуванням.
-3. **Контрольоване recovery:** .05b, погоджені .06 та .07c; fake-provider crash
-   rehearsal без зовнішніх calls. Базовий monitoring з checkpoint 1 вже доступний.
-4. **Лише вибраний production шлях:** .08a і застосовні .08b/.08c, потім .08d та
-   .09 за owner decisions. Необов'язкові topology cards мають явний N/A або tested
-   disabled outcome. Live rollout і paid activation окремо погоджуються.
+- **Проблема:** D1 queue-first і D7 worker-only ще не реалізовані; сам toggle не закриває correctness/cost gaps.
+- **Scope:** production callers dispatch через queue; restrict paid direct/internal adapter bypass; cheap local stub зберегти. Без live activation.
+- **Залежності:** .02a/.02b/.02c/.02d, .03b/.03c, .04a/.04b/.04c, .05b, .06a/.06b, .07a/.07b/.07c, .08a/.08b/.08c/.08e/.08f. D1–D8 Accepted; .08b і production probe ban не N/A.
+- **Acceptance:** all entrypoints obey ADR §6.2; every paid request admitted/counted; no stale writes/unknown replay; async compatibility явна; public GET read-only; defaults не вмикають paid generation.
+- **Test strategy:** full entrypoint/role/permission matrix, crash/concurrency/denial/rollover/SLO regressions через safe harness, static production config; no deployment.
+- **Ризики / розмір:** stranded jobs/old binary bypass; **M**. Не пропускати ledger/fencing/recovery prerequisites заради раннього default switch.
 
-Немає залежності від prerender POC, Ollama, Redis/Celery або збільшення кількості
-workers. Для приблизно 13 прогнозів на день one-worker PostgreSQL topology
-достатня як початковий варіант; ці checkpoints закривають correctness gaps, а не
-створюють вимогу одразу впровадити весь backlog.
+## STAB-015.09 — окремо погоджений rollout і rollback runbook
 
-Broker, token/money budget, historical-stub remediation і зміна zero-active-sign
-policy залишаються окремими owner decisions; вони не є прихованими prerequisites
-для самого вибору PostgreSQL queue-default.
+- **Проблема:** Accepted policy/code/config не доводять effective production runtime або secrets isolation.
+- **Scope:** runbook one producer/one worker/PostgreSQL/keyless API; stop-admission/drain/reconcile, effective settings, readiness/06:00 coverage, secrets migration/rollback. Documentation, не deployment.
+- **Залежності:** .08d, P1–P8 необхідні concrete values; окрема operator approval на live rollout, secret migration та paid enablement.
+- **Acceptance:** verified role credentials без secret output; scheduler не запускається як smoke test; unknown не replay/refund; rollback зберігає history і не повертає unrestricted direct binary. Hard money budget/broker не prerequisites.
+- **Test strategy:** tabletop + isolated sanitized config/fake-provider rehearsal; actual rollout поза code-task permission.
+- **Ризики / розмір:** mixed versions/overlap/stale env/audit loss; **S** як runbook.
+
+## Послідовні checkpoints
+
+1. **Decision contract completed:** .01; implementation не виконувалася.
+2. **Незалежні fixes/visibility:** .03a, .05a, .07a, .07b та STAB-003 за
+   [next-iteration handoff](STAB-015-next-iteration.md). Backend DB suites лише
+   серійно, frontend toolchain — окремий scope. Paid gate лишається denied.
+3. **Immutable accounting та invariants:** .02a–.02d, .03b/.03c і .04a–.04c за
+   dependencies. Кожен commit має safe regressions; partial fencing не rollout-ready.
+4. **Conservative operation:** .05b, .06a/.06b, .07c; safe fake crash/retry rehearsal.
+5. **Async/keyless production:** .08a/.08b/.08c/.08e/.08f → .08d → .09. Немає
+   conditional skip для worker-only key або production probe ban; runtime і paid
+   activation окремо погоджуються.
+
+Existing IDs збережені; .02d, .08e і .08f — відсутні раніше окремі обов'язкові
+роботи для usage/cost, role isolation і D8 fairness, а не дублікати завершених
+safety fixes. .06b і .08c потребують послідовних невеликих commits як зазначено
+в scope. Числовий cap, TTL/deadlines та operational routing не обрані довільно.
+Немає залежності від prerender/Ollama/Redis/Celery. Hard monetary budget і
+sign-level parallelism deferred; historical published data зберігаються.
