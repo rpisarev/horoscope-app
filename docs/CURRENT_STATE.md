@@ -1,23 +1,44 @@
 # Current Project State
 
-- State updated: 2026-11-14 (STAB-002, STAB-004 and the proposed STAB-015 ADR, following STAB-007, STAB-001 and SAFE-001).
+- State updated: 2026-11-15 (STAB-015.01 documentation acceptance; decision date 2026-11-14).
 - Main working branch: `feature/main-page-start`
-- Iteration 2 baseline: `0b4cc05698a957b13411d149668208758367b6c2` (PR #22 squash merge into `feature/main-page-start`); its tree matches the previous stabilization integration `c191ea7`. Work takes place in an isolated integration worktree; this does not deploy the changes.
+- Verified baseline: `2b716598ec078cafe2146c2e4d66f1ec139dfab0` (PR #23 squash merge). Local and remote `feature/main-page-start` matched at preflight; its tree matches iteration 2's `12495a8`, including STAB-002/STAB-004 and the original ADR. PR #22 (`0b4cc05`) already incorporated STAB-007/STAB-001/SAFE-001. STAB-015.01 uses an isolated documentation worktree, not the live bind-mounted checkout.
 - Earlier publication audit baseline: `34623b27bd69d681edf1a3ab8f8aac31bc74cafa` (`Update frontend (#20)`). Results and runtime observations in the historical sections below belong to their recorded checkpoints.
 
 ## Stabilization checkpoint
 
-**STAB-015 PROPOSED / PENDING OWNER APPROVAL:** The
-[production execution ADR](adr/STAB-015-generation-execution.md) compares queue
-default with restricted direct execution, equal direct/queue paths, and direct-only
-execution. It recommends evaluating one PostgreSQL-backed worker and one producer,
-with atomic admission, lease fencing, durable attempt intent and explicit cost
-accounting before unattended paid operation. This is a proposal and implementation
-backlog, not an accepted policy or a topology/schema/configuration change. The
-[task cards](adr/STAB-015-backlog.md) separate immediate duplicate handling and
-read-only visibility from owner-dependent admission, accounting and recovery. The
-current scheduler default is still direct; SAFE-001 still denies paid calls by
-default. No scheduler restart or production enablement is part of this iteration.
+**STAB-015.01 COMPLETED — ACCEPTED POLICY, NOT IMPLEMENTED:** The owner explicitly
+approved D1–D8 in the [production execution ADR](adr/STAB-015-generation-execution.md),
+decision date **2026-11-14**. It is the authoritative target: queue-first production;
+hard UTC-day paid API-attempt cap with immutable intent/reservation; package-level
+exclusivity; complete fencing and conservative unknown-outcome recovery; at most
+one additional proven-safe transient attempt; async production Admin/CLI and a
+production paid-probe ban; worker-only credentials; enabled-sign published coverage
+by **06:00 Europe/Kyiv**. SAFE-001 remains mandatory and default-deny. D1–D8 do not
+need renewed approval; numeric/configuration parameters and rollout remain pending.
+
+The scheduler's code default is still direct; immediate generation is synchronous;
+the ledger, atomic package admission, final fencing, cross-run pause and credential
+role isolation do not yet exist. Current broad timeout/connection/validation retries
+also differ from accepted D5. No code, schema, settings or deployment changed here.
+The [backlog](adr/STAB-015-backlog.md) closes only .01; .08b is mandatory before
+worker-only topology, and admission/accounting/recovery prerequisites precede rollout.
+
+The [five-task handoff](adr/STAB-015-next-iteration.md) verifies STAB-003, .03a,
+.05a, .07a and .07b as open, with file ownership and safe verification boundaries.
+STAB-003 is prioritized by a current Critical Vite advisory affecting locked
+versions; the handoff links the primary evidence. Runtime package exploitability
+was not tested. Per-job recovery inspection (.05a) and aggregate coverage/queue
+visibility (.07b) are separate read-only tasks.
+
+**STAB-015.01 VERIFICATION BOUNDARY (2026-11-15):** Source/history/configuration
+inspection and documentation consistency checks only. Backend/frontend suites
+were not rerun; counts below are historical. Read-only Compose inventory showed
+backend/db/frontend running and scheduler exited; no runtime action was performed.
+Neither accepted policy nor the 06:00 SLO authorizes paid generation.
+Static documentation checks verified 194 relative links, 86 source function/class
+coordinates, 12 future entry points and an acyclic prerequisite graph. All 22
+previous task IDs are preserved; .02d/.08e/.08f bring the backlog to 25 cards.
 
 **STAB-004 IMPLEMENTED:** Package CLI exits `0` only for a successful run,
 including an all-skipped package; failed, partial, interrupted and existing active
@@ -35,7 +56,7 @@ and fail-on-unexpected-network/process guards; their projects cleaned up. Tests
 cover the combined STAB-002 and STAB-004 source with the prior three safety fixes.
 These are local checks, not a GitHub CI result.
 
-The final STAB-015 documentation review checked 14 ADR sections, 22 task cards,
+The historical iteration 2 STAB-015 documentation review checked 14 ADR sections, 22 task cards,
 160 relative links across the affected documentation, and integrated CLI source
 references. Independent reviews corrected the durable-intent uncertainty boundary
 and made monitoring/topology dependencies explicit. The third changeset contains
@@ -101,8 +122,8 @@ with migrations `0001`–`0005` and successful cleanup of its disposable project
 Integration checks corrected psycopg's string DNS port and pytest's informational
 `PYTEST_VERSION` handling; both earlier rejected runs cleaned up safely.
 
-**OPERATIONAL CHECKPOINT:** The pre-existing scheduler container was stopped before
-implementation and remains stopped. No standalone generation CLI or probe process
+**HISTORICAL OPERATIONAL CHECKPOINT (2026-11-14):** The pre-existing scheduler container was stopped before
+implementation and was still stopped at that checkpoint. No standalone generation CLI or probe process
 was found in the pre-test process inventory. The live source checkout and development
 data are outside the test runner. Starting automatic generation is not part of this
 milestone.
@@ -255,9 +276,9 @@ Full guard verification: `bash scripts/backend-test.sh` — **248 passed in 17.8
 | Backend | `bash scripts/backend-test.sh` — **220 passed in 16.81s**, isolated PostgreSQL database, migrations through `0005`. |
 | Frontend tests | From `frontend/`: `npm test -- --run` — **64 passed in 6.08s** (8 files; total Vitest duration). Adds month availability/loading/failure/scope/stale-response cases and strict history-replacing legacy redirects. Existing business-date, convenience navigation, and forecast states remain covered; real Swiper/browser interaction coverage remains limited. |
 | Production bundle | From `frontend/`: `npm run build` — **passed in 7.29s**, Vite 6.3.5. |
-| Typecheck / vue-tsc | **Not available** as a configured repository check; no declared compiler/checker tooling or script. `strict` is not enabled; JS checking is off. |
+| Typecheck / vue-tsc | **Historical archive checkpoint:** not configured then. **Current baseline:** `npm run typecheck` runs vue-tsc; not rerun in STAB-015.01. `strict` is not enabled; JS checking is off. |
 | Lint | **Not available**; no lint script/configuration. |
-| CI | Only `.github/workflows/backend-tests.yml`; backend tests and Compose validation. No frontend test/build/typecheck/lint job. |
+| CI | **Historical archive checkpoint:** backend/Compose only. **Current baseline:** `.github/workflows/frontend-tests.yml` also runs `npm ci`, typecheck, unit tests and build on Node 22. POC checks/lint are not in that workflow. No new CI run was inspected in STAB-015.01. |
 
 Focused checks passed before full verification: backend archive tests **19 passed in 3.11s**, using a temporary copy of the safe test script with only its pytest selector changed to `tests/test_api_archive.py`; frontend archive-month, archive-day-navigation, business-date-navigation, and forecast-read files **46 passed in 4.91s**. Build and Vitest emitted the existing Vite CJS Node API deprecation warning. `git diff --check` passed. Real-browser interaction, deployment, and live generation were not exercised; build success does not prove Swiper behavior.
 

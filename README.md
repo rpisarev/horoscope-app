@@ -5,8 +5,11 @@ Vue + Flask application for sign-agnostic daily horoscope generation.
 Current implementation and verification are recorded in
 [CURRENT_STATE.md](docs/CURRENT_STATE.md) and [architecture.md](docs/architecture.md).
 The [STAB-015 production execution ADR](docs/adr/STAB-015-generation-execution.md)
-is **Proposed / Pending owner approval**; it does not change runtime defaults or
-authorize automatic paid generation.
+is **Accepted (D1–D8, 2026-11-14), not yet implemented**. It defines queue-first
+production, per-request admission/accounting, conservative recovery and a 06:00
+Europe/Kyiv publication deadline. Acceptance does not change runtime defaults or
+authorize paid generation. The [next-iteration handoff](docs/adr/STAB-015-next-iteration.md)
+separates ready fixes and read-only diagnostics from production rollout prerequisites.
 
 The project runs locally with Docker Compose and includes:
 

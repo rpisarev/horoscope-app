@@ -1,8 +1,8 @@
 # Current architecture
 
-This describes the verified `feature/main-page-start` baseline `0b4cc05` (PR #22),
-including STAB-007, STAB-001 and SAFE-001, with iteration 2's development-port and
-CLI-outcome fixes. Current behavior, agreed policy, and proposed architecture are
+This describes the verified `feature/main-page-start` baseline `2b71659` (PR #23),
+including STAB-007, STAB-001, SAFE-001 and iteration 2's development-port and
+CLI-outcome fixes. Current behavior and accepted but unimplemented architecture are
 separated below. Production publication and paid-execution guards are implemented;
 an Ollama/Qwen adapter is not. See [CURRENT_STATE.md](CURRENT_STATE.md) for dated
 verification and open decisions. [README.md](../README.md) remains the setup reference.
@@ -23,11 +23,21 @@ APScheduler (tasks.py, separate Compose service)
 Flask site blueprint -> XML sitemaps               [outside /api]
 ```
 
-Production execution alternatives, recovery and cost controls are analyzed in
-[STAB-015](adr/STAB-015-generation-execution.md), **Proposed / Pending owner approval**.
-Its queue-default recommendation is not the implemented scheduler default shown
-above. No new worker topology, lease fencing, ledger or production policy is
-introduced by that documentation changeset.
+Production execution policy is authoritative in
+[STAB-015](adr/STAB-015-generation-execution.md), **Accepted D1–D8, 2026-11-14**.
+The accepted target is queue-first with one producer and one worker; immutable
+UTC-day paid-request-attempt reservations; package exclusivity; complete lease
+fencing and conservative recovery; limited safe retries and permanent-failure
+pause; explicit async Admin/CLI migration; production probe ban; worker-only
+credentials; and enabled-sign published coverage by 06:00 Europe/Kyiv.
+
+These are **not current implementation guarantees**. The diagram above still
+describes actual code defaults. No new topology, ledger, schema, runtime settings,
+paid permission or deployment is introduced by documentation acceptance.
+[The backlog](adr/STAB-015-backlog.md) retains the prerequisites; .08b authorization
+migration must precede worker-only credentials. The ADR entry-point matrix separates
+enqueue, execution, publication and recovery authority. Numeric cap, measured lease/
+deadline values, migration windows and operational settings remain pending.
 
 [`docker-compose.yml`](../docker-compose.yml) defines PostgreSQL 17 Alpine, a Python 3.12 backend, a scheduler using the same backend image, and a Node 20 frontend. Backend starts with `alembic upgrade head && python run.py`; scheduler waits for backend health. PostgreSQL data and frontend dependencies use named volumes. The database password comes from a local Docker secret.
 
@@ -126,7 +136,11 @@ Structured `insufficient_quota` stops retries for the current item. Transient 42
 timeout and connection failures remain retryable; authentication, permission and
 invalid-request failures remain nonretryable. Later items/runs are not suppressed
 by a circuit breaker. [openai-retries.md](openai-retries.md) records the exact
-classification contract and mocked SDK/lifecycle coverage.
+classification contract and mocked SDK/lifecycle coverage. This is the implemented
+STAB-001 behavior, not accepted D5's final policy: D5 requires a provider/account
+pause, at most one additional proven-safe rate-limit attempt under new admission,
+no automatic unknown-outcome repeat and no paid validation retry by default.
+Those changes remain open in STAB-015.06a/.06b; SDK retries=0 remains required.
 
 The admin blueprint is `/api/admin`, disabled by default and protected by a bearer token when enabled. Under `/generation`, it exposes coverage; GET/POST runs; retry-missing; run/item attempt detail; GET/POST jobs; backfill; job detail/cancel/retry; and batch status/cancel/retry-failed. Immediate admin generation and queued generation both still exist.
 
@@ -318,4 +332,4 @@ cannot cancel an already in-flight request.
 
 Backend verification uses `bash scripts/backend-test.sh` and a dedicated test Compose project, not the development Compose services. Its PostgreSQL data is ephemeral, its network is internal, and it has no development secrets, source mounts, or volumes. Target validation checks the requested identity, resolved SQLAlchemy URL, and actual connection before migrations and fixture truncation. Unsupported environment overrides fail before Docker starts; there is no development-DB bypass. Only one orchestrator-owned backend test session should run at a time. See [testing-safety.md](testing-safety.md) for the contract and guard-only checks.
 
-Frontend has Vitest/jsdom with focused tests for the server date context, navigation/history replacement, strict legacy validation, labels/limits, refresh cleanup, forecast rendering, and sign-scoped month availability including loading/failure and stale-response handling. Broader UI/Swiper coverage remains limited. Vite build transpiles TS but does not type-check it. There is no configured vue-tsc/typecheck/lint check, and TS strict mode is not enabled. GitHub Actions currently runs only backend/Compose checks. Current command results and the limits of verification are recorded in [CURRENT_STATE.md](CURRENT_STATE.md).
+Frontend has Vitest/jsdom with focused tests for the server date context, navigation/history replacement, strict legacy validation, labels/limits, refresh cleanup, forecast rendering, and sign-scoped month availability including loading/failure and stale-response handling. Broader UI/Swiper coverage remains limited. Vite build transpiles TS but does not type-check it. `npm run typecheck` separately runs vue-tsc; TS strict mode and a lint script are not configured. [Frontend CI](../.github/workflows/frontend-tests.yml) runs locked installation, typecheck, unit tests and build on Node 22, alongside backend/Compose CI. POC fixture checks are a separate command outside that workflow. This describes configured checks, not a newly observed CI pass. STAB-003 toolchain compatibility/security scope is in the [handoff](adr/STAB-015-next-iteration.md). Current command results and verification limits are recorded in [CURRENT_STATE.md](CURRENT_STATE.md).
