@@ -1,9 +1,32 @@
 # Current Project State
 
-- State updated: 2026-09-29 (provider/publication-safety guard and Task 5 frontend domain API extraction).
+- State updated: 2026-11-14 (STAB-007 disposable backend test isolation).
 - Main working branch: `feature/main-page-start`
-- Audit baseline HEAD: `34623b27bd69d681edf1a3ab8f8aac31bc74cafa` (`Update frontend (#20)`).
-- Audit baseline working tree: clean; cached tracking ref and live remote `feature/main-page-start` matched HEAD, ahead/behind `0/0`. Guard implementation began at the same HEAD with only the two expected, preserved documentation changes from that audit.
+- Stabilization integration baseline: `1122c36ba6dea50c441a232be12532440d0715f9` (PR #21 squash merge). Work takes place in an isolated integration worktree; this does not deploy the changes.
+- Earlier publication audit baseline: `34623b27bd69d681edf1a3ab8f8aac31bc74cafa` (`Update frontend (#20)`). Results and runtime observations in the historical sections below belong to their recorded checkpoints.
+
+## Stabilization checkpoint
+
+**STAB-007 IMPLEMENTED:** Backend verification now uses a dedicated ephemeral
+PostgreSQL cluster and internal network, with no development services, volumes,
+secrets, or bind mounts. Host overrides fail before Docker; resolved URL and actual
+database identity are checked before migrations and fixture truncation. Dotenv is
+disabled in tests, credentials are absent or explicit dummy literals, and unexpected
+network/process attempts fail the suite even when caught by application code.
+The old development-DB bypass and `KEEP_TEST_DB` workflow are removed. See
+[testing-safety.md](testing-safety.md).
+
+**STAB-007 VERIFIED (2026-11-14):** 19 guard-only mock tests passed. The full
+backend suite passed **256 tests in 10.26s** through `bash scripts/backend-test.sh`,
+with migrations `0001`–`0005` and successful cleanup of its disposable project.
+Integration checks corrected psycopg's string DNS port and pytest's informational
+`PYTEST_VERSION` handling; both earlier rejected runs cleaned up safely.
+
+**OPERATIONAL CHECKPOINT:** The pre-existing scheduler container was stopped before
+implementation and remains stopped. No standalone generation CLI or probe process
+was found in the pre-test process inventory. The live source checkout and development
+data are outside the test runner. Starting automatic generation is not part of this
+milestone.
 
 ## Snapshot
 

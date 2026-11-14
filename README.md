@@ -1275,19 +1275,22 @@ Use the safe isolated test database script:
 bash scripts/backend-test.sh
 ```
 
-Latest locally confirmed result for `feature/backend-api-updates`:
+The workflow uses a separate, randomly named Compose project with an ephemeral
+PostgreSQL test service, an internal network, dummy credentials, and no development
+volumes or secrets. It validates the requested target, the resolved SQLAlchemy
+URL, and the connected database identity before migrations or fixture cleanup.
+It does not start the application's backend or scheduler.
 
-```text
-188 passed in 8.66s
-```
-
-Keep test database after run:
+Focused runs accept positive test paths or node IDs, for example:
 
 ```bash
-KEEP_TEST_DB=1 bash scripts/backend-test.sh
+bash scripts/backend-test.sh tests/test_openai_provider.py
 ```
 
-Do not run pytest directly against the normal development database unless you intentionally know what you are doing. The test fixture refuses to clean the default dev database by default.
+See [test safety](docs/testing-safety.md) for custom disposable targets, rejected
+environment overrides, and guard-only checks. `KEEP_TEST_DB` and the old
+`ALLOW_PYTEST_ON_DEV_DB` bypass are unsupported. Never run raw pytest against
+development data: the fixtures truncate mutable tables.
 
 ### Queue CLI smoke with stub
 

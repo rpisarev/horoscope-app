@@ -1,0 +1,49 @@
+# Only scripts/backend-test.sh supplies these validated interpolation variables.
+# No dev Compose includes, env files, secrets, published ports or disk volumes.
+services:
+  test-db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${TEST_DB_NAME:?run scripts/backend-test.sh}
+      POSTGRES_USER: test_runner
+      POSTGRES_PASSWORD: dummy-test-db
+    command: ["postgres", "-c", "horoscope.test_run_id=${TEST_DB_RUN_ID:?run scripts/backend-test.sh}"]
+    tmpfs:
+      - /var/lib/postgresql/data
+    networks: [test-only]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 -U test_runner -d \"$$POSTGRES_DB\""]
+      interval: 1s
+      timeout: 3s
+      retries: 60
+
+  test-runner:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.tests
+    entrypoint: ["python", "test_db_guard.py", "run"]
+    environment:
+      TEST_DB_NAME: ${TEST_DB_NAME:?run scripts/backend-test.sh}
+      TEST_DB_IDENTITY: ${TEST_DB_IDENTITY:?run scripts/backend-test.sh}
+      TEST_DB_RUN_ID: ${TEST_DB_RUN_ID:?run scripts/backend-test.sh}
+      DATABASE_URL: ${TEST_DB_IDENTITY:?run scripts/backend-test.sh}
+      POSTGRES_HOST: test-db
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${TEST_DB_NAME:?run scripts/backend-test.sh}
+      POSTGRES_USER: test_runner
+      POSTGRES_PASSWORD: dummy-test-db
+      APP_DEPLOYMENT_MODE: test
+      APP_TIMEZONE: Europe/Kyiv
+      HOROSCOPE_PROVIDER: stub
+      PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
+    networks: [test-only]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+
+networks:
+  test-only:
+    internal: true

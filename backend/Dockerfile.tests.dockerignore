@@ -1,0 +1,27 @@
+# Positive build-context allowlist, followed by exclusions at EVERY depth.
+**
+!requirements.txt
+!app/
+!app/**
+!migrations/
+!migrations/**
+!tests/
+!tests/**
+!utils/
+!utils/**
+!safety_tests/
+!safety_tests/**
+!tasks.py
+!alembic.ini
+!pytest.ini
+!test_db_guard.py
+**/.env
+**/.env.*
+**/secrets
+**/secrets/**
+**/*secret*
+**/*.pem
+**/*.key
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
