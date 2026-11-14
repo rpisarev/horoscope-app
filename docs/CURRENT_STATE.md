@@ -7,6 +7,15 @@
 
 ## Stabilization checkpoint
 
+**STAB-015.07a IMPLEMENTED:** Additive `GET /health/ready` returns minimal
+200/503 JSON after read-only PostgreSQL connectivity and exact packaged Alembic
+head comparison. It is separate from liveness, worker progress and coverage;
+matching revision markers are not a full schema audit. Independent connections
+have server-statement/connection limits, not a whole DNS/HTTP wall-clock deadline.
+33 readiness tests and the then-current 8 shared-reader tests passed (41 total,
+2.82s). Compose healthchecks and live services are unchanged. See
+[readiness contract and limits](database-readiness.md).
+
 **STAB-015.05a IMPLEMENTED:** A bounded per-job JSON inspection CLI exposes safe
 job/run/item/attempt evidence, published/missing coverage and explicit unknowns.
 It grants no retry/recovery authority. A shared read service uses a separate

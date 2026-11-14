@@ -43,6 +43,13 @@ deadline values, migration windows and operational settings remain pending.
 
 The frontend runs Vite's dev server on 5173; Flask runs its development server on 8000 with debug enabled by default. Source directories are bind-mounted. Vite proxies `/api` to `VITE_API_PROXY_TARGET` or localhost:8000. There is no production reverse proxy/static hosting or SPA fallback deployment configuration here. Flask enables CORS for `/api/*` and registers public, admin, and root sitemap blueprints in [`backend/app/__init__.py`](../backend/app/__init__.py).
 
+STAB-015.07a additionally registers `GET /health/ready` outside `/api`. Its minimal
+200/503 JSON reports PostgreSQL access and exact packaged Alembic revision markers
+through an independent read-only connection. It does not establish content
+freshness, worker health, all schema permissions or a total HTTP/DNS deadline.
+Existing Compose liveness checks remain unchanged; see
+[DB readiness limits and tests](database-readiness.md).
+
 Development host publishing defaults to `127.0.0.1` for database `5432`, backend
 `8000`, and frontend `5173`. `DEV_HOST_IP` explicitly changes all three bindings;
 unset or empty retains loopback. Internal service DNS, ports, Vite's `0.0.0.0`

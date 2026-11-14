@@ -3,7 +3,7 @@
 **D1–D8 Accepted — 2026-11-14; STAB-015.01 COMPLETED (documentation only).**
 **Статуси реалізації нижче оновлюються окремо від Accepted policy.**
 На baseline PR #23, `2b71659`, усі implementation cards були OPEN.
-STAB-015.03a/.05a завершено в iteration 3; решта, крім .01, поки OPEN.
+STAB-015.03a/.05a/.07a завершено в iteration 3; решта, крім .01, поки OPEN.
 Батьківський документ: [ADR STAB-015](STAB-015-generation-execution.md).
 Ці картки не є implementation або дозволом на runtime/DB/paid зміни.
 
@@ -176,6 +176,12 @@ shared snapshot/coverage, explicit unknown evidence та sanitized startup.
 - **Ризики / розмір:** message-based proof, duplicated requests, hidden retry multiplication; **M**. Розбити на два commits за потреби: evidence/outcome normalization → lifecycle admission/backoff orchestration. SDK/quota regressions зберегти; old three-attempt expectations змінити лише за D5.
 
 ## STAB-015.07a — базова DB readiness
+
+**COMPLETED — iteration 3, 2026-11-15.** Additive `/health/ready`, independent
+read-only PostgreSQL probe та exact Alembic-head comparison, sanitized 200/503.
+Server/connection timeouts не є strict total DNS/HTTP deadline; production polling
+і outer deadlines залишаються operational policy.
+[Контракт, межі та verification](../database-readiness.md).
 
 - **Проблема:** static /api/signs health response не доводить DB readiness.
 - **Scope:** bounded read-only DB SELECT + expected schema readiness окремо від API liveness; без migrations, heartbeat або ledger. Новий endpoint contract інтегрує orchestrator.

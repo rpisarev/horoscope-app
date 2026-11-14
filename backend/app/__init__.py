@@ -18,10 +18,12 @@ def create_app():
     CORS(app, resources={r"/api/*": {"origins": "*"}})
 
     from .admin_routes import bp as admin_api_bp
+    from .health_routes import health_bp
     from .routes import bp as api_bp
     from .routes import site_bp
 
     app.register_blueprint(site_bp)
+    app.register_blueprint(health_bp)
     app.register_blueprint(api_bp, url_prefix="/api")
     app.register_blueprint(admin_api_bp, url_prefix="/api/admin")
 
