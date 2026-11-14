@@ -102,6 +102,14 @@ Admin immediate API / package CLI / legacy scheduler
 
 Providers implement `ProviderRequest` → `ProviderResult` and do not persist forecasts. The stub returns fixed Russian text. `openai_provider.py` calls the Responses API with structured JSON output, parses results/refusals, and maps provider errors for lifecycle retry handling. Tests inject fake clients. Local-LLM provider aliases raise an explicit unimplemented error.
 
+The lifecycle owns transport retries; the adapter configures `max_retries=0` in
+the OpenAI SDK, including a nonmutating copy of an injected real SDK client.
+Structured `insufficient_quota` stops retries for the current item. Transient 429,
+timeout and connection failures remain retryable; authentication, permission and
+invalid-request failures remain nonretryable. Later items/runs are not suppressed
+by a circuit breaker. [openai-retries.md](openai-retries.md) records the exact
+classification contract and mocked SDK/lifecycle coverage.
+
 The admin blueprint is `/api/admin`, disabled by default and protected by a bearer token when enabled. Under `/generation`, it exposes coverage; GET/POST runs; retry-missing; run/item attempt detail; GET/POST jobs; backfill; job detail/cancel/retry; and batch status/cancel/retry-failed. Immediate admin generation and queued generation both still exist.
 
 Utilities in `backend/utils/` support immediate packages, queue creation/processing, package reporting, and standalone prompt probing. They are operational commands, not harmless general test commands.
@@ -109,6 +117,16 @@ Utilities in `backend/utils/` support immediate packages, queue creation/process
 ### Current provider selection and publication audit
 
 **CURRENT ENFORCED BEHAVIOR (2026-09-29):** [`providers/factory.py`](../backend/app/providers/factory.py) constructs `stub` and `openai`. It resolves an explicit truthy argument, then `HOROSCOPE_PROVIDER`, then `stub`, and strips/lowercases the name. Unknown names fail; `local`, `local-llm`, and `local_llm` explicitly fail as unimplemented. `ollama` is not registered. There is no fallback from an OpenAI error to stub. The missing-provider default is distinct from error handling.
+
+**PAID EXECUTION (SAFE-001):** All known OpenAI execution paths additionally require
+the exact process environment value `GENERATION_PAID_EXECUTION_ENABLED=1`.
+[`paid_execution_policy.py`](../backend/paid_execution_policy.py) is independent of
+publication policy and Flask config snapshots. Lifecycle and worker preflight
+check it; the adapter checks literal `openai` on entry and immediately before SDK
+transport, and the standalone probe checks before client construction and in its
+call helper. A local flag, mutable adapter name or returned metadata cannot bypass
+the final adapter gate. Unset/invalid values deny; stub workflows are unchanged.
+The entry-point-specific controls below remain additional requirements.
 
 | Entry point | Selection and defaults | Relevant gates / persistence |
 | --- | --- | --- |
@@ -267,10 +285,19 @@ Flask exposes JSON URL/document inspection under `/api/seo/sitemap/urls` and `/a
 
 Compose explicitly maps selected environment variables; root `.env` is not automatically a container environment file. Current mappings omit `PUBLIC_SITE_URL`, `SITEMAP_CHUNK_SIZE`, `GENERATION_SCHEDULED_TARGET_POLICY`, `GENERATION_SCHEDULED_ROLLING_DAYS`, and `GENERATION_OPENAI_MAX_*`. Code supports these settings, but README/root `.env` examples alone do not wire them into Compose services.
 
-OpenAI job creation and execution have distinct opt-ins. Admin additionally requires its enable/token controls and OpenAI allow flag plus request confirmation. Queue execution requires worker opt-in and an API key; range/per-run/per-UTC-day limits are count-based. Service defaults are seven backfill days, two OpenAI jobs per worker call, and ten started jobs per UTC day. Scheduler's separate total-job limit defaults to one. Legacy direct scheduler execution uses the selected provider directly; the standalone prompt probe can call OpenAI with a configured key. Thus default stub settings and task-level authorization remain essential; queue gates are not universal protection.
+OpenAI job creation and execution have distinct opt-ins. Admin additionally requires its enable/token controls and OpenAI allow flag plus request confirmation. Queue execution requires worker opt-in and an API key; range/per-run/per-UTC-day limits are count-based. Service defaults are seven backfill days, two OpenAI jobs per worker call, and ten started jobs per UTC day. Scheduler's separate total-job limit defaults to one. The global paid-execution gate now protects direct scheduler and standalone probe calls too. When globally enabled, direct execution still has no queue count limits; the probe retains its own SDK retry defaults and does not use lifecycle audit. The switch is not an account-level budget control. See [paid-execution.md](paid-execution.md).
+
+Compose maps `GENERATION_PAID_EXECUTION_ENABLED` to backend and scheduler with
+default `0`. Other processes need their own intended environment. Updating `.env`
+does not alter an existing process/container environment; applying new Compose
+values requires a separately controlled recreation. Preflight denial can record
+a failed lifecycle run with zero items/attempts. A denied claimed job fails without
+a run, while its existing claim counter and started-job accounting remain. A gate
+change after preflight may produce one honest nonretryable failed attempt; it
+cannot cancel an already in-flight request.
 
 **PRODUCTION SAFETY:** The shared capability/allowlist policy above guards controlled publication in explicit production mode, including the legacy direct scheduler. Deployment operators must set `APP_DEPLOYMENT_MODE=production`; leaving it unset intentionally preserves development behavior. Default/omitted provider selection may still choose stub, which production execution rejects. Explicit OpenAI failures never fall back to stub. Existing published data and result metadata integrity remain separate follow-ups; the guard is not a production deployment configuration or a database-wide constraint.
 
-Backend verification uses `bash scripts/backend-test.sh`: it starts the DB service, creates a disposable `horoscope_test`, applies migrations, runs pytest, and drops that test DB. Fixtures truncate mutable tables while retaining seeds and refuse the default development DB unless explicitly overridden. Do not use that override or run raw pytest against development data. The provider guard uses this isolated workflow; the preceding read-only audit inspected development data without changing it.
+Backend verification uses `bash scripts/backend-test.sh` and a dedicated test Compose project, not the development Compose services. Its PostgreSQL data is ephemeral, its network is internal, and it has no development secrets, source mounts, or volumes. Target validation checks the requested identity, resolved SQLAlchemy URL, and actual connection before migrations and fixture truncation. Unsupported environment overrides fail before Docker starts; there is no development-DB bypass. Only one orchestrator-owned backend test session should run at a time. See [testing-safety.md](testing-safety.md) for the contract and guard-only checks.
 
 Frontend has Vitest/jsdom with focused tests for the server date context, navigation/history replacement, strict legacy validation, labels/limits, refresh cleanup, forecast rendering, and sign-scoped month availability including loading/failure and stale-response handling. Broader UI/Swiper coverage remains limited. Vite build transpiles TS but does not type-check it. There is no configured vue-tsc/typecheck/lint check, and TS strict mode is not enabled. GitHub Actions currently runs only backend/Compose checks. Current command results and the limits of verification are recorded in [CURRENT_STATE.md](CURRENT_STATE.md).

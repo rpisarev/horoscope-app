@@ -74,6 +74,7 @@ PRODUCTION_PUBLICATION_PROVIDERS=openai
 LOG_LEVEL=INFO
 HOROSCOPE_PROVIDER=stub
 RUN_NIGHTLY_ON_START=0
+GENERATION_PAID_EXECUTION_ENABLED=0
 ADMIN_API_ENABLED=0
 ADMIN_API_ALLOW_OPENAI=0
 GENERATION_SCHEDULER_USE_QUEUE=0
@@ -98,6 +99,14 @@ PUBLIC_SITE_URL=https://example.com
 ```
 
 OpenAI should stay disabled by default in local automation unless you explicitly enable all relevant gates.
+
+`GENERATION_PAID_EXECUTION_ENABLED` is a separate, process-wide paid execution
+gate. Only the exact value `1` permits known paid adapters to proceed; unset, `0`
+or invalid values deny execution, including direct scheduler/lifecycle calls and
+the standalone prompt probe. CLI `--allow-openai` cannot override this denial.
+Publication approval does not authorize spending. See
+[paid-execution boundaries](docs/paid-execution.md) for the remaining local gates,
+audit behavior and controlled environment reload requirements.
 
 ### Production publication policy
 
@@ -692,6 +701,12 @@ ProviderRequest -> OpenAI Responses API call -> structured JSON parsing -> Provi
 
 It does not build prompts, choose sign names, write forecasts, or manage lifecycle state. Those responsibilities belong to service-layer code.
 
+The lifecycle owns retries; the adapter disables SDK automatic retries, including
+for injected real SDK clients. Structured `insufficient_quota` is non-retryable;
+temporary rate limits, timeouts and connection failures remain retryable. This is
+per-item behavior, not a cross-run circuit breaker. See
+[OpenAI retry semantics](docs/openai-retries.md).
+
 OpenAI-related env:
 
 ```env
@@ -909,6 +924,13 @@ OpenAI is intentionally disabled by default at both job-creation and job-executi
 ## OpenAI safety gates and queue limits
 
 OpenAI jobs are protected by multiple gates.
+
+All OpenAI execution examples require an explicitly authorized
+`GENERATION_PAID_EXECUTION_ENABLED=1` in the executing process, in addition to the
+controls below. Default `0` also protects immediate/direct calls and the probe.
+Job creation can still queue work while execution is disabled. A claimed job
+blocked by this gate becomes failed without a provider attempt; it is not held
+automatically for later execution.
 
 CLI job creation requires:
 
@@ -1275,19 +1297,22 @@ Use the safe isolated test database script:
 bash scripts/backend-test.sh
 ```
 
-Latest locally confirmed result for `feature/backend-api-updates`:
+The workflow uses a separate, randomly named Compose project with an ephemeral
+PostgreSQL test service, an internal network, dummy credentials, and no development
+volumes or secrets. It validates the requested target, the resolved SQLAlchemy
+URL, and the connected database identity before migrations or fixture cleanup.
+It does not start the application's backend or scheduler.
 
-```text
-188 passed in 8.66s
-```
-
-Keep test database after run:
+Focused runs accept positive test paths or node IDs, for example:
 
 ```bash
-KEEP_TEST_DB=1 bash scripts/backend-test.sh
+bash scripts/backend-test.sh tests/test_openai_provider.py
 ```
 
-Do not run pytest directly against the normal development database unless you intentionally know what you are doing. The test fixture refuses to clean the default dev database by default.
+See [test safety](docs/testing-safety.md) for custom disposable targets, rejected
+environment overrides, and guard-only checks. `KEEP_TEST_DB` and the old
+`ALLOW_PYTEST_ON_DEV_DB` bypass are unsupported. Never run raw pytest against
+development data: the fixtures truncate mutable tables.
 
 ### Queue CLI smoke with stub
 

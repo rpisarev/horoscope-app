@@ -4,6 +4,8 @@ import logging
 from datetime import date, datetime, timedelta, timezone
 from typing import Iterable
 
+from paid_execution_policy import require_paid_execution
+
 from .constants import DEFAULT_FORECAST_TYPE, DEFAULT_LOCALE
 from .forecast_service import get_published_forecast, save_forecast
 from .forecast_validation_service import find_forbidden_forecast_terms
@@ -115,6 +117,7 @@ def run_daily_generation(
     try:
         provider = get_horoscope_provider(provider_name)
         publication_provider = provider.name
+        require_paid_execution(publication_provider)
         require_publication_provider(publication_provider)
         prompt_version = get_prompt_version(locale=locale, forecast_type=forecast_type)
         _validate_preflight(

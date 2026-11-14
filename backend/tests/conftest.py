@@ -1,33 +1,24 @@
-import os
-
 import pytest
 from sqlalchemy import text
+
+from test_db_guard import assert_connection, assert_url, prepare_runtime, suite_exit_code
+
+# Reject unsafe configuration and disable dotenv/network before app imports.
+TEST_IDENTITY = prepare_runtime()
 
 from app import create_app, db
 
 
-FORBIDDEN_POSTGRES_TEST_DATABASES = {
-    "horoscope",
-}
+def pytest_sessionfinish(session, exitstatus):
+    session.exitstatus = suite_exit_code(exitstatus)
 
 
 def _assert_safe_test_database() -> None:
-    """Prevent pytest cleanup from truncating the local development database."""
-    if db.engine.dialect.name != "postgresql":
-        return
-
-    current_database = db.session.execute(text("SELECT current_database()")).scalar()
-
-    if (
-        current_database in FORBIDDEN_POSTGRES_TEST_DATABASES
-        and os.environ.get("ALLOW_PYTEST_ON_DEV_DB") != "1"
-    ):
-        raise RuntimeError(
-            "Refusing to run pytest against the default development database "
-            f"'{current_database}'. Use an isolated test database, for example "
-            "'horoscope_test'. Local recommended command: "
-            "'bash scripts/backend-test.sh'."
-        )
+    # Revalidate before each cleanup. Use the SAME session connection for the
+    # identity query and subsequent TRUNCATE, including fixture teardown.
+    identity = prepare_runtime()
+    assert_url(db.engine.url, identity)
+    assert_connection(db.session.connection(), identity)
 
 
 def _clean_mutable_tables() -> None:
@@ -39,10 +30,9 @@ def _clean_mutable_tables() -> None:
     """
     _assert_safe_test_database()
 
-    if db.engine.dialect.name == "postgresql":
-        db.session.execute(
-            text(
-                """
+    db.session.execute(
+        text(
+            """
                 TRUNCATE TABLE
                     generation_attempts,
                     forecasts,
@@ -50,24 +40,18 @@ def _clean_mutable_tables() -> None:
                     generation_jobs,
                     generation_runs
                 RESTART IDENTITY CASCADE
-                """
-            )
+            """
         )
-    else:
-        db.session.execute(text("UPDATE forecasts SET generation_item_id = NULL"))
-        db.session.execute(text("UPDATE generation_items SET forecast_id = NULL"))
-        db.session.execute(text("DELETE FROM generation_attempts"))
-        db.session.execute(text("DELETE FROM forecasts"))
-        db.session.execute(text("DELETE FROM generation_items"))
-        db.session.execute(text("DELETE FROM generation_jobs"))
-        db.session.execute(text("DELETE FROM generation_runs"))
-
+    )
     db.session.commit()
 
 
 @pytest.fixture(scope="session")
 def app():
     from app.config import Config
+    from sqlalchemy.engine import make_url
+
+    assert_url(make_url(Config.SQLALCHEMY_DATABASE_URI), TEST_IDENTITY)
 
     # Disposable tests must not inherit the operator's deployment policy.
     with pytest.MonkeyPatch.context() as patch:

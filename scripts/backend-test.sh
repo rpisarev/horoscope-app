@@ -1,78 +1,44 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-TEST_DB_NAME="${TEST_DB_NAME:-horoscope_test}"
+ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 
-if [[ "$TEST_DB_NAME" == "horoscope" ]]; then
-  echo "Refusing to run tests against the default development database: $TEST_DB_NAME"
-  exit 1
-fi
+# Preflight precedes EVERY Docker invocation, including config/build/cleanup.
+# Isolated Python mode prevents PYTHONPATH/user-site injection; no app import.
+validated="$(python3 -I -B "$ROOT/backend/test_db_guard.py" host "$@")"
+mapfile -t identity <<< "$validated"
+test_db_name="${identity[0]}"
+test_db_identity="${identity[1]}"
+test_run_id="${identity[2]}"
+project="horoscope-test-$test_run_id"
 
-if [[ ! "$TEST_DB_NAME" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]]; then
-  echo "Invalid TEST_DB_NAME: $TEST_DB_NAME"
-  echo "Use only letters, numbers and underscores, and do not start with a number."
-  exit 1
-fi
-
-docker compose up -d db
-
-docker compose exec -T db sh -lc '
-  if [ -n "${POSTGRES_PASSWORD_FILE:-}" ] && [ -f "$POSTGRES_PASSWORD_FILE" ]; then
-    export PGPASSWORD="$(cat "$POSTGRES_PASSWORD_FILE")"
-  fi
-
-  until pg_isready -h 127.0.0.1 -p 5432 -U "$POSTGRES_USER" -d "$POSTGRES_DB"; do
-    sleep 1
-  done
-'
-
-cleanup() {
-  if [[ "${KEEP_TEST_DB:-0}" == "1" ]]; then
-    echo "Keeping test database: $TEST_DB_NAME"
-    return 0
-  fi
-
-  docker compose exec -T db sh -lc "
-    if [ -n \"\${POSTGRES_PASSWORD_FILE:-}\" ] && [ -f \"\$POSTGRES_PASSWORD_FILE\" ]; then
-      export PGPASSWORD=\"\$(cat \"\$POSTGRES_PASSWORD_FILE\")\"
-    fi
-
-    dropdb \
-      --force \
-      --if-exists \
-      -h 127.0.0.1 \
-      -p 5432 \
-      -U \"\$POSTGRES_USER\" \
-      \"$TEST_DB_NAME\"
-  " || true
+compose() {
+  # No host keys, POSTGRES/PG settings, Compose overrides, proxies or dotenv.
+  # Only the local Docker daemon is supported.
+  env -i PATH="$PATH" HOME="$HOME" \
+    TEST_DB_NAME="$test_db_name" TEST_DB_IDENTITY="$test_db_identity" \
+    TEST_DB_RUN_ID="$test_run_id" \
+    docker --host unix:///var/run/docker.sock compose \
+    --env-file /dev/null --project-name "$project" \
+    --file "$ROOT/compose.backend-tests.yml" "$@"
 }
 
-trap cleanup EXIT
+compose config --quiet
+compose build test-runner
 
-docker compose exec -T db sh -lc "
-  if [ -n \"\${POSTGRES_PASSWORD_FILE:-}\" ] && [ -f \"\$POSTGRES_PASSWORD_FILE\" ]; then
-    export PGPASSWORD=\"\$(cat \"\$POSTGRES_PASSWORD_FILE\")\"
+cleanup() {
+  status=$?
+  trap - EXIT
+  if ! compose down --timeout 10; then
+    echo "Disposable test project cleanup failed: $project" >&2
+    status=1
   fi
+  exit "$status"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
-  dropdb \
-    --force \
-    --if-exists \
-    -h 127.0.0.1 \
-    -p 5432 \
-    -U \"\$POSTGRES_USER\" \
-    \"$TEST_DB_NAME\"
-
-  createdb \
-    -h 127.0.0.1 \
-    -p 5432 \
-    -U \"\$POSTGRES_USER\" \
-    \"$TEST_DB_NAME\"
-"
-
-docker compose run --rm \
-  -e POSTGRES_DB="$TEST_DB_NAME" \
-  backend sh -c "
-    set -e
-    alembic upgrade head
-    pytest -q
-  "
+echo "Disposable test project: $project; database: $test_db_name"
+compose up --detach --wait test-db
+compose run --rm --no-deps test-runner "$@"

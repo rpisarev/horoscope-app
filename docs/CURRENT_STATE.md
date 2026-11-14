@@ -1,9 +1,69 @@
 # Current Project State
 
-- State updated: 2026-09-29 (provider/publication-safety guard and Task 5 frontend domain API extraction).
+- State updated: 2026-11-14 (STAB-007, STAB-001 and SAFE-001 stabilization).
 - Main working branch: `feature/main-page-start`
-- Audit baseline HEAD: `34623b27bd69d681edf1a3ab8f8aac31bc74cafa` (`Update frontend (#20)`).
-- Audit baseline working tree: clean; cached tracking ref and live remote `feature/main-page-start` matched HEAD, ahead/behind `0/0`. Guard implementation began at the same HEAD with only the two expected, preserved documentation changes from that audit.
+- Stabilization integration baseline: `1122c36ba6dea50c441a232be12532440d0715f9` (PR #21 squash merge). Work takes place in an isolated integration worktree; this does not deploy the changes.
+- Earlier publication audit baseline: `34623b27bd69d681edf1a3ab8f8aac31bc74cafa` (`Update frontend (#20)`). Results and runtime observations in the historical sections below belong to their recorded checkpoints.
+
+## Stabilization checkpoint
+
+**SAFE-001 IMPLEMENTED:** `GENERATION_PAID_EXECUTION_ENABLED` permits known paid
+execution only for the exact process value `1`; unset, `0` and invalid values deny.
+Lifecycle/worker preflight and the final OpenAI adapter boundary enforce it;
+standalone probe main/helper are protected too. Local CLI/admin/worker permissions,
+production publication policy and existing queue limits remain required. Stub and
+fake workflows remain available. Compose maps the gate to backend and scheduler,
+defaulting to `0`. This does not deploy the changes or update running environments.
+See [paid-execution.md](paid-execution.md).
+
+**INTEGRATED VERIFICATION (2026-11-14):** 126 focused safety/quota/publication/queue
+tests passed, followed by **315 full backend tests in 12.88s**, through the STAB-007
+workflow. Test projects cleaned up successfully. Compose rendering verified the
+unset/zero/invalid/enabled values for both application services without loading
+operator dotenv or secrets. Tests used dummy credentials and fake clients or
+MockTransport, with a process-wide network/process guard and an internal network.
+No paid requests, live-service restart, or development-data writes were performed.
+
+**REMAINING BOUNDARIES:** This is an application execution gate, not account-level
+budget control. Direct execution still lacks queue count limits once enabled;
+quota classification is per item, not a cross-run circuit breaker. A blocked
+claimed job retains existing failed-job/claim accounting and needs explicit review
+before retry. Immediate package CLI failure exit-code behavior is still a separate
+follow-up. Scheduler reactivation requires its own controlled operational decision.
+
+**STAB-001 IMPLEMENTED:** Structured `insufficient_quota` is nonretryable per
+generation item. The lifecycle owns retries; OpenAI SDK retries are disabled for
+both created and injected real clients. Temporary 429, timeout and connection
+failures retain retry behavior. No cross-run circuit breaker, scheduler policy,
+publication policy or historical data change is included. See
+[openai-retries.md](openai-retries.md).
+
+**STAB-001 VERIFIED (2026-11-14):** 47 focused provider/lifecycle tests passed on
+the explicit custom disposable target `horoscope_test_stab001`; the full suite
+passed **286 tests in 11.59s**. OpenAI SDK `2.37.0` ran against MockTransport with
+SDK platform metadata fixed to avoid a host subprocess. Quota/transient attempt
+counts and absence of failed-generation publication were verified.
+
+**STAB-007 IMPLEMENTED:** Backend verification now uses a dedicated ephemeral
+PostgreSQL cluster and internal network, with no development services, volumes,
+secrets, or bind mounts. Host overrides fail before Docker; resolved URL and actual
+database identity are checked before migrations and fixture truncation. Dotenv is
+disabled in tests, credentials are absent or explicit dummy literals, and unexpected
+network/process attempts fail the suite even when caught by application code.
+The old development-DB bypass and `KEEP_TEST_DB` workflow are removed. See
+[testing-safety.md](testing-safety.md).
+
+**STAB-007 VERIFIED (2026-11-14):** 19 guard-only mock tests passed. The full
+backend suite passed **256 tests in 10.26s** through `bash scripts/backend-test.sh`,
+with migrations `0001`–`0005` and successful cleanup of its disposable project.
+Integration checks corrected psycopg's string DNS port and pytest's informational
+`PYTEST_VERSION` handling; both earlier rejected runs cleaned up safely.
+
+**OPERATIONAL CHECKPOINT:** The pre-existing scheduler container was stopped before
+implementation and remains stopped. No standalone generation CLI or probe process
+was found in the pre-test process inventory. The live source checkout and development
+data are outside the test runner. Starting automatic generation is not part of this
+milestone.
 
 ## Snapshot
 
@@ -117,7 +177,7 @@ Read-only queries against `horoscope-app-db-1`, database `horoscope`, reconfirme
 | Run 1 / job 1 | 2026-05-28 | 13 | Scheduled, successful; job provider and successful item/attempt metadata are `stub`. |
 | Run 2 / job 2 | 2026-05-31 | 13 | Scheduled, successful; job provider and successful item/attempt metadata are `stub`. |
 
-Both jobs record `created_by=scheduler:on_start`, `provider=stub`, and `openai_allowed_at_creation=false`, which does not restrict stub execution. This records scheduler-startup job provenance and a persisted stub choice. Stub selection is consistent with development defaults, including the historical scheduler default; records do not establish whether an operator explicitly selected stub or omitted the setting. Historical environment/default-versus-explicit selection is not snapshotted. The running scheduler now has `HOROSCOPE_PROVIDER=openai`, direct mode (`GENERATION_SCHEDULER_USE_QUEUE=0`), worker enabled, and scheduled/worker OpenAI opt-ins off. Those current queue gates do not guard direct scheduler calls and cannot explain past choices.
+Both jobs record `created_by=scheduler:on_start`, `provider=stub`, and `openai_allowed_at_creation=false`, which does not restrict stub execution. This records scheduler-startup job provenance and a persisted stub choice. Stub selection is consistent with development defaults, including the historical scheduler default; records do not establish whether an operator explicitly selected stub or omitted the setting. Historical environment/default-versus-explicit selection is not snapshotted. At that earlier audit checkpoint, the running scheduler had `HOROSCOPE_PROVIDER=openai`, direct mode (`GENERATION_SCHEDULER_USE_QUEUE=0`), worker enabled, and scheduled/worker OpenAI opt-ins off. Those queue gates did not guard direct scheduler calls and cannot explain past choices. The stabilization checkpoint above records the later stopped scheduler and new paid gate.
 
 The unlinked row is forecast 196, Aries, `2026-02-01`. Lack of linkage is compatible with the removed GET fallback but does not prove its origin. All 27 published stubs satisfy the existing-generation skip condition; preventing new production stub publication will not itself replace them or remove their public eligibility.
 

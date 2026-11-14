@@ -6,12 +6,16 @@ import os
 from typing import Any
 
 from openai import OpenAI, OpenAIError
+from paid_execution_policy import require_paid_execution
 
 from .base import GenerationProviderError, ProviderRequest, ProviderResult
 
 DEFAULT_OPENAI_MODEL = "gpt-5.4-mini"
 DEFAULT_TIMEOUT_SECONDS = 30.0
 DEFAULT_MAX_OUTPUT_TOKENS = 500
+
+# Keep this allowlist narrow: an unknown 429 code may describe a temporary limit.
+NON_RETRYABLE_OPENAI_QUOTA_CODES = {"insufficient_quota"}
 
 RETRYABLE_OPENAI_ERROR_NAMES = {
     "APIConnectionError",
@@ -67,9 +71,16 @@ class OpenAIHoroscopeProvider:
             if max_output_tokens is not None
             else _get_int_env("OPENAI_MAX_OUTPUT_TOKENS", DEFAULT_MAX_OUTPUT_TOKENS)
         )
-        self._client = client
+        # Disable hidden SDK retries without mutating a caller-owned client.
+        # Small protocol-compatible test doubles need only responses.create.
+        self._client = (
+            client.with_options(max_retries=0)
+            if client is not None and isinstance(client, OpenAI)
+            else client
+        )
 
     def generate(self, request: ProviderRequest) -> ProviderResult:
+        require_paid_execution("openai")
         if not self.api_key and self._client is None:
             raise GenerationProviderError(
                 "OPENAI_API_KEY is required when HOROSCOPE_PROVIDER=openai.",
@@ -91,7 +102,11 @@ class OpenAIHoroscopeProvider:
         }
 
         try:
-            response = self._get_client().responses.create(**openai_request_payload)
+            client = self._get_client()
+            # Use immutable execution identity, independently of caller/result
+            # metadata, and recheck immediately before the paid transport call.
+            require_paid_execution("openai")
+            response = client.responses.create(**openai_request_payload)
         except OpenAIError as exc:
             raise _to_generation_provider_error(exc) from exc
 
@@ -138,6 +153,8 @@ class OpenAIHoroscopeProvider:
             self._client = OpenAI(
                 api_key=self.api_key,
                 timeout=self.timeout_seconds,
+                # The generation lifecycle owns retries and records each attempt.
+                max_retries=0,
             )
         return self._client
 
@@ -328,6 +345,7 @@ def _to_generation_provider_error(exc: OpenAIError) -> GenerationProviderError:
     retryable = _is_retryable_openai_error(
         error_name=error_name,
         status_code=status_code,
+        error_code=_openai_error_code(exc),
     )
 
     return GenerationProviderError(
@@ -336,11 +354,36 @@ def _to_generation_provider_error(exc: OpenAIError) -> GenerationProviderError:
     )
 
 
+def _openai_error_code(exc: OpenAIError) -> str | None:
+    """Read SDK error metadata, never infer a quota condition from message text."""
+    code = getattr(exc, "code", None)
+    if isinstance(code, str) and code:
+        return code
+
+    body = getattr(exc, "body", None)
+    if isinstance(body, dict):
+        code = body.get("code")
+        if isinstance(code, str) and code:
+            return code
+
+        error = body.get("error")
+        if isinstance(error, dict):
+            code = error.get("code")
+            if isinstance(code, str) and code:
+                return code
+
+    return None
+
+
 def _is_retryable_openai_error(
     *,
     error_name: str,
     status_code: int | None,
+    error_code: str | None = None,
 ) -> bool:
+    if error_code in NON_RETRYABLE_OPENAI_QUOTA_CODES:
+        return False
+
     if error_name in RETRYABLE_OPENAI_ERROR_NAMES:
         return True
 

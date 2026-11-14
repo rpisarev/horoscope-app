@@ -3,6 +3,7 @@ from pathlib import Path
 from urllib.parse import quote_plus
 
 from dotenv import load_dotenv
+from paid_execution_policy import paid_execution_enabled
 
 
 load_dotenv()
@@ -72,6 +73,8 @@ def _env_int(
 
 
 class Config:
+    # Informational snapshot only: execution guards recheck process environment.
+    GENERATION_PAID_EXECUTION_ENABLED = paid_execution_enabled()
     APP_DEPLOYMENT_MODE = os.getenv("APP_DEPLOYMENT_MODE", "development")
     PRODUCTION_PUBLICATION_PROVIDERS = os.getenv("PRODUCTION_PUBLICATION_PROVIDERS", "openai")
     APP_TIMEZONE = os.getenv("APP_TIMEZONE", "Europe/Kyiv")

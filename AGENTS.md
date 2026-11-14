@@ -24,9 +24,9 @@ From the repository root, use:
 bash scripts/backend-test.sh
 ```
 
-The script recreates, migrates, tests against, and normally drops `horoscope_test`. Any `TEST_DB_NAME` override must name a disposable test database.
+The script uses a separate ephemeral Compose project and PostgreSQL service, validates its disposable database identity, migrates, tests, and cleans up that test project. Any custom `TEST_DB_NAME` must satisfy the explicit identity contract in [docs/testing-safety.md](docs/testing-safety.md). Positive test paths/node IDs may follow the script name.
 
-Never point raw pytest at development data or bypass its guard with `ALLOW_PYTEST_ON_DEV_DB=1`: fixtures truncate mutable tables. Do not delete Docker volumes or run data-changing smoke examples as routine verification. Schema changes use Alembic migrations, not `db.create_all()`.
+Never point raw pytest at development data: fixtures truncate mutable tables. `ALLOW_PYTEST_ON_DEV_DB` and `KEEP_TEST_DB` are rejected, not safety overrides. Do not delete Docker volumes or run data-changing smoke examples as routine verification. Schema changes use Alembic migrations, not `db.create_all()`.
 
 ## Frontend verification
 

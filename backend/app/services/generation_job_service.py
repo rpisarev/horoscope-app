@@ -8,6 +8,8 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any, Iterable
 from uuid import uuid4
 
+from paid_execution_policy import require_paid_execution
+
 from .. import db
 from ..models import GenerationJob, GenerationRun
 from ..providers.publication_policy import require_publication_provider
@@ -1327,6 +1329,7 @@ def _ensure_provider_can_execute(
     *,
     allow_openai: bool,
 ) -> None:
+    require_paid_execution(job.provider)
     require_publication_provider(job.provider)
     if job.provider != "openai":
         return

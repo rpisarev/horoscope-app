@@ -187,6 +187,8 @@ class RealTestProvider:
 
 @pytest.mark.parametrize("provider_name", ["openai", "future-real"])
 def test_approved_real_capability_is_not_openai_specific(app, monkeypatch, provider_name):
+    if provider_name == "openai":
+        monkeypatch.setenv("GENERATION_PAID_EXECUTION_ENABLED", "1")
     class Adapter(RealTestProvider):
         name = provider_name
 
