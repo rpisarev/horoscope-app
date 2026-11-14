@@ -7,6 +7,17 @@
 
 ## Stabilization checkpoint
 
+**STAB-015.05a IMPLEMENTED:** A bounded per-job JSON inspection CLI exposes safe
+job/run/item/attempt evidence, published/missing coverage and explicit unknowns.
+It grants no retry/recovery authority. A shared read service uses a separate
+PostgreSQL READ ONLY REPEATABLE READ connection; pending/flushed ORM work stays
+caller-owned. Current enabled metadata and an explicit historical job scope remain
+distinct, with no static fallback for an empty set. New diagnostic CLI startup
+disables implicit dotenv discovery through an explicit config guard compatible
+with pinned python-dotenv 1.0.1; normal application startup is unchanged.
+86 recovery/CLI/config tests plus 13 shared-reader tests passed in the 244-test
+combined run below. See [inspection contract](generation-recovery-inspection.md).
+
 **STAB-015.03a IMPLEMENTED:** Exact active-key PostgreSQL unique conflicts now
 produce duplicate reuse or controlled validation errors. Savepoints preserve
 caller transaction ownership; `commit=True` uses an independent transaction,

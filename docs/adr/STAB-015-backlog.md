@@ -3,7 +3,7 @@
 **D1–D8 Accepted — 2026-11-14; STAB-015.01 COMPLETED (documentation only).**
 **Статуси реалізації нижче оновлюються окремо від Accepted policy.**
 На baseline PR #23, `2b71659`, усі implementation cards були OPEN.
-STAB-015.03a завершено в iteration 3; решта, крім .01, поки OPEN.
+STAB-015.03a/.05a завершено в iteration 3; решта, крім .01, поки OPEN.
 Батьківський документ: [ADR STAB-015](STAB-015-generation-execution.md).
 Ці картки не є implementation або дозволом на runtime/DB/paid зміни.
 
@@ -136,6 +136,10 @@ single/batch retry collisions покрито PostgreSQL regressions.
 - **Ризики / розмір:** missed writer, changing client-visible conflicts, nested transactions; **M**. За потреби розділити transitions на додаткові leaf commits.
 
 ## STAB-015.05a — read-only per-job recovery inspection
+
+**COMPLETED — iteration 3, 2026-11-15.** Bounded read-only CLI одного job,
+shared snapshot/coverage, explicit unknown evidence та sanitized startup.
+[Контракт і regression evidence](../generation-recovery-inspection.md).
 
 - **Проблема:** один job/run/content може мати розбіжні states без пояснюваної history.
 - **Scope:** bounded report **конкретного job ID**: owner/timestamps/run link, item/attempt status summaries, published/missing scope, missing evidence/unknown. Не aggregate dashboard, refund/requeue або нова schema.

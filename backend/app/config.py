@@ -6,7 +6,11 @@ from dotenv import load_dotenv
 from paid_execution_policy import paid_execution_enabled
 
 
-load_dotenv()
+# python-dotenv 1.0.1 does not implement this opt-out itself. Read-only operator
+# CLIs set it before importing the application so implicit .env discovery cannot
+# select an unintended target. Normal application startup keeps its default.
+if os.getenv("PYTHON_DOTENV_DISABLED") != "1":
+    load_dotenv()
 
 
 def _read_secret_file(path: str | None) -> str | None:

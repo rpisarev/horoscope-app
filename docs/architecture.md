@@ -158,6 +158,17 @@ The admin blueprint is `/api/admin`, disabled by default and protected by a bear
 
 Utilities in `backend/utils/` support immediate packages, queue creation/processing, package reporting, and standalone prompt probing. They are operational commands, not harmless general test commands.
 
+STAB-015.05a adds an explicitly invoked [per-job inspection CLI](generation-recovery-inspection.md)
+with no provider or recovery actions. It reads safe projected columns for one
+linked job/run and bounded items/attempts, preserving uncertain transport outcomes
+as unknown. `generation_read_service` owns a separate read-only repeatable snapshot
+and exact published-coverage calculation; it does not borrow or flush the caller's
+ORM Session. Explicit job signs remain relevant after enablement changes; absent
+stored signs use current enabled metadata and cannot reconstruct historical scope.
+The CLI sets `PYTHON_DOTENV_DISABLED=1` before app imports; the explicit config guard
+honors that opt-out with python-dotenv 1.0.1. Database access still requires an
+authorized operator environment. No new diagnostic HTTP route is exposed.
+
 ### Current provider selection and publication audit
 
 **CURRENT ENFORCED BEHAVIOR (2026-09-29):** [`providers/factory.py`](../backend/app/providers/factory.py) constructs `stub` and `openai`. It resolves an explicit truthy argument, then `HOROSCOPE_PROVIDER`, then `stub`, and strips/lowercases the name. Unknown names fail; `local`, `local-llm`, and `local_llm` explicitly fail as unimplemented. `ollama` is not registered. There is no fallback from an OpenAI error to stub. The missing-provider default is distinct from error handling.
