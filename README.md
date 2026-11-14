@@ -692,6 +692,12 @@ ProviderRequest -> OpenAI Responses API call -> structured JSON parsing -> Provi
 
 It does not build prompts, choose sign names, write forecasts, or manage lifecycle state. Those responsibilities belong to service-layer code.
 
+The lifecycle owns retries; the adapter disables SDK automatic retries, including
+for injected real SDK clients. Structured `insufficient_quota` is non-retryable;
+temporary rate limits, timeouts and connection failures remain retryable. This is
+per-item behavior, not a cross-run circuit breaker. See
+[OpenAI retry semantics](docs/openai-retries.md).
+
 OpenAI-related env:
 
 ```env

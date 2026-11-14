@@ -1,11 +1,24 @@
 # Current Project State
 
-- State updated: 2026-11-14 (STAB-007 disposable backend test isolation).
+- State updated: 2026-11-14 (STAB-007 test isolation and STAB-001 quota retries).
 - Main working branch: `feature/main-page-start`
 - Stabilization integration baseline: `1122c36ba6dea50c441a232be12532440d0715f9` (PR #21 squash merge). Work takes place in an isolated integration worktree; this does not deploy the changes.
 - Earlier publication audit baseline: `34623b27bd69d681edf1a3ab8f8aac31bc74cafa` (`Update frontend (#20)`). Results and runtime observations in the historical sections below belong to their recorded checkpoints.
 
 ## Stabilization checkpoint
+
+**STAB-001 IMPLEMENTED:** Structured `insufficient_quota` is nonretryable per
+generation item. The lifecycle owns retries; OpenAI SDK retries are disabled for
+both created and injected real clients. Temporary 429, timeout and connection
+failures retain retry behavior. No cross-run circuit breaker, scheduler policy,
+publication policy or historical data change is included. See
+[openai-retries.md](openai-retries.md).
+
+**STAB-001 VERIFIED (2026-11-14):** 47 focused provider/lifecycle tests passed on
+the explicit custom disposable target `horoscope_test_stab001`; the full suite
+passed **286 tests in 11.59s**. OpenAI SDK `2.37.0` ran against MockTransport with
+SDK platform metadata fixed to avoid a host subprocess. Quota/transient attempt
+counts and absence of failed-generation publication were verified.
 
 **STAB-007 IMPLEMENTED:** Backend verification now uses a dedicated ephemeral
 PostgreSQL cluster and internal network, with no development services, volumes,

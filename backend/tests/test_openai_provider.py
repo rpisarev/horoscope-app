@@ -1,9 +1,22 @@
 import json
+import socket
 from datetime import date
 from types import SimpleNamespace
 
+import httpx
 import pytest
+from openai import (
+    APIConnectionError,
+    APITimeoutError,
+    AuthenticationError,
+    BadRequestError,
+    InternalServerError,
+    OpenAI,
+    PermissionDeniedError,
+    RateLimitError,
+)
 
+import app.providers.openai_provider as openai_provider
 from app.providers import GenerationProviderError, OpenAIHoroscopeProvider, ProviderRequest
 from app.providers.factory import get_horoscope_provider
 from app.providers.openai_provider import _is_retryable_openai_error
@@ -15,6 +28,20 @@ SAFE_FORECAST_TEXT = (
     "Ваше внимание к деталям поможет избежать лишней суеты. "
     "Вечером стоит выбрать отдых, который действительно восстанавливает силы."
 )
+
+
+@pytest.fixture(autouse=True)
+def forbid_real_openai_network(monkeypatch):
+    # SDK telemetry metadata is unrelated to transport/retry behavior. Avoid
+    # platform.platform() spawning uname under the no-child-process harness.
+    monkeypatch.setattr("openai._base_client.get_platform", lambda: "Linux")
+    def forbidden(*args, **kwargs):
+        pytest.fail("Unexpected network access: use a fake client or MockTransport")
+
+    monkeypatch.setattr(httpx.HTTPTransport, "handle_request", forbidden)
+    monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", forbidden)
+    monkeypatch.setattr(socket.socket, "connect", forbidden)
+    monkeypatch.setattr(socket.socket, "connect_ex", forbidden)
 
 
 class FakeOpenAIResponse:
@@ -46,6 +73,8 @@ class FakeResponsesResource:
 
     def create(self, **kwargs):
         self.calls.append(kwargs)
+        if isinstance(self.response, Exception):
+            raise self.response
         return self.response
 
 
@@ -346,3 +375,204 @@ def test_openai_error_classification():
         _is_retryable_openai_error(error_name="UnexpectedOpenAIError", status_code=503)
         is True
     )
+
+
+@pytest.mark.parametrize(
+    "code, body, retryable",
+    [
+        pytest.param("insufficient_quota", None, False, id="sdk-code"),
+        pytest.param(None, {"code": "insufficient_quota"}, False, id="flat-body"),
+        pytest.param(
+            None, {"error": {"code": "insufficient_quota"}}, False, id="nested-body"
+        ),
+        pytest.param("rate_limit_exceeded", None, True, id="transient-code"),
+        pytest.param(None, {"code": "unknown_quota_code"}, True, id="unknown-code"),
+        pytest.param(None, {"type": "insufficient_quota"}, True, id="type-only"),
+        pytest.param(None, "insufficient_quota", True, id="text-body"),
+        pytest.param(None, None, True, id="message-only"),
+        pytest.param(None, {"code": ["insufficient_quota"]}, True, id="invalid-code"),
+        pytest.param(None, {"error": "insufficient_quota"}, True, id="invalid-error"),
+        pytest.param(
+            "rate_limit_exceeded",
+            {"code": "insufficient_quota"},
+            True,
+            id="sdk-code-takes-precedence",
+        ),
+    ],
+)
+def test_quota_classification_uses_structured_sdk_metadata(code, body, retryable):
+    response = httpx.Response(
+        429, request=httpx.Request("POST", "https://openai.invalid/v1/responses")
+    )
+    error = RateLimitError(
+        "Message mentions insufficient_quota but is not classification metadata.",
+        response=response,
+        body=body,
+    )
+    # Exercise body fallback even when the SDK has not populated .code.
+    error.code = code
+    fake_client = FakeOpenAIClient(error)
+    provider = OpenAIHoroscopeProvider(api_key="test-key", client=fake_client)
+
+    with pytest.raises(GenerationProviderError) as exc_info:
+        provider.generate(_provider_request())
+
+    assert exc_info.value.retryable is retryable
+    assert exc_info.value.__cause__ is error
+    assert len(fake_client.responses.calls) == 1
+    assert provider._get_client() is fake_client
+
+
+@pytest.mark.parametrize("client_origin", ["adapter", "injected"])
+@pytest.mark.parametrize(
+    "status_code, code, retryable, exception_type",
+    [
+        (429, "insufficient_quota", False, RateLimitError),
+        (429, "rate_limit_exceeded", True, RateLimitError),
+        (429, None, True, RateLimitError),
+        (401, "invalid_api_key", False, AuthenticationError),
+        (403, None, False, PermissionDeniedError),
+        (400, "invalid_request", False, BadRequestError),
+        (500, None, True, InternalServerError),
+    ],
+)
+def test_sdk_http_errors_make_one_request_per_provider_call(
+    monkeypatch, client_origin, status_code, code, retryable, exception_type
+):
+    calls = []
+
+    def handle(request):
+        assert request.method == "POST"
+        assert str(request.url) == "https://openai.invalid/v1/responses"
+        calls.append(request)
+        # Even explicit SDK retry advice must not create hidden HTTP requests.
+        return httpx.Response(
+            status_code,
+            headers={"x-should-retry": "true", "retry-after-ms": "1"},
+            json={"error": {"code": code, "message": "Test API failure"}},
+        )
+
+    with httpx.Client(transport=httpx.MockTransport(handle), trust_env=False) as http_client:
+        if client_origin == "adapter":
+            constructor_calls = []
+
+            def make_client(**kwargs):
+                constructor_calls.append(kwargs)
+                return OpenAI(
+                    **kwargs,
+                    base_url="https://openai.invalid/v1",
+                    http_client=http_client,
+                )
+
+            monkeypatch.setattr(openai_provider, "OpenAI", make_client)
+            provider = OpenAIHoroscopeProvider(api_key="test-key", timeout_seconds=7)
+        else:
+            injected = OpenAI(
+                api_key="test-key",
+                base_url="https://openai.invalid/v1",
+                http_client=http_client,
+            )
+            assert injected.max_retries == 2  # Pinned SDK default.
+            provider = OpenAIHoroscopeProvider(api_key="test-key", client=injected)
+            assert injected.max_retries == 2
+            assert provider._get_client() is not injected
+
+        with pytest.raises(GenerationProviderError) as exc_info:
+            provider.generate(_provider_request())
+
+        assert exc_info.value.retryable is retryable
+        assert isinstance(exc_info.value.__cause__, exception_type)
+        assert len(calls) == 1
+        assert provider._get_client().max_retries == 0
+        if client_origin == "adapter":
+            assert constructor_calls == [
+                {"api_key": "test-key", "timeout": 7, "max_retries": 0}
+            ]
+
+
+@pytest.mark.parametrize(
+    "transport_error, sdk_error",
+    [(httpx.ReadTimeout, APITimeoutError), (httpx.ConnectError, APIConnectionError)],
+)
+def test_sdk_transport_failures_are_retryable_without_hidden_retries(
+    transport_error, sdk_error
+):
+    calls = []
+
+    def handle(request):
+        assert str(request.url) == "https://openai.invalid/v1/responses"
+        calls.append(request)
+        raise transport_error("Simulated transport failure", request=request)
+
+    with httpx.Client(transport=httpx.MockTransport(handle), trust_env=False) as http_client:
+        injected = OpenAI(
+            api_key="test-key",
+            base_url="https://openai.invalid/v1",
+            http_client=http_client,
+        )
+        provider = OpenAIHoroscopeProvider(api_key="test-key", client=injected)
+
+        with pytest.raises(GenerationProviderError) as exc_info:
+            provider.generate(_provider_request())
+
+        assert exc_info.value.retryable is True
+        assert isinstance(exc_info.value.__cause__, sdk_error)
+        assert len(calls) == 1
+        assert injected.max_retries == 2
+
+
+def test_injected_sdk_preserves_transport_and_options_on_success(monkeypatch):
+    monkeypatch.delenv("OPENAI_MODEL", raising=False)
+    calls = []
+
+    def handle(request):
+        assert request.method == "POST"
+        assert str(request.url) == "https://openai.invalid/v1/responses"
+        assert request.headers["x-test-client"] == "preserved"
+        calls.append(request)
+        return httpx.Response(
+            200,
+            json={
+                "id": "resp_mock",
+                "object": "response",
+                "created_at": 0,
+                "status": "completed",
+                "model": "gpt-test",
+                "parallel_tool_calls": False,
+                "tool_choice": "auto",
+                "tools": [],
+                "output": [{
+                    "id": "msg_mock",
+                    "type": "message",
+                    "role": "assistant",
+                    "status": "completed",
+                    "content": [{
+                        "type": "output_text",
+                        "text": json.dumps({"title": None, "text": SAFE_FORECAST_TEXT}),
+                        "annotations": [],
+                    }],
+                }],
+            },
+        )
+
+    with httpx.Client(transport=httpx.MockTransport(handle), trust_env=False) as http_client:
+        injected = OpenAI(
+            api_key="test-key",
+            base_url="https://openai.invalid/v1",
+            http_client=http_client,
+            max_retries=5,
+            timeout=7,
+            default_headers={"x-test-client": "preserved"},
+        )
+        provider = OpenAIHoroscopeProvider(
+            api_key="test-key", model_name="gpt-test", client=injected
+        )
+        result = provider.generate(_provider_request())
+
+        assert result.provider == "openai"
+        assert result.model_name == "gpt-test"
+        assert result.text == SAFE_FORECAST_TEXT
+        assert len(calls) == 1
+        assert injected.max_retries == 5
+        assert provider._get_client().max_retries == 0
+        assert provider._get_client().timeout == injected.timeout

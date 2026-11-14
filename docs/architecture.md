@@ -102,6 +102,14 @@ Admin immediate API / package CLI / legacy scheduler
 
 Providers implement `ProviderRequest` → `ProviderResult` and do not persist forecasts. The stub returns fixed Russian text. `openai_provider.py` calls the Responses API with structured JSON output, parses results/refusals, and maps provider errors for lifecycle retry handling. Tests inject fake clients. Local-LLM provider aliases raise an explicit unimplemented error.
 
+The lifecycle owns transport retries; the adapter configures `max_retries=0` in
+the OpenAI SDK, including a nonmutating copy of an injected real SDK client.
+Structured `insufficient_quota` stops retries for the current item. Transient 429,
+timeout and connection failures remain retryable; authentication, permission and
+invalid-request failures remain nonretryable. Later items/runs are not suppressed
+by a circuit breaker. [openai-retries.md](openai-retries.md) records the exact
+classification contract and mocked SDK/lifecycle coverage.
+
 The admin blueprint is `/api/admin`, disabled by default and protected by a bearer token when enabled. Under `/generation`, it exposes coverage; GET/POST runs; retry-missing; run/item attempt detail; GET/POST jobs; backfill; job detail/cancel/retry; and batch status/cancel/retry-failed. Immediate admin generation and queued generation both still exist.
 
 Utilities in `backend/utils/` support immediate packages, queue creation/processing, package reporting, and standalone prompt probing. They are operational commands, not harmless general test commands.

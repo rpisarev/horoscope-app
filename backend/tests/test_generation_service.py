@@ -1,9 +1,14 @@
 from datetime import date, timedelta
 
+import httpx
+import pytest
+from openai import OpenAI
+
+import app.providers.openai_provider as openai_provider
 import app.services.generation_service as generation_service
 from app import db
 from app.models import Forecast, GenerationAttempt, GenerationItem, GenerationRun
-from app.providers import GenerationProviderError, ProviderResult
+from app.providers import GenerationProviderError, OpenAIHoroscopeProvider, ProviderResult
 from app.services import SIGNS, save_forecast
 
 
@@ -238,6 +243,94 @@ def test_run_daily_generation_records_retryable_provider_failures(app, monkeypat
 
         assert Forecast.query.count() == 0
         assert provider.calls == 2
+
+
+@pytest.mark.parametrize(
+    "code, attempts_per_item",
+    [("insufficient_quota", 1), ("rate_limit_exceeded", 3)],
+)
+def test_openai_quota_lifecycle_attempts_match_http_requests_without_publication(
+    app, monkeypatch, code, attempts_per_item
+):
+    monkeypatch.setattr("openai._base_client.get_platform", lambda: "Linux")
+    calls = []
+
+    def forbidden_network(*args, **kwargs):
+        pytest.fail("Unexpected real HTTP: quota lifecycle test requires MockTransport")
+
+    def forbidden_publication(*args, **kwargs):
+        pytest.fail("Failed OpenAI requests must not reach forecast persistence")
+
+    monkeypatch.setattr(httpx.HTTPTransport, "handle_request", forbidden_network)
+    monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", forbidden_network)
+    monkeypatch.setattr(generation_service, "save_forecast", forbidden_publication)
+
+    def handle(request):
+        assert request.method == "POST"
+        assert str(request.url) == "https://openai.invalid/v1/responses"
+        calls.append(request)
+        return httpx.Response(
+            429,
+            headers={"retry-after-ms": "1"},
+            json={"error": {"code": code, "message": "Simulated limit"}},
+        )
+
+    with httpx.Client(transport=httpx.MockTransport(handle), trust_env=False) as http_client:
+        def make_client(**kwargs):
+            return OpenAI(
+                **kwargs,
+                base_url="https://openai.invalid/v1",
+                http_client=http_client,
+            )
+
+        monkeypatch.setattr(openai_provider, "OpenAI", make_client)
+        provider = OpenAIHoroscopeProvider(api_key="test-key", model_name="gpt-test")
+        _install_provider(monkeypatch, provider)
+
+        with app.app_context():
+            run = generation_service.run_daily_generation(
+                target_date=date(2026, 5, 13),
+                run_type="test",
+                signs=["aries", "taurus"],
+                provider_name="openai",
+                # Exercise the lifecycle's default limit of three attempts.
+            )
+            db.session.refresh(run)
+
+            assert run.status == "failed"
+            assert run.total_items == 2
+            assert run.failed_items == 2
+            assert run.success_items == 0
+            assert run.skipped_items == 0
+            assert run.finished_at is not None
+
+            items = GenerationItem.query.filter_by(run_id=run.id).all()
+            assert {item.sign_key for item in items} == {"aries", "taurus"}
+            for item in items:
+                assert item.status == "failed"
+                assert item.forecast_id is None
+                assert item.finished_at is not None
+                assert code in item.error_message
+                attempts = (
+                    GenerationAttempt.query.filter_by(item_id=item.id)
+                    .order_by(GenerationAttempt.attempt_no)
+                    .all()
+                )
+                assert len(attempts) == attempts_per_item
+                assert [attempt.attempt_no for attempt in attempts] == list(
+                    range(1, attempts_per_item + 1)
+                )
+                assert [attempt.status for attempt in attempts] == (
+                    ["failed_retryable"] * (attempts_per_item - 1) + ["failed"]
+                )
+                assert all(attempt.finished_at is not None for attempt in attempts)
+                assert all(
+                    attempt.error_type == "GenerationProviderError" for attempt in attempts
+                )
+                assert all(code in attempt.error_message for attempt in attempts)
+
+            assert len(calls) == len(items) * attempts_per_item
+            assert Forecast.query.count() == 0
 
 
 def test_run_daily_generation_retries_and_rejects_forbidden_zodiac_text(app, monkeypatch):
