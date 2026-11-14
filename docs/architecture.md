@@ -1,6 +1,11 @@
 # Current architecture
 
-This describes `feature/main-page-start` at `34623b2` plus the provider publication guard implemented on 2026-09-29, including the earlier read-only forecast/business-date milestone and sign-aware archive integration. Current behavior, agreed policy, and future direction are separated below. The publication guard is implemented; an Ollama/Qwen adapter is not. See [CURRENT_STATE.md](CURRENT_STATE.md) for the dated snapshot, verification results, and open decisions. [README.md](../README.md) remains the setup reference.
+This describes the verified `feature/main-page-start` baseline `0b4cc05` (PR #22),
+including STAB-007, STAB-001 and SAFE-001, with iteration 2's development-port and
+CLI-outcome fixes. Current behavior, agreed policy, and proposed architecture are
+separated below. Production publication and paid-execution guards are implemented;
+an Ollama/Qwen adapter is not. See [CURRENT_STATE.md](CURRENT_STATE.md) for dated
+verification and open decisions. [README.md](../README.md) remains the setup reference.
 
 ## System overview and entry points
 
@@ -17,6 +22,12 @@ APScheduler (tasks.py, separate Compose service)
 
 Flask site blueprint -> XML sitemaps               [outside /api]
 ```
+
+Production execution alternatives, recovery and cost controls are analyzed in
+[STAB-015](adr/STAB-015-generation-execution.md), **Proposed / Pending owner approval**.
+Its queue-default recommendation is not the implemented scheduler default shown
+above. No new worker topology, lease fencing, ledger or production policy is
+introduced by that documentation changeset.
 
 [`docker-compose.yml`](../docker-compose.yml) defines PostgreSQL 17 Alpine, a Python 3.12 backend, a scheduler using the same backend image, and a Node 20 frontend. Backend starts with `alembic upgrade head && python run.py`; scheduler waits for backend health. PostgreSQL data and frontend dependencies use named volumes. The database password comes from a local Docker secret.
 
@@ -137,7 +148,7 @@ The entry-point-specific controls below remain additional requirements.
 
 | Entry point | Selection and defaults | Relevant gates / persistence |
 | --- | --- | --- |
-| Direct lifecycle `run_daily_generation` | Explicit `provider_name`, otherwise factory environment/default. | Shared publication policy before generation; no universal paid-provider opt-in. |
+| Direct lifecycle `run_daily_generation` | Explicit `provider_name`, otherwise factory environment/default. | Global paid-execution guard and shared publication policy before generation. Once globally enabled, direct execution still lacks queue count/admission limits. |
 | Direct scheduler daily and retry-missing | `tasks.py` reads `HOROSCOPE_PROVIDER` at process initialization, default `stub`; Compose also defaults it to `stub`. | Default `GENERATION_SCHEDULER_USE_QUEUE=0` calls lifecycle directly. Queue OpenAI flags do not guard this path. |
 | Scheduler queue producer | Same scheduler provider, passed explicitly into scheduled/retry-missing job creation. | OpenAI creation requires `GENERATION_SCHEDULED_JOBS_ALLOW_OPENAI`; provider persists in each job. |
 | Queue creation service, ranges/backfills | Omitted provider defaults to `stub`, independently of `HOROSCOPE_PROVIDER`; accepts only `stub`/`openai`. | OpenAI needs `allow_openai`; each range member stores the selected provider. |

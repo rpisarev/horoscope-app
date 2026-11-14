@@ -2,6 +2,12 @@
 
 Vue + Flask application for sign-agnostic daily horoscope generation.
 
+Current implementation and verification are recorded in
+[CURRENT_STATE.md](docs/CURRENT_STATE.md) and [architecture.md](docs/architecture.md).
+The [STAB-015 production execution ADR](docs/adr/STAB-015-generation-execution.md)
+is **Proposed / Pending owner approval**; it does not change runtime defaults or
+authorize automatic paid generation.
+
 The project runs locally with Docker Compose and includes:
 
 ```text
