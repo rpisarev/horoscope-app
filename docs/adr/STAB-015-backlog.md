@@ -1,7 +1,9 @@
 # STAB-015: backlog реалізації прийнятої архітектури
 
 **D1–D8 Accepted — 2026-11-14; STAB-015.01 COMPLETED (documentation only).**
-**Усі інші картки нижче OPEN / not implemented на baseline PR #23, `2b71659`.**
+**Статуси реалізації нижче оновлюються окремо від Accepted policy.**
+На baseline PR #23, `2b71659`, усі implementation cards були OPEN.
+STAB-015.03a завершено в iteration 3; решта, крім .01, поки OPEN.
 Батьківський документ: [ADR STAB-015](STAB-015-generation-execution.md).
 Ці картки не є implementation або дозволом на runtime/DB/paid зміни.
 
@@ -75,6 +77,11 @@ development/production DB writes або live rollout як спосіб пере�
 - **Ризики / розмір:** подвійний облік, outdated price, недовірений returned model; **M**. За потреби два послідовні commits: reliable usage ingestion → labeled pricing estimate.
 
 ## STAB-015.03a — exact-key conflict normalization
+
+**COMPLETED — iteration 3, 2026-11-15.** Savepoint conflict normalization,
+bounded winner-finalization handling та caller transaction preservation;
+single/batch retry collisions покрито PostgreSQL regressions.
+[Реалізація, межі та verification](../generation-job-deduplication.md).
 
 - **Проблема:** чинний partial unique index відхиляє concurrent duplicate, але SELECT/INSERT loser може отримати необроблений IntegrityError (E05/E17).
 - **Scope:** обробити лише conflict `uq_generation_jobs_active_dedupe_key`; reload/reuse або чинна validation error. Не змінювати dedupe key, index, scope чи architecture.

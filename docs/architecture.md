@@ -124,6 +124,18 @@ Admin immediate API / package CLI / legacy scheduler
 
 [`generation_job_service.py`](../backend/app/services/generation_job_service.py) creates manual, backfill, scheduled, and retry-missing jobs, including inclusive date ranges, dry runs, coverage checks, active duplicate checks, and batches. Claims use descending priority then creation time/id; PostgreSQL uses `FOR UPDATE SKIP LOCKED`. Jobs transition from queued/running to success/partial_failed/failed/cancelled. Stale locks are requeued or failed according to attempt limits. Batch status aggregates jobs; cancel affects queued members, while retry-failed requeues failed/partial-failed members. Running jobs cannot be cancelled by the single-job API.
 
+STAB-015.03a normalizes only the existing active dedupe-key unique-index conflict.
+Creation reuses an active winner or raises the existing validation error; a winner
+that finalizes before reload permits at most one additional write. Retry uses the
+same conflict boundary; batch retry skips colliding members under their original
+statuses. `commit=False` uses caller-owned savepoints; committed single creation
+and retries use private transactions, preserving unrelated caller writes. Related
+pending/flushed ORM edits are rejected before refresh or private writes. Raw SQL
+and explicitly acquired caller locks are outside that tracking contract. See
+[transaction ownership and PostgreSQL regressions](generation-job-deduplication.md).
+The hash/index, queue algorithm, providers and broader package-admission races are
+unchanged.
+
 [`generation_service.py`](../backend/app/services/generation_service.py) closes stale runs, returns an existing running run when its date/locale/type lookup finds one, creates per-sign items, skips published forecasts, retries retryable provider errors, validates output, persists successful forecasts, and finalizes counters/status. Default sign selection queries enabled database signs; `sign_service.get_enabled_sign_keys` retains a static `SIGNS` fallback when that query is empty. This fallback differs from archive coverage's zero-active-sign handling.
 
 [`prompt_service.py`](../backend/app/services/prompt_service.py) loads prompts from the database, validates supported template variables, and builds provider requests. Sign/date select deterministic variation profiles and are retained in audit metadata; they are excluded as literal creative instructions from prompt messages. The seeded prompt is Russian/daily; accepting locale/type parameters is not proof of equivalent generated content for every combination. `forecast_validation_service.py` rejects forbidden zodiac terms/phrases in generated text; lifecycle also rejects empty text.

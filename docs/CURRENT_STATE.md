@@ -7,6 +7,18 @@
 
 ## Stabilization checkpoint
 
+**STAB-015.03a IMPLEMENTED:** Exact active-key PostgreSQL unique conflicts now
+produce duplicate reuse or controlled validation errors. Savepoints preserve
+caller transaction ownership; `commit=True` uses an independent transaction,
+while `commit=False` leaves the outer transaction with its caller. Related pending
+or flushed ORM writes receive explicit rejection rather than overwrite/self-lock.
+Winner-finalization retry is bounded; unrelated IntegrityErrors still propagate.
+Single/batch retry collisions preserve the failed member's history. The six-file
+dedupe/admin/worker/CLI selection and recovery/shared-read regressions passed
+together: **244 tests in 11.12s** through the disposable harness. See
+[exact-key transaction contract](generation-job-deduplication.md); this does not
+implement package-level admission, fencing or raw-SQL lock introspection.
+
 **STAB-003 IMPLEMENTED (2026-11-15):** Vite 6.4.6 and Vitest 4.1.12 replace the
 affected root/nested Vite versions; Vue, Router, Swiper and application code are
 unchanged. Compose now selects Node 22, matching CI's major; no running container
