@@ -4,11 +4,20 @@ import argparse
 import json
 import os
 import random
+import sys
 from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
 from openai import OpenAI
+
+# Direct script invocation places utils/, rather than backend/, on sys.path.
+# Import the standalone policy without importing or creating the Flask app.
+_backend_dir = str(Path(__file__).resolve().parents[1])
+if _backend_dir not in sys.path:
+    sys.path.insert(0, _backend_dir)
+
+from paid_execution_policy import require_paid_execution
 
 
 DEFAULT_MODEL = "gpt-5.4-mini"
@@ -543,6 +552,7 @@ def call_openai(
     max_output_tokens: int,
     user_prompt: str,
 ) -> Any:
+    require_paid_execution("openai")
     return client.responses.create(
         model=model,
         instructions=SYSTEM_PROMPT,
@@ -643,6 +653,7 @@ def main() -> int:
         print_profiles()
         return 0
 
+    require_paid_execution("openai")
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         raise RuntimeError(

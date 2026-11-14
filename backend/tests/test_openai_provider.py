@@ -32,6 +32,9 @@ SAFE_FORECAST_TEXT = (
 
 @pytest.fixture(autouse=True)
 def forbid_real_openai_network(monkeypatch):
+    # These tests exercise authorized fake/MockTransport paths. Default-denial
+    # regressions live in test_paid_execution_adapter.py with no broad opt-in.
+    monkeypatch.setenv("GENERATION_PAID_EXECUTION_ENABLED", "1")
     # SDK telemetry metadata is unrelated to transport/retry behavior. Avoid
     # platform.platform() spawning uname under the no-child-process harness.
     monkeypatch.setattr("openai._base_client.get_platform", lambda: "Linux")

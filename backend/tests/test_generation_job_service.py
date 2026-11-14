@@ -369,7 +369,8 @@ def test_process_generation_jobs_runs_stub_job(app):
         assert len(forecasts) == 1
 
 
-def test_process_generation_jobs_rejects_openai_without_worker_allow(app):
+def test_process_generation_jobs_rejects_openai_without_worker_allow(app, monkeypatch):
+    monkeypatch.setenv("GENERATION_PAID_EXECUTION_ENABLED", "1")
     with app.app_context():
         job, _ = create_generation_job(
             job_type=JOB_TYPE_BACKFILL,
@@ -479,6 +480,7 @@ def test_process_generation_jobs_respects_openai_per_run_limit(
     app,
     monkeypatch,
 ):
+    monkeypatch.setenv("GENERATION_PAID_EXECUTION_ENABLED", "1")
     monkeypatch.setenv("OPENAI_API_KEY", "test-api-key")
 
     def fake_run_standard_generation_job(job, *, stale_after_hours):

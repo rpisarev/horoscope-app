@@ -252,6 +252,7 @@ def test_run_daily_generation_records_retryable_provider_failures(app, monkeypat
 def test_openai_quota_lifecycle_attempts_match_http_requests_without_publication(
     app, monkeypatch, code, attempts_per_item
 ):
+    monkeypatch.setenv("GENERATION_PAID_EXECUTION_ENABLED", "1")
     monkeypatch.setattr("openai._base_client.get_platform", lambda: "Linux")
     calls = []
 

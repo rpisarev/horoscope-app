@@ -59,3 +59,7 @@ passed** through the guarded workflow. The SDK installed in the test image was
 `2.37.0`. Both test projects cleaned up successfully. Later paid-policy integration
 must retain scoped opt-ins for fake OpenAI tests and rerun these regressions.
 No raw pytest, development-database mutation or real provider request was used.
+
+SAFE-001 integration subsequently passed **126 focused** and **315 full backend
+tests**, including these quota/SDK regressions with scoped global paid opt-ins for
+fake transport. Default-denial and publication-policy tests remain separate.

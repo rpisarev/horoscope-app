@@ -10,6 +10,7 @@ COPY tests ./tests
 COPY utils ./utils
 COPY safety_tests ./safety_tests
 COPY tasks.py alembic.ini pytest.ini test_db_guard.py ./
+COPY paid_execution_policy.py ./
 
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 ENTRYPOINT ["python", "test_db_guard.py", "run"]

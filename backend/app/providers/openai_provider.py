@@ -6,6 +6,7 @@ import os
 from typing import Any
 
 from openai import OpenAI, OpenAIError
+from paid_execution_policy import require_paid_execution
 
 from .base import GenerationProviderError, ProviderRequest, ProviderResult
 
@@ -79,6 +80,7 @@ class OpenAIHoroscopeProvider:
         )
 
     def generate(self, request: ProviderRequest) -> ProviderResult:
+        require_paid_execution("openai")
         if not self.api_key and self._client is None:
             raise GenerationProviderError(
                 "OPENAI_API_KEY is required when HOROSCOPE_PROVIDER=openai.",
@@ -100,9 +102,11 @@ class OpenAIHoroscopeProvider:
         }
 
         try:
-            # SDK network boundary: execution authorization belongs immediately
-            # before this call, independently of response/error classification.
-            response = self._get_client().responses.create(**openai_request_payload)
+            client = self._get_client()
+            # Use immutable execution identity, independently of caller/result
+            # metadata, and recheck immediately before the paid transport call.
+            require_paid_execution("openai")
+            response = client.responses.create(**openai_request_payload)
         except OpenAIError as exc:
             raise _to_generation_provider_error(exc) from exc
 

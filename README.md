@@ -74,6 +74,7 @@ PRODUCTION_PUBLICATION_PROVIDERS=openai
 LOG_LEVEL=INFO
 HOROSCOPE_PROVIDER=stub
 RUN_NIGHTLY_ON_START=0
+GENERATION_PAID_EXECUTION_ENABLED=0
 ADMIN_API_ENABLED=0
 ADMIN_API_ALLOW_OPENAI=0
 GENERATION_SCHEDULER_USE_QUEUE=0
@@ -98,6 +99,14 @@ PUBLIC_SITE_URL=https://example.com
 ```
 
 OpenAI should stay disabled by default in local automation unless you explicitly enable all relevant gates.
+
+`GENERATION_PAID_EXECUTION_ENABLED` is a separate, process-wide paid execution
+gate. Only the exact value `1` permits known paid adapters to proceed; unset, `0`
+or invalid values deny execution, including direct scheduler/lifecycle calls and
+the standalone prompt probe. CLI `--allow-openai` cannot override this denial.
+Publication approval does not authorize spending. See
+[paid-execution boundaries](docs/paid-execution.md) for the remaining local gates,
+audit behavior and controlled environment reload requirements.
 
 ### Production publication policy
 
@@ -915,6 +924,13 @@ OpenAI is intentionally disabled by default at both job-creation and job-executi
 ## OpenAI safety gates and queue limits
 
 OpenAI jobs are protected by multiple gates.
+
+All OpenAI execution examples require an explicitly authorized
+`GENERATION_PAID_EXECUTION_ENABLED=1` in the executing process, in addition to the
+controls below. Default `0` also protects immediate/direct calls and the probe.
+Job creation can still queue work while execution is disabled. A claimed job
+blocked by this gate becomes failed without a provider attempt; it is not held
+automatically for later execution.
 
 CLI job creation requires:
 

@@ -118,6 +118,16 @@ Utilities in `backend/utils/` support immediate packages, queue creation/process
 
 **CURRENT ENFORCED BEHAVIOR (2026-09-29):** [`providers/factory.py`](../backend/app/providers/factory.py) constructs `stub` and `openai`. It resolves an explicit truthy argument, then `HOROSCOPE_PROVIDER`, then `stub`, and strips/lowercases the name. Unknown names fail; `local`, `local-llm`, and `local_llm` explicitly fail as unimplemented. `ollama` is not registered. There is no fallback from an OpenAI error to stub. The missing-provider default is distinct from error handling.
 
+**PAID EXECUTION (SAFE-001):** All known OpenAI execution paths additionally require
+the exact process environment value `GENERATION_PAID_EXECUTION_ENABLED=1`.
+[`paid_execution_policy.py`](../backend/paid_execution_policy.py) is independent of
+publication policy and Flask config snapshots. Lifecycle and worker preflight
+check it; the adapter checks literal `openai` on entry and immediately before SDK
+transport, and the standalone probe checks before client construction and in its
+call helper. A local flag, mutable adapter name or returned metadata cannot bypass
+the final adapter gate. Unset/invalid values deny; stub workflows are unchanged.
+The entry-point-specific controls below remain additional requirements.
+
 | Entry point | Selection and defaults | Relevant gates / persistence |
 | --- | --- | --- |
 | Direct lifecycle `run_daily_generation` | Explicit `provider_name`, otherwise factory environment/default. | Shared publication policy before generation; no universal paid-provider opt-in. |
@@ -275,7 +285,16 @@ Flask exposes JSON URL/document inspection under `/api/seo/sitemap/urls` and `/a
 
 Compose explicitly maps selected environment variables; root `.env` is not automatically a container environment file. Current mappings omit `PUBLIC_SITE_URL`, `SITEMAP_CHUNK_SIZE`, `GENERATION_SCHEDULED_TARGET_POLICY`, `GENERATION_SCHEDULED_ROLLING_DAYS`, and `GENERATION_OPENAI_MAX_*`. Code supports these settings, but README/root `.env` examples alone do not wire them into Compose services.
 
-OpenAI job creation and execution have distinct opt-ins. Admin additionally requires its enable/token controls and OpenAI allow flag plus request confirmation. Queue execution requires worker opt-in and an API key; range/per-run/per-UTC-day limits are count-based. Service defaults are seven backfill days, two OpenAI jobs per worker call, and ten started jobs per UTC day. Scheduler's separate total-job limit defaults to one. Legacy direct scheduler execution uses the selected provider directly; the standalone prompt probe can call OpenAI with a configured key. Thus default stub settings and task-level authorization remain essential; queue gates are not universal protection.
+OpenAI job creation and execution have distinct opt-ins. Admin additionally requires its enable/token controls and OpenAI allow flag plus request confirmation. Queue execution requires worker opt-in and an API key; range/per-run/per-UTC-day limits are count-based. Service defaults are seven backfill days, two OpenAI jobs per worker call, and ten started jobs per UTC day. Scheduler's separate total-job limit defaults to one. The global paid-execution gate now protects direct scheduler and standalone probe calls too. When globally enabled, direct execution still has no queue count limits; the probe retains its own SDK retry defaults and does not use lifecycle audit. The switch is not an account-level budget control. See [paid-execution.md](paid-execution.md).
+
+Compose maps `GENERATION_PAID_EXECUTION_ENABLED` to backend and scheduler with
+default `0`. Other processes need their own intended environment. Updating `.env`
+does not alter an existing process/container environment; applying new Compose
+values requires a separately controlled recreation. Preflight denial can record
+a failed lifecycle run with zero items/attempts. A denied claimed job fails without
+a run, while its existing claim counter and started-job accounting remain. A gate
+change after preflight may produce one honest nonretryable failed attempt; it
+cannot cancel an already in-flight request.
 
 **PRODUCTION SAFETY:** The shared capability/allowlist policy above guards controlled publication in explicit production mode, including the legacy direct scheduler. Deployment operators must set `APP_DEPLOYMENT_MODE=production`; leaving it unset intentionally preserves development behavior. Default/omitted provider selection may still choose stub, which production execution rejects. Explicit OpenAI failures never fall back to stub. Existing published data and result metadata integrity remain separate follow-ups; the guard is not a production deployment configuration or a database-wide constraint.
 
