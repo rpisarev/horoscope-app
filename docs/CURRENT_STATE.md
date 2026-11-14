@@ -1,11 +1,19 @@
 # Current Project State
 
-- State updated: 2026-11-14 (STAB-007, STAB-001 and SAFE-001 stabilization).
+- State updated: 2026-11-14 (STAB-002 development networking, following STAB-007, STAB-001 and SAFE-001).
 - Main working branch: `feature/main-page-start`
-- Stabilization integration baseline: `1122c36ba6dea50c441a232be12532440d0715f9` (PR #21 squash merge). Work takes place in an isolated integration worktree; this does not deploy the changes.
+- Iteration 2 baseline: `0b4cc05698a957b13411d149668208758367b6c2` (PR #22 squash merge into `feature/main-page-start`); its tree matches the previous stabilization integration `c191ea7`. Work takes place in an isolated integration worktree; this does not deploy the changes.
 - Earlier publication audit baseline: `34623b27bd69d681edf1a3ab8f8aac31bc74cafa` (`Update frontend (#20)`). Results and runtime observations in the historical sections below belong to their recorded checkpoints.
 
 ## Stabilization checkpoint
+
+**STAB-002 IMPLEMENTED / STATICALLY VERIFIED:** Development Compose publishes
+PostgreSQL `5432`, Flask `8000`, and Vite `5173` on `127.0.0.1` by default.
+`DEV_HOST_IP` provides one explicit override for all three host bindings. Unset,
+empty, LAN-address and all-interface variants were rendered with sanitized inputs;
+all other Compose settings match the baseline. Vite's internal `0.0.0.0` listener
+and proxy are unchanged. Live containers were not recreated and retain their old
+bindings. See [development-networking.md](development-networking.md).
 
 **SAFE-001 IMPLEMENTED:** `GENERATION_PAID_EXECUTION_ENABLED` permits known paid
 execution only for the exact process value `1`; unset, `0` and invalid values deny.

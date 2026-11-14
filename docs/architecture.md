@@ -22,6 +22,13 @@ Flask site blueprint -> XML sitemaps               [outside /api]
 
 The frontend runs Vite's dev server on 5173; Flask runs its development server on 8000 with debug enabled by default. Source directories are bind-mounted. Vite proxies `/api` to `VITE_API_PROXY_TARGET` or localhost:8000. There is no production reverse proxy/static hosting or SPA fallback deployment configuration here. Flask enables CORS for `/api/*` and registers public, admin, and root sitemap blueprints in [`backend/app/__init__.py`](../backend/app/__init__.py).
 
+Development host publishing defaults to `127.0.0.1` for database `5432`, backend
+`8000`, and frontend `5173`. `DEV_HOST_IP` explicitly changes all three bindings;
+unset or empty retains loopback. Internal service DNS, ports, Vite's `0.0.0.0`
+listener, and its `http://backend:8000` Compose proxy remain unchanged. This is a
+configuration default, not a change to already running containers. See
+[development-networking.md](development-networking.md).
+
 ## Frontend structure and main-page flow
 
 [`router/index.ts`](../frontend/src/router/index.ts) owns the route table; `index.js` is a compatibility re-export. Views are eagerly imported. `Home.vue`, `HoroscopeView.vue`, `ArchiveMonth.vue`, and `NotFound.vue` are content views; `ArchiveForecast.vue` is only a legacy-route validation/redirect shim. Endpoint-specific [`api/forecast.ts`](../frontend/src/api/forecast.ts) and [`api/archive.ts`](../frontend/src/api/archive.ts) own query construction, HTTP handling, and response parsing. The standalone `utils/businessDate.ts` helper still holds the server date context; there is no general HTTP client, shared forecast composable, or central store.

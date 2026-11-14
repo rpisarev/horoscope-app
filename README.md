@@ -134,6 +134,13 @@ is not implemented.
 
 ## Run locally
 
+Development host ports default to `127.0.0.1`: PostgreSQL `5432`, Flask `8000`,
+and Vite `5173`. `DEV_HOST_IP` explicitly opts all three services into another
+host interface; unset or empty keeps loopback. Container networking and Vite's
+internal bind address are unchanged. See [development networking](docs/development-networking.md)
+for remote development and safe configuration checks. Existing containers retain
+their bindings until a separately controlled recreation.
+
 ```bash
 docker compose up --build
 ```
