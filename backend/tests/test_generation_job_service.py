@@ -1,10 +1,13 @@
 from datetime import date, datetime, timedelta, timezone
+from types import SimpleNamespace
+from unittest.mock import Mock, call
 
 import pytest
 
 from app import db
 from app.models import Forecast, GenerationJob, GenerationRun
 from app.services import SIGNS, save_forecast
+from app.services import generation_job_service, generation_service
 from app.services.generation_job_service import (
     JOB_STATUS_CANCELLED,
     JOB_STATUS_FAILED,
@@ -24,6 +27,7 @@ from app.services.generation_job_service import (
     process_generation_jobs,
     retry_generation_job,
 )
+from app.services.sign_service import get_enabled_sign_keys
 
 
 def test_create_generation_job_creates_queued_job(app):
@@ -367,6 +371,98 @@ def test_process_generation_jobs_runs_stub_job(app):
             status="published",
         ).all()
         assert len(forecasts) == 1
+
+
+@pytest.mark.parametrize(
+    "coverage,run_status,should_fail",
+    [
+        ([[]], None, False),
+        ([["aries"], []], None, False),  # Another run completed coverage.
+        ([["aries"], ["aries"]], None, True),
+        ([["aries"]], "success", False),
+        ([["aries"]], "failed", False),
+        ([["aries"]], "running", False),
+    ],
+)
+def test_retry_missing_job_distinguishes_no_run_from_no_work(
+    monkeypatch, coverage, run_status, should_fail,
+):
+    job = SimpleNamespace(
+        target_date=date(2026, 6, 15), locale="uk", forecast_type="daily",
+        provider="stub", max_attempts=2, max_retry_runs=1,
+    )
+    run = SimpleNamespace(status=run_status) if run_status else None
+    missing = Mock(side_effect=coverage)
+    retry = Mock(return_value=run)
+    monkeypatch.setattr(generation_job_service, "get_missing_forecast_signs", missing)
+    monkeypatch.setattr(generation_job_service, "run_retry_for_missing_forecasts", retry)
+
+    if should_fail:
+        with pytest.raises(GenerationJobProcessingError, match="forecasts are still missing"):
+            generation_job_service._run_retry_missing_job(job, stale_after_hours=4)
+    else:
+        assert generation_job_service._run_retry_missing_job(job, stale_after_hours=4) is run
+
+    assert missing.call_args_list == [call(
+        target_date=job.target_date, locale="uk", forecast_type="daily",
+    )] * len(coverage)
+    if coverage[0]:
+        retry.assert_called_once_with(
+            target_date=job.target_date, locale="uk", forecast_type="daily",
+            provider_name="stub", max_attempts=2, max_retry_runs=1, stale_after_hours=4,
+        )
+    else:
+        retry.assert_not_called()
+
+
+@pytest.mark.parametrize("covered", [False, True])
+def test_worker_retry_limit_requires_complete_coverage(app, monkeypatch, covered):
+    """Exercise real retry counting and persisted worker outcomes without generation."""
+    provider_factory = Mock(side_effect=AssertionError("Retry cap must prevent generation"))
+    monkeypatch.setattr(generation_service, "get_horoscope_provider", provider_factory)
+    target_day = date(2026, 6, 15)
+
+    with app.app_context():
+        enabled_signs = get_enabled_sign_keys()
+        assert enabled_signs
+        retry_run = GenerationRun(
+            run_type="retry", target_date=target_day, locale="ru", forecast_type="daily",
+            status="failed", total_items=0,
+        )
+        db.session.add(retry_run)
+        db.session.commit()
+        if covered:
+            for sign in enabled_signs:
+                save_forecast(
+                    sign=sign, day=target_day, text="Existing published forecast.",
+                    model_version="existing-model", source="stub", status="published",
+                )
+
+        job, _ = create_generation_job(
+            job_type=JOB_TYPE_RETRY_MISSING, target_date=target_day,
+            provider="stub", max_retry_runs=1,
+        )
+        result = process_generation_jobs(limit=1, worker_id="retry-cap-test")
+
+        expected_status = JOB_STATUS_SUCCESS if covered else JOB_STATUS_FAILED
+        assert result["processed_count"] == 1
+        assert result["jobs"][0]["status"] == expected_status
+        assert result["jobs"][0]["run_id"] is None
+        db.session.refresh(job)
+        assert job.status == expected_status
+        assert job.run_id is None
+        assert job.attempt_count == 1
+        assert job.finished_at is not None
+        assert job.locked_at is None
+        assert job.locked_by is None
+        if covered:
+            assert job.error_message is None
+        else:
+            assert "forecasts are still missing" in job.error_message
+            assert "retry run limit" in job.error_message
+        assert GenerationRun.query.count() == 1
+        assert Forecast.query.count() == (len(enabled_signs) if covered else 0)
+        provider_factory.assert_not_called()
 
 
 def test_process_generation_jobs_rejects_openai_without_worker_allow(app, monkeypatch):

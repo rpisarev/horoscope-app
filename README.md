@@ -1181,6 +1181,10 @@ docker compose exec -T backend python utils/openai_prompt_probe.py --model gpt-5
 backend/utils/generate_forecast_package.py
 ```
 
+Exit status is `0` for a successful run (including already-published skipped items)
+and `1` for failed, partial, interrupted, or still-running results. Existing input
+errors retain their codes. See [CLI exit semantics](docs/cli-exit-codes.md).
+
 Stub:
 
 ```bash
@@ -1247,6 +1251,11 @@ docker compose exec -T backend python utils/create_generation_jobs.py \
 ```text
 backend/utils/process_generation_jobs.py
 ```
+
+Exit status is `0` for an empty batch or only successful jobs, and `1` if any
+processed job is unsuccessful. This does not promise a drained queue. Retry-missing
+work that exhausts its run cap while coverage remains incomplete is failed.
+Human-readable reports remain unchanged; see [CLI exit semantics](docs/cli-exit-codes.md).
 
 Stub:
 

@@ -1,11 +1,27 @@
 # Current Project State
 
-- State updated: 2026-11-14 (STAB-002 development networking, following STAB-007, STAB-001 and SAFE-001).
+- State updated: 2026-11-14 (STAB-002 development networking and STAB-004 CLI outcomes, following STAB-007, STAB-001 and SAFE-001).
 - Main working branch: `feature/main-page-start`
 - Iteration 2 baseline: `0b4cc05698a957b13411d149668208758367b6c2` (PR #22 squash merge into `feature/main-page-start`); its tree matches the previous stabilization integration `c191ea7`. Work takes place in an isolated integration worktree; this does not deploy the changes.
 - Earlier publication audit baseline: `34623b27bd69d681edf1a3ab8f8aac31bc74cafa` (`Update frontend (#20)`). Results and runtime observations in the historical sections below belong to their recorded checkpoints.
 
 ## Stabilization checkpoint
+
+**STAB-004 IMPLEMENTED:** Package CLI exits `0` only for a successful run,
+including an all-skipped package; failed, partial, interrupted and existing active
+runs return `1`. Worker CLI exits `0` for zero jobs or all successful jobs, otherwise
+`1`. Existing invocation errors and report formats remain unchanged. Retry-missing
+jobs now fail if the lifecycle returns no run while coverage remains incomplete;
+complete coverage retains no-work success. No lifecycle states or queue algorithm
+changed. See [cli-exit-codes.md](cli-exit-codes.md).
+
+**ITERATION 2 INTEGRATED VERIFICATION (2026-11-14):** 19 database-safety mock
+guards passed before test execution; 160 focused CLI/worker/publication/paid-policy
+tests passed, followed by **397 full backend tests in 14.80s**. Both backend runs
+used the STAB-007 disposable harness, sanitized host environments, dummy credentials,
+and fail-on-unexpected-network/process guards; their projects cleaned up. Tests
+cover the combined STAB-002 and STAB-004 source with the prior three safety fixes.
+These are local checks, not a GitHub CI result.
 
 **STAB-002 IMPLEMENTED / STATICALLY VERIFIED:** Development Compose publishes
 PostgreSQL `5432`, Flask `8000`, and Vite `5173` on `127.0.0.1` by default.
@@ -36,8 +52,8 @@ No paid requests, live-service restart, or development-data writes were performe
 budget control. Direct execution still lacks queue count limits once enabled;
 quota classification is per item, not a cross-run circuit breaker. A blocked
 claimed job retains existing failed-job/claim accounting and needs explicit review
-before retry. Immediate package CLI failure exit-code behavior is still a separate
-follow-up. Scheduler reactivation requires its own controlled operational decision.
+before retry. CLI failure exit codes are corrected by STAB-004 above; scheduler
+reactivation still requires its own controlled operational decision.
 
 **STAB-001 IMPLEMENTED:** Structured `insufficient_quota` is nonretryable per
 generation item. The lifecycle owns retries; OpenAI SDK retries are disabled for
