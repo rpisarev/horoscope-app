@@ -39,7 +39,7 @@ migration must precede worker-only credentials. The ADR entry-point matrix separ
 enqueue, execution, publication and recovery authority. Numeric cap, measured lease/
 deadline values, migration windows and operational settings remain pending.
 
-[`docker-compose.yml`](../docker-compose.yml) defines PostgreSQL 17 Alpine, a Python 3.12 backend, a scheduler using the same backend image, and a Node 20 frontend. Backend starts with `alembic upgrade head && python run.py`; scheduler waits for backend health. PostgreSQL data and frontend dependencies use named volumes. The database password comes from a local Docker secret.
+[`docker-compose.yml`](../docker-compose.yml) defines PostgreSQL 17 Alpine, a Python 3.12 backend, a scheduler using the same backend image, and a Node 22 frontend. STAB-003 updates the isolated frontend toolchain to Vite 6.4.6 / Vitest 4.1.12; see [version rationale and verification](frontend-toolchain.md). This does not update running images or dependency volumes. Backend starts with `alembic upgrade head && python run.py`; scheduler waits for backend health. PostgreSQL data and frontend dependencies use named volumes. The database password comes from a local Docker secret.
 
 The frontend runs Vite's dev server on 5173; Flask runs its development server on 8000 with debug enabled by default. Source directories are bind-mounted. Vite proxies `/api` to `VITE_API_PROXY_TARGET` or localhost:8000. There is no production reverse proxy/static hosting or SPA fallback deployment configuration here. Flask enables CORS for `/api/*` and registers public, admin, and root sitemap blueprints in [`backend/app/__init__.py`](../backend/app/__init__.py).
 

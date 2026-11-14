@@ -7,6 +7,15 @@
 
 ## Stabilization checkpoint
 
+**STAB-003 IMPLEMENTED (2026-11-15):** Vite 6.4.6 and Vitest 4.1.12 replace the
+affected root/nested Vite versions; Vue, Router, Swiper and application code are
+unchanged. Compose now selects Node 22, matching CI's major; no running container
+or dependency volume was updated. In the isolated frontend worktree, locked
+installation, typecheck, 111 unit tests, build and 22 POC fixture checks passed.
+`npm audit` changed from 22 to 12 affected package entries (2 critical, 9 high,
+1 moderate remain outside the Vite task). This is not an audit-clean or deployed
+security claim. See [toolchain evidence and residual advisories](frontend-toolchain.md).
+
 **STAB-015.01 COMPLETED — ACCEPTED POLICY, NOT IMPLEMENTED:** The owner explicitly
 approved D1–D8 in the [production execution ADR](adr/STAB-015-generation-execution.md),
 decision date **2026-11-14**. It is the authoritative target: queue-first production;

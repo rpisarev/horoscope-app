@@ -37,6 +37,13 @@ Docker Compose plugin
 Linux shell
 ```
 
+For frontend commands outside Docker, use a current patched Node 22 LTS
+(minimum 22.12), or a compatible supported Node 24+ release. The development
+Compose frontend image is Node 22; CI also uses Node 22. See
+[frontend toolchain verification](docs/frontend-toolchain.md) for the focused
+Vite/Vitest update, commands and remaining dependency advisories. Running containers
+and existing dependency volumes are not updated by changing the lockfile.
+
 Check Docker:
 
 ```bash
