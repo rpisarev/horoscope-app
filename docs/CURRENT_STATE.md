@@ -1,11 +1,53 @@
 # Current Project State
 
-- State updated: 2026-11-14 (STAB-007, STAB-001 and SAFE-001 stabilization).
+- State updated: 2026-11-14 (STAB-002, STAB-004 and the proposed STAB-015 ADR, following STAB-007, STAB-001 and SAFE-001).
 - Main working branch: `feature/main-page-start`
-- Stabilization integration baseline: `1122c36ba6dea50c441a232be12532440d0715f9` (PR #21 squash merge). Work takes place in an isolated integration worktree; this does not deploy the changes.
+- Iteration 2 baseline: `0b4cc05698a957b13411d149668208758367b6c2` (PR #22 squash merge into `feature/main-page-start`); its tree matches the previous stabilization integration `c191ea7`. Work takes place in an isolated integration worktree; this does not deploy the changes.
 - Earlier publication audit baseline: `34623b27bd69d681edf1a3ab8f8aac31bc74cafa` (`Update frontend (#20)`). Results and runtime observations in the historical sections below belong to their recorded checkpoints.
 
 ## Stabilization checkpoint
+
+**STAB-015 PROPOSED / PENDING OWNER APPROVAL:** The
+[production execution ADR](adr/STAB-015-generation-execution.md) compares queue
+default with restricted direct execution, equal direct/queue paths, and direct-only
+execution. It recommends evaluating one PostgreSQL-backed worker and one producer,
+with atomic admission, lease fencing, durable attempt intent and explicit cost
+accounting before unattended paid operation. This is a proposal and implementation
+backlog, not an accepted policy or a topology/schema/configuration change. The
+[task cards](adr/STAB-015-backlog.md) separate immediate duplicate handling and
+read-only visibility from owner-dependent admission, accounting and recovery. The
+current scheduler default is still direct; SAFE-001 still denies paid calls by
+default. No scheduler restart or production enablement is part of this iteration.
+
+**STAB-004 IMPLEMENTED:** Package CLI exits `0` only for a successful run,
+including an all-skipped package; failed, partial, interrupted and existing active
+runs return `1`. Worker CLI exits `0` for zero jobs or all successful jobs, otherwise
+`1`. Existing invocation errors and report formats remain unchanged. Retry-missing
+jobs now fail if the lifecycle returns no run while coverage remains incomplete;
+complete coverage retains no-work success. No lifecycle states or queue algorithm
+changed. See [cli-exit-codes.md](cli-exit-codes.md).
+
+**ITERATION 2 INTEGRATED VERIFICATION (2026-11-14):** 19 database-safety mock
+guards passed before test execution; 160 focused CLI/worker/publication/paid-policy
+tests passed, followed by **397 full backend tests in 14.80s**. Both backend runs
+used the STAB-007 disposable harness, sanitized host environments, dummy credentials,
+and fail-on-unexpected-network/process guards; their projects cleaned up. Tests
+cover the combined STAB-002 and STAB-004 source with the prior three safety fixes.
+These are local checks, not a GitHub CI result.
+
+The final STAB-015 documentation review checked 14 ADR sections, 22 task cards,
+160 relative links across the affected documentation, and integrated CLI source
+references. Independent reviews corrected the durable-intent uncertainty boundary
+and made monitoring/topology dependencies explicit. The third changeset contains
+documentation only, so the 397-test result remains applicable to the final code.
+
+**STAB-002 IMPLEMENTED / STATICALLY VERIFIED:** Development Compose publishes
+PostgreSQL `5432`, Flask `8000`, and Vite `5173` on `127.0.0.1` by default.
+`DEV_HOST_IP` provides one explicit override for all three host bindings. Unset,
+empty, LAN-address and all-interface variants were rendered with sanitized inputs;
+all other Compose settings match the baseline. Vite's internal `0.0.0.0` listener
+and proxy are unchanged. Live containers were not recreated and retain their old
+bindings. See [development-networking.md](development-networking.md).
 
 **SAFE-001 IMPLEMENTED:** `GENERATION_PAID_EXECUTION_ENABLED` permits known paid
 execution only for the exact process value `1`; unset, `0` and invalid values deny.
@@ -28,8 +70,8 @@ No paid requests, live-service restart, or development-data writes were performe
 budget control. Direct execution still lacks queue count limits once enabled;
 quota classification is per item, not a cross-run circuit breaker. A blocked
 claimed job retains existing failed-job/claim accounting and needs explicit review
-before retry. Immediate package CLI failure exit-code behavior is still a separate
-follow-up. Scheduler reactivation requires its own controlled operational decision.
+before retry. CLI failure exit codes are corrected by STAB-004 above; scheduler
+reactivation still requires its own controlled operational decision.
 
 **STAB-001 IMPLEMENTED:** Structured `insufficient_quota` is nonretryable per
 generation item. The lifecycle owns retries; OpenAI SDK retries are disabled for
@@ -154,7 +196,7 @@ App starts metadata loading without gating its router view and remains the sole 
 
 **VERIFIED:** Jobs are orchestration; runs/items/attempts are execution history. Workers claim PostgreSQL jobs with `FOR UPDATE SKIP LOCKED`, execute `generation_service`, and record results. Lifecycle generation skips existing **published** rows regardless of source; retry/coverage selection also counts published stubs. Prompts use deterministic variation and keep sign/date in metadata rather than direct creative instructions. Validated results are persisted as published forecasts.
 
-Scheduler target dates use `APP_TIMEZONE` (default `Europe/Kyiv`) and default to today + tomorrow. Direct and queued modes share that policy. Queue/admin/CLI paths have explicit OpenAI gates; these are not a universal guard on the legacy direct scheduler or prompt-probe utility. No live OpenAI generation was run.
+Scheduler target dates use `APP_TIMEZONE` (default `Europe/Kyiv`) and default to today + tomorrow. Direct and queued modes share that policy. SAFE-001 now protects direct scheduler and prompt-probe paid calls as well as the queue/admin/CLI paths. Their local permissions still differ; direct execution does not gain queue count limits when globally enabled. No live OpenAI generation was run.
 
 ## Provider policy and publication safety
 
@@ -221,7 +263,7 @@ Focused checks passed before full verification: backend archive tests **19 passe
 
 ## Known architectural issues
 
-- **NEWLY OBSERVED DURING GUARD IMPLEMENTATION:** The immediate package CLI prints a failed run and its error but retains its existing zero exit code. The guard prevents publication; shell automation must currently inspect the reported status. Exit-code behavior is a separate operational follow-up.
+- **RESOLVED IN STAB-004:** Failed, partial and incomplete generation no longer reports process success through the package/worker CLIs. Valid no-work remains successful. Retry-missing run-cap exhaustion with missing content now maps to a failed job; details and verification are recorded above.
 
 - **RESOLVED IN TASK 1:** Public forecast GET no longer creates stubs or exposes draft/non-published rows. `test_api_forecast.py` covers published normal/stub responses, exact missing/draft responses, repeated missing reads with no forecast/audit rows or commits, blocked generation/provider calls, scope filters, and invalid inputs. Old tests requiring GET-created stubs were replaced; year tests now seed data explicitly.
 - **HISTORICAL DATA / OPEN QUESTION:** Existing published stubs remain readable and still count toward generation skip rules, archive coverage, and sitemaps. This task does not clean or replace them; their future treatment is undecided.

@@ -173,7 +173,8 @@ def main() -> int:
     if args.show_jobs:
         print_jobs(result)
 
-    return 0
+    # An empty batch is legitimate no-work; every processed job must succeed.
+    return 0 if all(job["status"] == "success" for job in result["jobs"]) else 1
 
 
 if __name__ == "__main__":

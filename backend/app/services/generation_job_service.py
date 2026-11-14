@@ -1376,7 +1376,7 @@ def _run_retry_missing_job(
     if not missing_signs:
         return None
 
-    return run_retry_for_missing_forecasts(
+    run = run_retry_for_missing_forecasts(
         target_date=job.target_date,
         locale=job.locale,
         forecast_type=job.forecast_type,
@@ -1385,6 +1385,20 @@ def _run_retry_missing_job(
         max_retry_runs=job.max_retry_runs,
         stale_after_hours=stale_after_hours,
     )
+
+    # None also means the retry-run cap was reached. Coverage may have changed
+    # concurrently, so only report no-work success when nothing remains missing.
+    if run is None and get_missing_forecast_signs(
+        target_date=job.target_date,
+        locale=job.locale,
+        forecast_type=job.forecast_type,
+    ):
+        raise GenerationJobProcessingError(
+            "Retry-missing generation returned no run while forecasts are still missing "
+            "(retry run limit may have been reached)."
+        )
+
+    return run
 
 
 def serialize_generation_job(job: GenerationJob) -> dict[str, Any]:

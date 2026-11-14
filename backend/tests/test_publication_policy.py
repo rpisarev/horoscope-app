@@ -168,7 +168,7 @@ def test_package_cli_reports_policy_failure(app, monkeypatch, capsys):
     monkeypatch.setattr("app.create_app", lambda: app)
     monkeypatch.setattr(generate_forecast_package, "load_local_env", lambda: None)
     monkeypatch.setattr("sys.argv", ["generate_forecast_package.py", "--date", DAY.isoformat(), "--provider", "stub"])
-    generate_forecast_package.main()
+    assert generate_forecast_package.main() == 1
     assert "Publication policy" in capsys.readouterr().out
     assert GenerationRun.query.one().status == "failed"
     assert Forecast.query.count() == 0

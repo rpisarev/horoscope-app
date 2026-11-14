@@ -274,7 +274,8 @@ def main() -> int:
         if args.show_errors:
             print_failed_attempts(run.id)
 
-    return 0
+        # An existing active run may be returned without completing this request.
+        return 0 if run.status == "success" else 1
 
 
 if __name__ == "__main__":

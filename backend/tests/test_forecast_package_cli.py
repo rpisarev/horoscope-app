@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import pytest
 
 from utils import generate_forecast_package as cli
@@ -10,7 +12,7 @@ def cli_calls(app, monkeypatch):
 
     def record_generation(**kwargs):
         calls.append(kwargs)
-        return object()
+        return SimpleNamespace(status="success")
 
     monkeypatch.setenv("HOROSCOPE_PROVIDER", "openai")
     monkeypatch.setenv("OPENAI_API_KEY", "test-key-never-used")

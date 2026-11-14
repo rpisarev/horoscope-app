@@ -2,6 +2,12 @@
 
 Vue + Flask application for sign-agnostic daily horoscope generation.
 
+Current implementation and verification are recorded in
+[CURRENT_STATE.md](docs/CURRENT_STATE.md) and [architecture.md](docs/architecture.md).
+The [STAB-015 production execution ADR](docs/adr/STAB-015-generation-execution.md)
+is **Proposed / Pending owner approval**; it does not change runtime defaults or
+authorize automatic paid generation.
+
 The project runs locally with Docker Compose and includes:
 
 ```text
@@ -133,6 +139,13 @@ boundaries and the separate remaining metadata-integrity follow-up. Ollama/Qwen
 is not implemented.
 
 ## Run locally
+
+Development host ports default to `127.0.0.1`: PostgreSQL `5432`, Flask `8000`,
+and Vite `5173`. `DEV_HOST_IP` explicitly opts all three services into another
+host interface; unset or empty keeps loopback. Container networking and Vite's
+internal bind address are unchanged. See [development networking](docs/development-networking.md)
+for remote development and safe configuration checks. Existing containers retain
+their bindings until a separately controlled recreation.
 
 ```bash
 docker compose up --build
@@ -1174,6 +1187,10 @@ docker compose exec -T backend python utils/openai_prompt_probe.py --model gpt-5
 backend/utils/generate_forecast_package.py
 ```
 
+Exit status is `0` for a successful run (including already-published skipped items)
+and `1` for failed, partial, interrupted, or still-running results. Existing input
+errors retain their codes. See [CLI exit semantics](docs/cli-exit-codes.md).
+
 Stub:
 
 ```bash
@@ -1240,6 +1257,11 @@ docker compose exec -T backend python utils/create_generation_jobs.py \
 ```text
 backend/utils/process_generation_jobs.py
 ```
+
+Exit status is `0` for an empty batch or only successful jobs, and `1` if any
+processed job is unsuccessful. This does not promise a drained queue. Retry-missing
+work that exhausts its run cap while coverage remains incomplete is failed.
+Human-readable reports remain unchanged; see [CLI exit semantics](docs/cli-exit-codes.md).
 
 Stub:
 

@@ -1,6 +1,11 @@
 # Current architecture
 
-This describes `feature/main-page-start` at `34623b2` plus the provider publication guard implemented on 2026-09-29, including the earlier read-only forecast/business-date milestone and sign-aware archive integration. Current behavior, agreed policy, and future direction are separated below. The publication guard is implemented; an Ollama/Qwen adapter is not. See [CURRENT_STATE.md](CURRENT_STATE.md) for the dated snapshot, verification results, and open decisions. [README.md](../README.md) remains the setup reference.
+This describes the verified `feature/main-page-start` baseline `0b4cc05` (PR #22),
+including STAB-007, STAB-001 and SAFE-001, with iteration 2's development-port and
+CLI-outcome fixes. Current behavior, agreed policy, and proposed architecture are
+separated below. Production publication and paid-execution guards are implemented;
+an Ollama/Qwen adapter is not. See [CURRENT_STATE.md](CURRENT_STATE.md) for dated
+verification and open decisions. [README.md](../README.md) remains the setup reference.
 
 ## System overview and entry points
 
@@ -18,9 +23,22 @@ APScheduler (tasks.py, separate Compose service)
 Flask site blueprint -> XML sitemaps               [outside /api]
 ```
 
+Production execution alternatives, recovery and cost controls are analyzed in
+[STAB-015](adr/STAB-015-generation-execution.md), **Proposed / Pending owner approval**.
+Its queue-default recommendation is not the implemented scheduler default shown
+above. No new worker topology, lease fencing, ledger or production policy is
+introduced by that documentation changeset.
+
 [`docker-compose.yml`](../docker-compose.yml) defines PostgreSQL 17 Alpine, a Python 3.12 backend, a scheduler using the same backend image, and a Node 20 frontend. Backend starts with `alembic upgrade head && python run.py`; scheduler waits for backend health. PostgreSQL data and frontend dependencies use named volumes. The database password comes from a local Docker secret.
 
 The frontend runs Vite's dev server on 5173; Flask runs its development server on 8000 with debug enabled by default. Source directories are bind-mounted. Vite proxies `/api` to `VITE_API_PROXY_TARGET` or localhost:8000. There is no production reverse proxy/static hosting or SPA fallback deployment configuration here. Flask enables CORS for `/api/*` and registers public, admin, and root sitemap blueprints in [`backend/app/__init__.py`](../backend/app/__init__.py).
+
+Development host publishing defaults to `127.0.0.1` for database `5432`, backend
+`8000`, and frontend `5173`. `DEV_HOST_IP` explicitly changes all three bindings;
+unset or empty retains loopback. Internal service DNS, ports, Vite's `0.0.0.0`
+listener, and its `http://backend:8000` Compose proxy remain unchanged. This is a
+configuration default, not a change to already running containers. See
+[development-networking.md](development-networking.md).
 
 ## Frontend structure and main-page flow
 
@@ -130,7 +148,7 @@ The entry-point-specific controls below remain additional requirements.
 
 | Entry point | Selection and defaults | Relevant gates / persistence |
 | --- | --- | --- |
-| Direct lifecycle `run_daily_generation` | Explicit `provider_name`, otherwise factory environment/default. | Shared publication policy before generation; no universal paid-provider opt-in. |
+| Direct lifecycle `run_daily_generation` | Explicit `provider_name`, otherwise factory environment/default. | Global paid-execution guard and shared publication policy before generation. Once globally enabled, direct execution still lacks queue count/admission limits. |
 | Direct scheduler daily and retry-missing | `tasks.py` reads `HOROSCOPE_PROVIDER` at process initialization, default `stub`; Compose also defaults it to `stub`. | Default `GENERATION_SCHEDULER_USE_QUEUE=0` calls lifecycle directly. Queue OpenAI flags do not guard this path. |
 | Scheduler queue producer | Same scheduler provider, passed explicitly into scheduled/retry-missing job creation. | OpenAI creation requires `GENERATION_SCHEDULED_JOBS_ALLOW_OPENAI`; provider persists in each job. |
 | Queue creation service, ranges/backfills | Omitted provider defaults to `stub`, independently of `HOROSCOPE_PROVIDER`; accepts only `stub`/`openai`. | OpenAI needs `allow_openai`; each range member stores the selected provider. |
@@ -172,7 +190,7 @@ A future adapter needs one registry definition with its factory and capabilities
 
 Both settings are validated at Flask app creation and revalidated at publication checks; tests explicitly configure test mode. Compose forwards them to backend and scheduler with unset-only defaults, preserving an explicit empty value for validation/deny-all behavior. This minimal implementation differs from the audit's earlier illustrative design: there is no separate generation allowlist, and absent deployment mode defaults to development rather than denying local startup. `FLASK_DEBUG` never selects policy. Startup validation does not itself generate or touch forecast data.
 
-Lifecycle preflight denial records a failed run with a clear non-retryable `PublicationPolicyError` message and no provider attempt. Workers check the current policy against persisted `job.provider` before execution and record a failed job on denial, even when the job was created in development or requeued. A final persistence denial uses existing failed item/attempt handling and cannot overwrite an existing forecast. Immediate admin returns the existing run-status envelope (including failed status/error); scheduler and package CLI report failed runs through their existing reporting. Job creation is not a promise of later publication and can still enqueue a stub job that production workers reject. No provider substitution occurs; existing OpenAI paid-execution gates are unchanged.
+Lifecycle preflight denial records a failed run with a clear non-retryable `PublicationPolicyError` message and no provider attempt. Workers check the current policy against persisted `job.provider` before execution and record a failed job on denial, even when the job was created in development or requeued. A final persistence denial uses existing failed item/attempt handling and cannot overwrite an existing forecast. Immediate admin returns the existing run-status envelope (including failed status/error); scheduler and package CLI report failed runs through their existing reporting. Package CLI returns `1` for unsuccessful or incomplete runs; worker CLI returns `1` if any processed job is unsuccessful. Success and legitimate no-work return `0`. Retry-missing `None` is only treated as no-work success when coverage is complete; remaining gaps produce a failed job. See [cli-exit-codes.md](cli-exit-codes.md). Job creation is not a promise of later publication and can still enqueue a stub job that production workers reject. No provider substitution occurs; existing OpenAI paid-execution gates are unchanged.
 
 Focused tests cover development/test stub success, production denial including a mistakenly allowlisted stub, no insert/overwrite, direct lifecycle/scheduler/admin/CLI paths, persisted scheduled/manual/retry/backfill jobs and requeues, runtime policy changes at persistence, misleading result metadata, approved fake real providers, and invalid configuration. No paid requests are needed.
 

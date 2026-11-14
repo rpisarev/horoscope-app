@@ -233,7 +233,7 @@ class PaidExecutionPolicyTests(unittest.TestCase):
         os.environ["OPENAI_API_KEY"] = "unit-test-fake-key"
         with patch.object(sys, "argv", ["generate_forecast_package.py", "--date", "2026-11-14",
                                         "--provider", "openai", "--allow-openai"]), patch("builtins.print"):
-            cli.main()
+            self.assertEqual(cli.main(), 1)
         run = cli.print_run_summary.call_args.args[0]
         self.assertEqual(run.status, "failed")
         self.assertIn("Paid execution denied", run.error_message)
