@@ -49,8 +49,10 @@ const breakpoints = {
   768: { slidesPerView: 1   },
 }
 
-function onSlide(sw: any){
-  active.value = sw.realIndex
+function onSlide(sw: SwiperType){
+  const index = sw.realIndex
+  if (!Number.isInteger(index) || index < 0 || index >= zodiacs.length) return
+  active.value = index
   emit('update:modelValue', zodiacs[active.value].key)
 }
 
