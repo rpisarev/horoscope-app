@@ -3,7 +3,8 @@
 **D1–D8 Accepted — 2026-11-14; STAB-015.01 COMPLETED (documentation only).**
 **Статуси реалізації нижче оновлюються окремо від Accepted policy.**
 На baseline PR #23, `2b71659`, усі implementation cards були OPEN.
-STAB-015.03a/.05a/.07a/.07b завершено в iteration 3; решта, крім .01, OPEN.
+STAB-015.03a/.05a/.07a/.07b завершено в iteration 3. Iteration 4 додає .02a
+(storage only) і .08c-A (production probe ban); .08c-B та решта implementation cards OPEN.
 STAB-003 toolchain також виконано; residual dependency advisories мають окремий
 follow-up. Це локальна реалізація, не deployment або paid permission.
 Батьківський документ: [ADR STAB-015](STAB-015-generation-execution.md).
@@ -44,6 +45,13 @@ development/production DB writes або live rollout як спосіб пере�
 
 ## STAB-015.02a — additive execution та API-attempt ledger schema
 
+**COMPLETED — iteration 4, 2026-11-15.** Additive revision
+`0006_generation_ledger`: execution starts, append-only run links, paid-request
+intent/reservation identities та outcome observations; без runtime writers або
+legacy backfill. [P3 storage review, constraints і verification](../generation-ledger-schema.md).
+P3 admission/locking/fencing protocol залишається залежністю відповідних наступних
+карток; storage approval не завершує весь P3 і не дозволяє paid rollout.
+
 - **Проблема:** mutable jobs/links не є immutable history або hard request-attempt ledger (E06/E11/E16).
 - **Scope:** additive schema execution identity/start/origin/policy snapshot, per-request intent/reservation/outcome та зв'язків. Без runtime writer/admission switch.
 - **Залежності:** completed .01; D2/D3/D4, P3 storage/retention design; збереження historical rows.
@@ -55,7 +63,9 @@ development/production DB writes або live rollout як спосіб пере�
 
 - **Проблема:** retry/reclaim повторно використовує або очищає job timestamps.
 - **Scope:** execution-start records на claims та дозволені internal/dev paths, stable job/execution/run links; без підміни D2 cap цією одиницею.
-- **Залежності:** .02a; D1/D2/D6.
+- **Залежності:** .02a completed; D1/D2/D6. Production activation .02b додатково
+  потребує справжнього epoch з .04a; не вигадувати epoch для проходження schema
+  constraint. Це gate activation, не циклічна залежність реалізації .02b → .04a.
 - **Acceptance:** retry/reclaim не стирають попередні execution IDs/links; claim/preflight denial відрізняється від paid request admission. A02.
 - **Test strategy:** fake/stub executions, UTC rollover, denial, crash до/після start commit; не викликати provider.
 - **Ризики / розмір:** подвійний start або пропущений caller; **M**. Request accounting завершують .02c/.03c.
@@ -236,12 +246,36 @@ historical SLO evidence, heartbeat/pause/cost reasons лишаються поз�
 
 ## STAB-015.08c — production probe ban і bounded dev diagnostics
 
-- **Проблема:** probe має global guard, але не production ban або bounded audited request accounting.
+**PARTIAL:** .08c-A completed в iteration 4; .08c-B OPEN. Повна .08c не завершена.
+
+- **Початкова проблема:** probe мав global guard без production ban або bounded audited request accounting. .08c-A закриває ban; accounting лишається .08c-B.
 - **Scope:** **заборонити paid probe в production** main/helper незалежно від global=1; dev diagnostics explicit authorization + SAFE-001 + bounded auditable API-attempt admission. Diagnostic output не publish; read-only listing зберегти.
 - **Залежності:** D6 accepted; production-denial частина незалежна від нового ledger; dev transport enablement потребує .02c/.03c та визначеного dev cap/authority. Повна .08c обов'язкова до .08d, або dev transport залишається explicitly disabled до її завершення.
 - **Acceptance:** немає production diagnostic exception; direct helper не обходить denial/accounting; SDK retry behavior не приховує uncapped attempts. Unknown не auto-replay/refund. A14.
 - **Test strategy:** fake SDK/MockTransport, production deny even enabled global, read-only listing, dev auth/gate/cap matrix і audited request counts; жодного live probe.
 - **Ризики / розмір:** untracked dev requests, accidental production exception; **M**. Два reviewable commits: production ban → bounded dev admission; не лишати enabled unaccounted проміжний стан.
+
+### STAB-015.08c-A — production probe prohibition — COMPLETED
+
+- **Scope / result:** CLI main і direct helper забороняють production paid probe
+  незалежно від SAFE-001=1; missing/invalid process mode fail-closed. Listing
+  пропускає dotenv/SDK; незалежний global gate збережений.
+- **Evidence:** [probe contract і tests](../production-probe-policy.md), integrated
+  [checkpoint](../CURRENT_STATE.md). Немає runtime paid enablement.
+
+### STAB-015.08c-B — bounded audited development diagnostics — OPEN
+
+- **Problem / scope:** retained dev path не має per-request ledger/cap, explicit
+  diagnostic authority або узгоджених SDK retry guarantees. Додати bounded dev
+  admission без production exception або automatic publication.
+- **Dependencies:** .02c/.03c, P1 dev admission scope/cap і P5 authority; .08c-A
+  already completed. Новий storage .02a сам не дозволяє transport.
+- **Acceptance:** кожен dev paid request/retry проходить explicit authorization,
+  SAFE-001 та counted reservation; unknown не replay/refund; direct helper не bypass.
+- **Tests / risk:** fake SDK/MockTransport, cap/authority/deny/unknown matrix;
+  ризик hidden SDK requests. **M**, відокремити retry-ownership підкрок за потреби.
+- **Interim rule:** зберігати реальні diagnostics disabled до завершення .08c-B.
+  Кодова сумісність development/test з independent global gate не є authorization.
 
 ## STAB-015.08e — ізоляція producer/worker credential environments
 

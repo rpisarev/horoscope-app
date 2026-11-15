@@ -43,6 +43,17 @@ Source references і таблиці «поточна поведінка» ниж
 policy, async migration, worker-only credentials і queue-default rollout ще не
 реалізовані; нові read-only reports не надають recovery або paid authority.
 
+**Implementation delta — iteration 4, 2026-11-15:** Base `17fb256` (PR #25).
+STAB-015.02a додає порожню additive ledger schema `0006_generation_ledger`;
+[P3 storage design](../generation-ledger-schema.md) reviewed integrator-ом, але
+runtime writers, hard cap, locking/fencing і recovery ще не реалізовані.
+STAB-015.08c-A блокує production paid probe у main/helper; .08c-B bounded audited
+dev diagnostics залишається OPEN, як і решта .08c. Окремо виконані STAB-029,
+SEC-001 та STAB-005. [CURRENT_STATE](../CURRENT_STATE.md) містить інтегровану
+verification. Таблиці source facts нижче зберігають історичні ревізії; цей delta
+уточнює лише зазначені реалізовані ділянки. D1–D8, paid deny default і runtime
+не змінені; schema implementation не є deployed ledger або paid authorization.
+
 ## 2. Контекст і перевірені факти
 
 ### Межі доказів
@@ -432,7 +443,8 @@ Live DB writes, generation commands, migrations/restarts/volume operations не 
 ## 11. Реалізація прийнятого рішення
 
 **STAB-015.01 completed (documentation only); .03a/.05a/.07a/.07b completed
-в iteration 3.** Решта карток відкриті; production architecture не завершена.
+в iteration 3; .02a storage та .08c-A production probe ban completed в iteration 4.**
+Решта карток, включно .08c-B, відкриті; production architecture не завершена.
 [Backlog](STAB-015-backlog.md) містить stable IDs і prerequisite chain;
 [iteration-3 handoff](STAB-015-next-iteration.md) зберігає ownership, початковий
 scope та поточні completion markers. Призначення implementation task не є дозволом на live rollout.
@@ -440,7 +452,7 @@ scope та поточні completion markers. Призначення implementat
 1. **Виконано локально:** ранні незалежні changesets .03a dedupe, .05a per-job inspection, .07a DB
    readiness, .07b aggregate coverage/queue/SLO visibility; STAB-003 toolchain
    upgrade окремо. Вони не вводять новий ledger або runtime rollout.
-2. .02a schema → .02b execution history → .02c durable request intent; .02d reliable
+2. .02a schema (completed, no writers) → .02b execution history → .02c durable request intent; .02d reliable
    usage/estimated cost. .03b package exclusivity; .03c UTC **API-attempt** cap
    з atomic reservation перед кожним transport. Job count не substitute.
 3. .04a epochs/heartbeat → .04b publication/item/attempt fencing → .04c усі інші
@@ -448,7 +460,7 @@ scope та поточні completion markers. Призначення implementat
 4. .06a quota/auth/permission pause та .06b limited safe retry з D2 admission;
    .07c execution diagnostics доповнює ранні read-only signals.
 5. .08a explicit async compatibility → **обов'язкова .08b keyless migration**;
-   .08c production probe ban/bounded dev diagnostics; .08e окремі credential
+   .08c-A production probe ban completed; .08c-B bounded dev diagnostics pending; .08e окремі credential
    environments producer/worker. Вони більше не conditional N/A за D6/D7.
 6. .08f today→tomorrow→backfill і fairness; .08d queue-default/direct restriction
    лише після ledger/admission/fencing/recovery/retry/visibility, compatibility,

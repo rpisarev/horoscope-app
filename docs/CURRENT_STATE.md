@@ -1,11 +1,78 @@
 # Current Project State
 
-- State updated: 2026-11-15 (stabilization iteration 3 implementation; ADR decision date remains 2026-11-14).
+- State updated: 2026-11-15 (stabilization iteration 4 implementation; ADR decision date remains 2026-11-14).
 - Main working branch: `feature/main-page-start`
-- Verified iteration 3 base: `4fe11beaa3109f50a738ddcd274b8cab59fd058e` (PR #24 merged). Local and actual remote `feature/main-page-start` matched; its tree matches STAB-015.01's `7119cf7`, incorporating Accepted D1–D8 and prior PR #23/#22 fixes. Final work is isolated in `integration/project-stabilization-3-verified`; the live bind-mounted checkout on `feature/project-stabilization4` remains at the base.
+- Verified iteration 4 base: `17fb256ce8f5e651a5d05b4a8911d905585f4e82` (PR #25 merged; GitHub metadata, local and actual remote `feature/main-page-start` agree). STAB-015 D1–D8 remain Accepted. Work is isolated in `/tmp/horoscope-iter4-integration`, branch `integration/project-stabilization-4`; the live checkout stays on `feature/project-stabilization5` at the base.
+- Historical iteration 3 base: `4fe11be` (PR #24), incorporating STAB-015.01 and earlier safety fixes. The older verification sections below retain their own evidence and dates.
 - Earlier publication audit baseline: `34623b27bd69d681edf1a3ab8f8aac31bc74cafa` (`Update frontend (#20)`). Results and runtime observations in the historical sections below belong to their recorded checkpoints.
 
-## Stabilization checkpoint
+## Stabilization checkpoint — iteration 4
+
+**IMPLEMENTED:** STAB-029, SEC-001, STAB-005, STAB-015.08c-A and .02a.
+Five native agents used separate worktrees from the same base. The orchestrator
+regenerated the authoritative combined lock, reviewed P3 storage before migration,
+serialized backend verification and reconciled documentation. No shared branch
+merge, push, deployment or live runtime activation is part of this checkpoint.
+
+| Task | Implemented boundary |
+| --- | --- |
+| STAB-029 | Swiper 12.2.0; narrow malformed-realIndex guard after reproducing a crash; component/router-adapter, real-Swiper jsdom and isolated advisory regressions. Valid-event synchronization remains unchanged. [Evidence](swiper-security.md). |
+| SEC-001 | form-data 4.0.6 plus required hasown 2.0.4; jsdom 24.1.3 and Vue/Router/Vite/Vitest unchanged. [Evidence](form-data-security.md). |
+| STAB-005 | Committed validated route owns forecast loading; invalid-route/unmount cleanup rejects late results; same-valid recovery and duplicate-fetch prevention. [Contract](horoscope-route-recovery.md). |
+| STAB-015.08c-A | Production paid probe denied in CLI/helper even with SAFE-001=1; missing/invalid mode denied; static listing skips dotenv/SDK. .08c-B bounded audited development diagnostics remains OPEN; real dev transport is not authorized. [Contract](production-probe-policy.md). |
+| STAB-015.02a | Additive `0006_generation_ledger`, four empty append-only tables, immutable reservation identity/UTC day and outcome evidence. No writers, backfill, hard cap, fencing or recovery activation. [P3 design and schema](generation-ledger-schema.md). |
+
+**INTEGRATED VERIFICATION — 2026-11-15**, in `/tmp/horoscope-iter4-integration`:
+
+| Check | Result |
+| --- | --- |
+| STAB-007 mock safety checks and shell syntax | 19 passed; harness/guard/Compose/conftest unchanged from base. |
+| Focused probe + SAFE-001 backend selection | 39 passed in 2.76s. |
+| Focused ledger schema/migration + existing schema/readiness | 89 passed in 13.60s; a test metadata-copy warning was removed without changing schema/assertions before the full run. |
+| Final not_sent/usage consistency + metadata parity selection | 7 passed in 1.24s; positive usage with not_sent rejected, unknown + reliable usage preserved. |
+| Full backend, `bash scripts/backend-test.sh` | **750 passed in 76.81s**, no warnings. Includes final metadata fixture, public APIs, publication/paid gates, quota, dedupe and read-only reports. |
+| Focused route recovery/read/legacy navigation on combined dependencies | 56 passed, 3 files. |
+| Final `npm ci`, `npm ls --all`, typecheck | Passed with allowlisted private npm environment; Node 24.22.2 / npm 11.19.1. No personal registry credentials. |
+| Full frontend | **181 passed**, 14 files; no assertion removal. |
+| Production build / `npm run poc:check` | Passed / **22 passed**; fixture POC only, no browser capture or live backend. |
+| Final npm audit | Exit 1: **0 critical, 9 high, 1 moderate** package entries, down from 2 critical/9 high/1 moderate. Both targeted packages absent. |
+
+Remaining High entries: Vue and @vue/server-renderer 3.5.13 (two entries),
+brace-expansion 2.0.1, browserslist 4.24.5, editorconfig 1.0.4, glob 10.4.5,
+js-cookie 3.0.5, minimatch 9.0.1/9.0.5 (one entry), ws 8.18.2. Moderate:
+postcss-selector-parser 6.1.2. These are affected package entries, not proven
+application exploits. Their advisory IDs remain in the historical
+[toolchain residual table](frontend-toolchain.md#audit-findings-outside-this-change).
+
+All DB tests used the unchanged STAB-007 disposable PostgreSQL identity, dummy
+credentials and fail-on-unexpected-network/process safeguards. Projects
+`horoscope-test-e7726162cfe849008c9d63da94f32471`,
+`horoscope-test-cf077b9f88a14e77bf110fb9a9e4c0cb`,
+`horoscope-test-6b00040412eb4326ad6602d51820b838`,
+`horoscope-test-77a9d4cdb22745db9739ce9e9c520490` and
+`horoscope-test-09de2a747d7c4d1882d05dcfc62bb931` cleaned their containers/networks;
+no volumes are used. Build images/cache may remain. Migration scenarios ran only
+inside that disposable database, including rollback-only schema fixtures.
+
+**Runtime/limits:** Scheduler was verified exited; backend/db/frontend stayed
+running with original bind mounts. Their live ports still publish on all interfaces
+and frontend uses the old Node 20 image; repository loopback/Node 22 defaults have
+not been applied. No known generation CLI/probe process was observed. No real
+provider request, live DB mutation/migration, secret exposure, scheduler restart,
+live Docker recreate, push or PR action was performed. Live DB revision was not
+queried. Native browser inventory was empty: real-browser/touch/native keyboard
+and combined real-view/Swiper transition ordering remain unverified. Node 22/Alpine
+runtime deployment and GitHub CI were not executed by this iteration.
+
+**Remaining accepted architecture:** .02a is storage only; .02b → .02c → .03c,
+package-level .03b, full .04a–c fencing, pause/retry policy, recovery, async contracts,
+keyless producer migration and queue-default rollout remain open. .08c-A does not
+close .08c-B. Production epoch is not invented to activate .02b before .04a.
+Deploying packaged migration head 0006 requires a separate approved DB rollout;
+readiness will reject a database that still reports 0005. D1–D8 and default paid
+deny remain unchanged; the 06:00 product SLO is not paid authorization.
+
+## Previous checkpoint — iteration 3
 
 **ITERATION 3 SCOPE:** STAB-003, STAB-015.03a, .05a, .07a and .07b are implemented
 in five task commits on the dedicated integration branch. D1–D8 remain Accepted;
@@ -369,7 +436,7 @@ Focused checks passed before full verification: backend archive tests **19 passe
 
 ## Known frontend issues / risks
 
-- **SEPARATE KNOWN ISSUE — NOT FIXED BY TASK 5:** In a reused HoroscopeView, valid → invalid → the same valid route clears content without retriggering its sign/date watcher. Forecast invalid-route and unmount invalidation behavior was deliberately left unchanged by the API extraction.
+- **HISTORICAL TASK-5 ISSUE — RESOLVED BY STAB-005 IN ITERATION 4:** In a reused HoroscopeView, valid → invalid → the same valid route clears content without retriggering its sign/date watcher. Forecast invalid-route and unmount invalidation behavior was deliberately left unchanged by the API extraction.
 
 - **RESOLVED THIS MILESTONE:** ArchiveMonth uses backend-published sign availability; past dates are no longer assumed available.
 - **RESOLVED THIS MILESTONE:** ArchiveForecast now uses `validateArchiveForecastRoute`, rejects malformed/impossible explicit dates and unknown signs, and only replaces valid URLs to HoroscopeView. Historical Capricorn fallback/date clamping and independent rendering were removed.

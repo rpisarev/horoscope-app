@@ -32,9 +32,11 @@ fencing and conservative recovery; limited safe retries and permanent-failure
 pause; explicit async Admin/CLI migration; production probe ban; worker-only
 credentials; and enabled-sign published coverage by 06:00 Europe/Kyiv.
 
-These are **not current implementation guarantees**. The diagram above still
-describes actual code defaults. No new topology, ledger, schema, runtime settings,
-paid permission or deployment is introduced by documentation acceptance.
+These are **not all current implementation guarantees**. The diagram above still
+describes actual execution defaults. Documentation acceptance introduced no
+runtime change. Iteration 4 separately adds the [ledger storage schema](generation-ledger-schema.md)
+and [production probe prohibition](production-probe-policy.md); it adds no ledger
+writers, paid admission, fencing, topology switch, paid permission or deployment.
 [The backlog](adr/STAB-015-backlog.md) retains the prerequisites; .08b authorization
 migration must precede worker-only credentials. The ADR entry-point matrix separates
 enqueue, execution, publication and recovery authority. Numeric cap, measured lease/
@@ -71,11 +73,11 @@ configuration default, not a change to already running containers. See
 
 Home uses static English names, glyphs, date ranges, and a dedicated display order derived from shared `ZODIACS`. It refreshes `/api/meta` before navigation but does not fetch signs or forecasts. Wheel hover pauses rotation and displays a tooltip; click/Enter/Space emits selection. Starfield's canvas animation releases interval/frame/listener resources on unmount. These components are on the normal route and bundled in the production build; there is no separate prototype path. **Historical context:** earlier forecast tooltip placeholders and modal/card navigation were superseded.
 
-`HoroscopeView` renders forecast API text with loading, explicit unpublished (`404 forecast_not_published`), generic error, and empty-content states. `getForecast` returns a published-text or not-published result; other HTTP/network/contract failures reject. JSON strings, string `text` before `forecast`, and non-JSON text remain supported, including explicit empty strings; malformed JSON success shapes reject. The view retains paragraph splitting, request-ID handling, route/model watchers, and asset maps. Invalid-route restoration remains a separate known issue. `ArchiveForecast` no longer fetches or renders forecast content. Zodiac illustrations and constellations live under `frontend/src/assets/zodiac/`; Home itself uses glyphs rather than those forecast hero images.
+`HoroscopeView` renders forecast API text with loading, explicit unpublished (`404 forecast_not_published`), generic error, and empty-content states. `getForecast` returns a published-text or not-published result; other HTTP/network/contract failures reject. JSON strings, string `text` before `forecast`, and non-JSON text remain supported, including explicit empty strings; malformed JSON success shapes reject. The view retains paragraph splitting, request-ID handling and asset maps. STAB-005 makes the validated committed sign/day route own loading; watcher cleanup invalidates pending results on invalid navigation and unmount. Controls only navigate. Valid → invalid → same-valid reloads, while repeated identity/query/hash changes do not duplicate fetches. See [route recovery regressions](horoscope-route-recovery.md). `ArchiveForecast` no longer fetches or renders forecast content. Zodiac illustrations and constellations live under `frontend/src/assets/zodiac/`; Home itself uses glyphs rather than those forecast hero images.
 
 Routing uses browser history. The navigation guard fetches business metadata only for `/horoscope` and `/archive` convenience redirects. Home, explicit dated routes, and not-found routes resolve without it. `/horoscope` and `/archive` then redirect to Capricorn and backend-supplied current dates, preserving trailing-slash matching and query/hash handling. `HoroscopeView` validates the sign and real ISO day; `ArchiveMonth` validates sign/year/month and a loaded nonempty year list. They render contextual `NotFound` without rewriting invalid routes. ArchiveMonth pads month URLs. `ArchiveForecast` calls `validateArchiveForecastRoute` without fetching a year list or metadata. For a known explicit sign and real calendar date it calls `router.replace` to `/horoscope/:sign/:YYYY-MM-DD`, preserving query/hash. Valid one- or two-digit legacy month/day values are padded; malformed/impossible dates and unknown signs render contextual NotFound without clamping, guessing a date, or choosing Capricorn. Catch-all routes render `NotFound`/`CosmicGate404`. These are client-side UI states, not configured server HTTP status handling.
 
-**VERIFIED / RISK:** `ZodiacCarousel` synchronizes `v-model` with Swiper's `realIndex` and `slideToLoop`; `HoroscopeView` and `ArchiveMonth` also synchronize model and route state. It lacks invalid-index and programmatic-event guards. This is an untested synchronization risk, not a reproduced arrow/reset failure. `YearSwiper` and `MonthSwiper` have separate index checks and synchronization flags.
+**VERIFIED / RISK:** `ZodiacCarousel` synchronizes `v-model` with Swiper's `realIndex` and `slideToLoop`; `HoroscopeView` and `ArchiveMonth` also synchronize model and route state. STAB-029 updates Swiper to 12.2.0 and rejects malformed realIndex events after reproducing an out-of-range crash. Valid-event synchronization is unchanged. Component, synthetic-router and real-Swiper jsdom tests pass; actual browser transition/touch ordering remains unverified, not a reproduced arrow/reset failure. `YearSwiper` and `MonthSwiper` retain their existing index checks and synchronization flags. See [Swiper evidence and limits](swiper-security.md).
 
 ## PostgreSQL and persistence
 
@@ -90,10 +92,14 @@ Models live in [`backend/app/models.py`](../backend/app/models.py). Alembic uses
 | `generation_items` | Per-sign work, provider metadata, status, result link, payloads/errors. |
 | `generation_attempts` | Numbered attempts per item, request/response/raw output, failure details and timestamps. |
 | `generation_jobs` | Queue scope, provider, optional signs, priority, batch/dedupe key, attempts, worker lock, linked run. |
+| `generation_executions` | Immutable execution-start snapshot; no runtime writer yet. |
+| `generation_execution_runs` | Append-only execution-to-run link; multiple historical executions may share a run. |
+| `generation_api_requests` | One immutable paid-request intent/reservation identity with a generated UTC admission day; no runtime admission yet. |
+| `generation_api_observations` | Append-only outcome/usage observations; missing outcome remains unknown, never proof of not-sent. |
 
 Forecast uniqueness is `(sign_key, target_date, locale, forecast_type)`, independent of status or provider. `save_forecast` updates the matching row or inserts one, sets generation/publication timestamps, and commits unless called with `commit=False`. Thus there are not separate stub and OpenAI rows for the same scope.
 
-Migration sequence: `0001_initial_schema` creates persistence/reference tables and seeds 13 signs plus `daily-ru-v1`; `0002_add_generation_attempts` adds attempt history and updates prompts; `0003_prompt_pipeline` and `0004_variation_prompt` update prompt content/schema; `0005_generation_jobs` adds the queue. `app/init_db.py` now exits with Alembic instructions. PostgreSQL is the supported Compose/test path; `Config` still falls back to SQLite when no database settings exist, which is not equivalent to the tested PostgreSQL migration/locking environment.
+Migration sequence: `0001_initial_schema` creates persistence/reference tables and seeds 13 signs plus `daily-ru-v1`; `0002_add_generation_attempts` adds attempt history and updates prompts; `0003_prompt_pipeline` and `0004_variation_prompt` update prompt content/schema; `0005_generation_jobs` adds the queue; `0006_generation_ledger` adds four empty append-only ledger tables, constraints, indexes and insertion-time coherence triggers. It does not backfill history or write admissions during generation. Nonempty downgrade is refused. Legacy table identities and data are preserved; PostgreSQL-only DML immutability does not protect against privileged DDL/TRUNCATE. See [schema and future transaction contract](generation-ledger-schema.md). Deploying this packaged head makes readiness require revision 0006; applying it to a live database needs a separate approved rollout. `app/init_db.py` now exits with Alembic instructions. PostgreSQL is the supported Compose/test path; `Config` still falls back to SQLite when no database settings exist, which is not equivalent to the tested PostgreSQL migration/locking environment.
 
 ## Public forecast read: published-only and read-only
 
@@ -165,6 +171,13 @@ Those changes remain open in STAB-015.06a/.06b; SDK retries=0 remains required.
 The admin blueprint is `/api/admin`, disabled by default and protected by a bearer token when enabled. Under `/generation`, it exposes coverage; GET/POST runs; retry-missing; run/item attempt detail; GET/POST jobs; backfill; job detail/cancel/retry; and batch status/cancel/retry-failed. Immediate admin generation and queued generation both still exist.
 
 Utilities in `backend/utils/` support immediate packages, queue creation/processing, package reporting, and standalone prompt probing. They are operational commands, not harmless general test commands.
+
+STAB-015.08c-A forbids paid prompt probing in production in both CLI and direct
+transport helper, independently of SAFE-001. Missing/unrecognized process deployment
+mode also denies probing. Static profile listing skips dotenv, request defaults and
+SDK import. Explicit development/test mode retains the existing paid gate but not
+the future bounded accounting contract: .08c-B remains required before real diagnostic
+transport is authorized. No generation/publication service or SDK retry policy changed.
 
 STAB-015.05a adds an explicitly invoked [per-job inspection CLI](generation-recovery-inspection.md)
 with no provider or recovery actions. It reads safe projected columns for one
