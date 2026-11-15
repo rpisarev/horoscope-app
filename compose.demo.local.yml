@@ -1,0 +1,21 @@
+# Compose >=2.24.4; combine ONLY with compose.demo.yml, under a unique -p name.
+services:
+  proxy:
+    environment:
+      DEMO_HOST: localhost
+      DEMO_TLS_DIRECTIVE: tls internal
+    ports: !override
+      - "127.0.0.1:${DEMO_LOCAL_HTTPS_PORT:-8443}:443"
+    volumes: !override
+      - type: tmpfs
+        target: /data
+      - type: tmpfs
+        target: /config
+  backend:
+    environment:
+      PUBLIC_SITE_URL: https://localhost:${DEMO_LOCAL_HTTPS_PORT:-8443}
+  db:
+    restart: "no"
+    volumes: !override
+      - type: tmpfs
+        target: /var/lib/postgresql/data

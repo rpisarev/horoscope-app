@@ -1,0 +1,5 @@
+# Static-only default. Integration mounts the full proxy/SPA/TLS configuration.
+:80 {
+	root * /srv
+	file_server
+}

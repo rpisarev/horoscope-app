@@ -1,0 +1,30 @@
+{
+	admin off
+	persist_config off
+}
+
+https://{$DEMO_HOST} {
+	{$DEMO_TLS_DIRECTIVE}
+	root * /srv
+	@admin path /api/admin /api/admin/* /admin /admin/*
+	@backend path /api /api/* /health /health/* /sitemap.xml /sitemap-index.xml /sitemaps /sitemaps/*
+	@assets path /assets /assets/*
+	@file_request path_regexp file_request /[^/]*\.[^/]+$
+
+	# route preserves this order: authenticate before every response or proxy.
+	route {
+		header X-Robots-Tag "noindex, nofollow, noarchive"
+		basic_auth {
+			{env.DEMO_BASIC_AUTH_USER} {env.DEMO_BASIC_AUTH_HASH}
+		}
+		respond @admin "Not found" 404
+		reverse_proxy @backend backend:8000 {
+			header_up -Authorization
+		}
+		# Missing assets must be real 404s, never a successful HTML fallback.
+		file_server @assets
+		file_server @file_request
+		try_files {path} /index.html
+		file_server
+	}
+}

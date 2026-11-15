@@ -1,0 +1,174 @@
+# Standalone: never merge with docker-compose.yml (the live development stack).
+name: horoscope-demo
+
+x-demo-safety: &demo-safety
+  PYTHON_DOTENV_DISABLED: "1"
+  APP_DEPLOYMENT_MODE: production
+  APP_TIMEZONE: Europe/Kyiv
+  PRODUCTION_PUBLICATION_PROVIDERS: ""
+  HOROSCOPE_PROVIDER: stub
+  GENERATION_PAID_EXECUTION_ENABLED: "0"
+  ADMIN_API_ENABLED: "0"
+  ADMIN_API_ALLOW_OPENAI: "0"
+  RUN_NIGHTLY_ON_START: "0"
+  GENERATION_SCHEDULER_USE_QUEUE: "0"
+  GENERATION_SCHEDULED_JOBS_ALLOW_OPENAI: "0"
+  GENERATION_JOB_WORKER_ENABLED: "0"
+  GENERATION_JOB_WORKER_ALLOW_OPENAI: "0"
+
+x-demo-tool: &demo-tool
+  image: horoscope-demo-backend:${DEMO_IMAGE_TAG:-local}
+  build:
+    context: ./backend
+    dockerfile: Dockerfile.release
+  profiles: [tools]
+  command: []
+  restart: "no"
+  # File-backed secrets need mode 0444 inside a host-only 0700 directory.
+  # Match the release image's unprivileged UID; do not add DAC capabilities.
+  user: "10001:10001"
+  working_dir: /app
+  read_only: true
+  tmpfs: [/tmp]
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  networks: [data]
+  depends_on:
+    db:
+      condition: service_healthy
+  healthcheck:
+    disable: true
+
+services:
+  proxy:
+    image: horoscope-demo-proxy:${DEMO_IMAGE_TAG:-local}
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.release
+    restart: unless-stopped
+    entrypoint: [/bin/sh, /etc/demo/caddy-entrypoint.sh]
+    command: [caddy, run, --config, /etc/caddy/Caddyfile, --adapter, caddyfile]
+    environment:
+      DEMO_HOST: ${DEMO_HOST:?Set the demo hostname}
+      DEMO_BASIC_AUTH_USER: ${DEMO_BASIC_AUTH_USER:-demo}
+      DEMO_TLS_DIRECTIVE: ""
+    configs:
+      - source: demo_caddyfile
+        target: /etc/caddy/Caddyfile
+    secrets: [demo_basic_auth_hash]
+    ports:
+      - "${DEMO_BIND_IP:-127.0.0.1}:80:80"
+      - "${DEMO_BIND_IP:-127.0.0.1}:443:443"
+    volumes:
+      - demo_caddy_data:/data
+      - demo_caddy_config:/config
+    networks: [edge, web]
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  backend:
+    image: horoscope-demo-backend:${DEMO_IMAGE_TAG:-local}
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.release
+    restart: unless-stopped
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      <<: *demo-safety
+      FLASK_DEBUG: "0"
+      POSTGRES_HOST: db
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: horoscope_demo
+      POSTGRES_USER: demo_readonly
+      POSTGRES_PASSWORD_FILE: /run/secrets/demo_readonly_password
+      PUBLIC_SITE_URL: https://${DEMO_HOST:?Set the demo hostname}
+    secrets: [demo_readonly_password]
+    networks: [web, data]
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: demo_bootstrap
+      POSTGRES_PASSWORD_FILE: /run/secrets/demo_admin_password
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+    secrets: [demo_admin_password]
+    volumes:
+      - demo_pg_data:/var/lib/postgresql/data
+    networks: [data]
+    healthcheck:
+      test: [CMD, pg_isready, -U, demo_bootstrap, -d, postgres]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  demo-bootstrap:
+    <<: *demo-tool
+    entrypoint: [python, /opt/demo/bootstrap.py]
+    environment:
+      <<: *demo-safety
+      DEMO_EXPECTED_INSTANCE_ID: ${DEMO_EXPECTED_INSTANCE_ID:?Set a new demo UUID}
+      DEMO_EXPECTED_DATABASE: horoscope_demo
+      # Bootstrap still requires the CLI --confirm-new-isolated-cluster flag.
+    secrets: [demo_admin_password, demo_owner_password, demo_importer_password, demo_readonly_password]
+
+  demo-migrate:
+    <<: *demo-tool
+    entrypoint: [python, /opt/demo/migrate.py]
+    environment:
+      <<: *demo-safety
+      DEMO_EXPECTED_INSTANCE_ID: ${DEMO_EXPECTED_INSTANCE_ID:?Set a new demo UUID}
+      DEMO_EXPECTED_DATABASE: horoscope_demo
+    secrets: [demo_owner_password]
+
+  demo-import:
+    <<: *demo-tool
+    entrypoint: [python, /opt/demo/import-fixtures.py]
+    environment:
+      <<: *demo-safety
+      DEMO_EXPECTED_INSTANCE_ID: ${DEMO_EXPECTED_INSTANCE_ID:?Set a new demo UUID}
+      DEMO_EXPECTED_DATABASE: horoscope_demo
+      DEMO_EXPECTED_ROLE: demo_importer
+    secrets: [demo_importer_password]
+
+networks:
+  edge:
+  web:
+    internal: true
+  data:
+    internal: true
+
+volumes:
+  demo_pg_data:
+  demo_caddy_data:
+  demo_caddy_config:
+
+configs:
+  demo_caddyfile:
+    file: ./deploy/demo/Caddyfile
+
+secrets:
+  demo_basic_auth_hash:
+    file: ${DEMO_SECRETS_DIR:?Set an absolute dedicated demo secrets directory}/basic_auth_hash
+  demo_admin_password:
+    file: ${DEMO_SECRETS_DIR:?Set an absolute dedicated demo secrets directory}/admin_password
+  demo_owner_password:
+    file: ${DEMO_SECRETS_DIR:?Set an absolute dedicated demo secrets directory}/owner_password
+  demo_importer_password:
+    file: ${DEMO_SECRETS_DIR:?Set an absolute dedicated demo secrets directory}/importer_password
+  demo_readonly_password:
+    file: ${DEMO_SECRETS_DIR:?Set an absolute dedicated demo secrets directory}/readonly_password
