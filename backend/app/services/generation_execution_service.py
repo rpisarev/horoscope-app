@@ -18,7 +18,8 @@ from sqlalchemy.sql import visitors
 from sqlalchemy.sql.elements import TextClause
 from sqlalchemy.sql.dml import UpdateBase
 
-from ..models import GenerationExecution, GenerationExecutionRun
+from ..models import GenerationExecution, GenerationExecutionRun, GenerationJob
+from .generation_lease_policy import captured_lease_identity
 
 
 EXECUTION_POLICY_VERSION = "execution-start-v1"
@@ -34,6 +35,10 @@ class ExecutionAlreadyStarted(ExecutionStartError):
     pass
 
 
+class GenerationClaimLost(ExecutionStartError):
+    """A stale/missing claim must not enter a failure writer for its successor."""
+
+
 def deployment_mode() -> str:
     mode = current_app.config.get("APP_DEPLOYMENT_MODE")
     if not isinstance(mode, str) or mode.strip().lower() not in {
@@ -47,8 +52,8 @@ def require_execution_activation() -> str:
     mode = deployment_mode()
     if mode == "production":
         raise ExecutionStartError(
-            "Production execution is blocked pending lease allocation, atomic paid "
-            "admission and the remaining STAB-015 rollout prerequisites."
+            "Production execution is blocked pending atomic paid admission, "
+            "complete fencing and the remaining STAB-015 rollout prerequisites."
         )
     return mode
 
@@ -122,7 +127,7 @@ def record_execution_start(
 
     Replaying the same UUID retains its original timestamp. A different snapshot
     is an error; ON CONFLICT never updates immutable history. Lease provenance is
-    supplied by the future allocator, not synthesized by this writer.
+    supplied by the claim allocator, not synthesized by this writer.
     """
     mode = require_execution_activation()
     _require_postgresql(session)
@@ -166,18 +171,42 @@ def link_execution_run(
 
 def unlinked_claim_execution(session: Session, job) -> GenerationExecution:
     """Require the exact committed claim snapshot before lifecycle dispatch."""
-    identity = claim_execution_id(job)
-    row = session.get(GenerationExecution, identity)
+    identity = captured_lease_identity(job)
+    row = session.get(GenerationExecution, identity.execution_id)
     if row is None or any((
         row.job_id != job.id, row.origin != "queue_worker",
         row.provider != job.provider, row.target_date != job.target_date,
         row.locale != job.locale, row.forecast_type != job.forecast_type,
         row.deployment_mode != deployment_mode(),
+        row.lease_epoch != identity.epoch, row.job_id != identity.job_id,
     )):
         raise ExecutionStartError("No matching immutable execution for this claim.")
-    if session.get(GenerationExecutionRun, identity) is not None:
+    if session.get(GenerationExecutionRun, identity.execution_id) is not None:
         raise ExecutionAlreadyStarted("This claim already started a generation run.")
+    _require_current_execution_epoch(session, row)
     return row
+
+
+def _require_current_execution_epoch(session: Session, execution: GenerationExecution) -> None:
+    # Read scalars from PostgreSQL, not possibly stale ORM identity-map columns.
+    # This is admission-time validation only; it does not fence later writers.
+    if execution.lease_epoch is None or execution.lease_epoch <= 0:
+        raise GenerationClaimLost("Queue execution has no allocated lease epoch.")
+    current = session.execute(select(
+        GenerationJob.lease_heartbeat_at, GenerationJob.lease_expires_at,
+        GenerationJob.lease_deadline_at,
+    ).where(
+        GenerationJob.id == execution.job_id,
+        GenerationJob.status == "running",
+        GenerationJob.lease_epoch == execution.lease_epoch,
+    )).one_or_none()
+    if current is None:
+        raise GenerationClaimLost("Queue execution lease ownership changed.")
+    if current.lease_expires_at is not None:
+        now = _database_utcnow(session)
+        if (now < current.lease_heartbeat_at or now >= current.lease_expires_at
+                or now >= current.lease_deadline_at):
+            raise GenerationClaimLost("Queue execution timed lease is no longer valid.")
 
 
 def require_unlinked_execution(
@@ -193,4 +222,5 @@ def require_unlinked_execution(
         raise ExecutionStartError("Lifecycle execution does not match the admitted claim.")
     if session.get(GenerationExecutionRun, execution_id) is not None:
         raise ExecutionAlreadyStarted("This execution already started a generation run.")
+    _require_current_execution_epoch(session, row)
     return row

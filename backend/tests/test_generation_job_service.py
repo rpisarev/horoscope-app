@@ -318,7 +318,7 @@ def test_retry_generation_job_requeues_failed_job(app):
         assert retried_job.finished_at is None
 
 
-def test_close_stale_running_jobs_preserves_ledger_managed_claim(app):
+def test_close_stale_running_jobs_preserves_ledger_managed_claim(app, monkeypatch):
     with app.app_context():
         job, _ = create_generation_job(
             job_type=JOB_TYPE_BACKFILL,
@@ -326,9 +326,9 @@ def test_close_stale_running_jobs_preserves_ledger_managed_claim(app):
             provider="stub",
             max_job_attempts=1,
         )
+        monkeypatch.setattr(generation_job_service, "_claim_utcnow",
+                            lambda: datetime.now(timezone.utc) - timedelta(minutes=120))
         claimed_job = claim_next_generation_job(worker_id="test-worker")
-        claimed_job.locked_at = claimed_job.locked_at - timedelta(minutes=120)
-        db.session.commit()
 
         closed_count = close_stale_running_jobs(stale_after_minutes=60)
 
@@ -393,6 +393,9 @@ def test_retry_missing_job_distinguishes_no_run_from_no_work(
         id=1, attempt_count=1,
         target_date=date(2026, 6, 15), locale="uk", forecast_type="daily",
         provider="stub", max_attempts=2, max_retry_runs=1,
+    )
+    job._generation_lease_identity = generation_job_service.LeaseIdentity(
+        job.id, "fixture-worker", 1, generation_job_service.claim_execution_id(job),
     )
     run = SimpleNamespace(status=run_status) if run_status else None
     missing = Mock(side_effect=coverage)

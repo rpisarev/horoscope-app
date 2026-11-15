@@ -171,9 +171,12 @@ def test_legacy_unmanaged_run_not_automatically_reaped_during_new_generation(app
 
 
 def test_legacy_unmanaged_job_stale_cleanup_remains_available(app):
-    job, _ = jobs.create_generation_job(target_date=DAY, max_job_attempts=1)
-    job.status, job.locked_by, job.attempt_count = "running", "legacy-owner", 1
-    job.locked_at = datetime.now(timezone.utc) - timedelta(hours=10)
+    # Historical epoch-zero row, not a new queued->running lease allocation.
+    job = GenerationJob(job_type="manual", target_date=DAY, provider="stub",
+                        dedupe_key="legacy-unmanaged", max_job_attempts=1,
+                        status="running", locked_by="legacy-owner", attempt_count=1,
+                        locked_at=datetime.now(timezone.utc) - timedelta(hours=10))
+    db.session.add(job)
     db.session.commit()
     assert jobs.close_stale_running_jobs(stale_after_minutes=60) == 1
     db.session.refresh(job)
@@ -240,7 +243,18 @@ def test_busy_job_disposition_rejects_lost_claim_authority(app, monkeypatch, cha
 
     def lose_ownership(*args, **kwargs):
         with Session(engine) as competitor, competitor.begin():
-            competitor.execute(update(GenerationJob).where(GenerationJob.id == job_id).values(**changed))
+            if "locked_by" in changed:
+                # Fixture-only authorized turnover; in-place owner substitution
+                # is now rejected by the lease identity trigger.
+                competitor.execute(update(GenerationJob).where(GenerationJob.id == job_id).values(status="failed"))
+                competitor.execute(update(GenerationJob).where(GenerationJob.id == job_id).values(status="queued"))
+                competitor.execute(update(GenerationJob).where(GenerationJob.id == job_id).values(
+                    status="running", lease_epoch=GenerationJob.lease_epoch + 1,
+                    attempt_count=GenerationJob.attempt_count + 1,
+                    locked_at=func.clock_timestamp(), **changed,
+                ))
+            else:
+                competitor.execute(update(GenerationJob).where(GenerationJob.id == job_id).values(**changed))
         raise GenerationScopeBusy(SCOPE)
 
     monkeypatch.setattr(jobs, "_run_standard_generation_job", lose_ownership)
@@ -259,6 +273,7 @@ def test_duplicate_linked_dispatch_does_not_mutate_active_owner(app, monkeypatch
     outcomes, calls = [], []
     jobs.create_generation_job(target_date=DAY, signs=["aries"])
     claimed = jobs.claim_next_generation_job(worker_id="same-worker")
+    lease_identity = jobs.captured_lease_identity(claimed)
     job_id = claimed.id
     engine = db.engine
 
@@ -274,7 +289,9 @@ def test_duplicate_linked_dispatch_does_not_mutate_active_owner(app, monkeypatch
         try:
             with app.app_context():
                 row = db.session.get(GenerationJob, job_id)
-                outcomes.append(jobs.process_claimed_generation_job(row, worker_id="same-worker")["status"])
+                outcomes.append(jobs.process_claimed_generation_job(
+                    row, worker_id="same-worker", lease_identity=lease_identity,
+                )["status"])
         except BaseException as exc:
             outcomes.append(exc)
             entered.set()
@@ -331,6 +348,7 @@ def test_duplicate_before_link_commit_keeps_original_claim_intact(app, monkeypat
     engine = db.engine
     jobs.create_generation_job(target_date=DAY, signs=["aries"])
     claimed = jobs.claim_next_generation_job(worker_id="same-worker")
+    lease_identity = jobs.captured_lease_identity(claimed)
     job_id = claimed.id
     with Session(engine) as observer:
         before = job_snapshot(observer, job_id)
@@ -352,7 +370,9 @@ def test_duplicate_before_link_commit_keeps_original_claim_intact(app, monkeypat
         try:
             with app.app_context():
                 row = db.session.get(GenerationJob, job_id)
-                outcomes.append(jobs.process_claimed_generation_job(row, worker_id="same-worker")["status"])
+                outcomes.append(jobs.process_claimed_generation_job(
+                    row, worker_id="same-worker", lease_identity=lease_identity,
+                )["status"])
         except BaseException as exc:
             outcomes.append(exc)
             before_link.set()

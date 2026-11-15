@@ -218,12 +218,11 @@ def test_manual_retry_preserves_execution_history(app, monkeypatch, fake_provide
     assert result["status"] == "success" and len(fake_provider) == 1
 
 
-def test_stale_claim_keeps_history_without_automatic_managed_reclaim(app, fake_provider):
+def test_stale_claim_keeps_history_without_automatic_managed_reclaim(app, fake_provider, monkeypatch):
     job, _ = jobs.create_generation_job(target_date=DAY, signs=["aries"], max_job_attempts=2)
+    monkeypatch.setattr(jobs, "_claim_utcnow", lambda: datetime.now(timezone.utc) - timedelta(hours=3))
     first = jobs.claim_next_generation_job(worker_id="same-worker")
     identity = ledger.claim_execution_id(first)
-    first.locked_at = datetime.now(timezone.utc) - timedelta(hours=3)
-    db.session.commit()
     # .03b intentionally tightens .02b's former age-only reclaim behavior.
     # A committed start without a run link does not prove transport was absent.
     assert jobs.close_stale_running_jobs(stale_after_minutes=60) == 0
@@ -355,6 +354,9 @@ def test_fake_model_import_leaves_no_execution_hooks(monkeypatch, fake_model):
         monkeypatch.setitem(sys.modules, module.__name__, module)
     sys.modules[prefix + ".models"].GenerationExecution = fake_model()
     sys.modules[prefix + ".models"].GenerationExecutionRun = Mock()
+    sys.modules[prefix + ".models"].GenerationJob = Mock()
+    monkeypatch.setitem(sys.modules, prefix + ".services.generation_lease_policy",
+                        sys.modules["app.services.generation_lease_policy"])
     name = prefix + ".services.generation_execution_service"
     spec = importlib.util.spec_from_file_location(name, ledger.__file__)
     module = importlib.util.module_from_spec(spec)
@@ -387,6 +389,8 @@ def test_real_mapped_alias_import_does_not_duplicate_global_hooks(app, monkeypat
         module.__path__ = []
         monkeypatch.setitem(sys.modules, module.__name__, module)
     monkeypatch.setitem(sys.modules, prefix + ".models", sys.modules["app.models"])
+    monkeypatch.setitem(sys.modules, prefix + ".services.generation_lease_policy",
+                        sys.modules["app.services.generation_lease_policy"])
     name = prefix + ".services.generation_execution_service"
     spec = importlib.util.spec_from_file_location(name, ledger.__file__)
     module = importlib.util.module_from_spec(spec)

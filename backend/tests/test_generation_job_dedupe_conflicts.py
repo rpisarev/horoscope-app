@@ -62,6 +62,7 @@ def test_fake_model_import_leaves_no_hooks_before_real_flush(sessions, monkeypat
                 ".providers.publication_policy", ".providers.registry",
                 ".services.constants", ".services.generation_service", ".services.sign_service",
                 ".services.generation_execution_service",
+                ".services.generation_lease_policy",
                 ".services.generation_admission_service",
             ):
                 patch.setitem(sys.modules, prefix + suffix, sys.modules["app" + suffix])

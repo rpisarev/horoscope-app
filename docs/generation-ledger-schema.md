@@ -2,8 +2,27 @@
 
 Status: **P3 storage design approved by parent for .02a (2026-11-15).** Accepted
 [D1–D8](adr/STAB-015-generation-execution.md#6-прийняті-рішення-власника)
-remain future policy. This change adds storage only: no writers, admission,
+are accepted policy, with implementation tracked separately. Revision 0006 adds storage only: no writers, admission,
 transport, fencing, recovery, release/refund, runtime switch or legacy backfill.
+
+## Integrated implementation boundary — iteration 5
+
+The storage contract below describes **0006**, not the entire current codebase.
+`.02b` now writes development/test execution starts and run links, `.03b` adds
+package admission in revision **0007**, and `.04a` adds real claim epochs with
+opt-in nonproduction renewal in revision **0008**. The current packaged Alembic
+head is 0008; no live migration is implied. Revision 0007 refuses historical
+running-package overlaps; 0008 refuses preexisting job-linked positive execution
+epochs before DDL. Neither guesses or rewrites history.
+
+`.02c` provides transaction-owned intent/reservation-identity and append-only
+observation primitives. They do not implement a daily cap or transport
+coordinator: a receipt is not paid execution authority. Known paid application
+paths remain unconditionally blocked while `.03c` and the remaining safety chain
+are incomplete. The future atomic protocol below is still a requirement.
+See [execution starts](generation-execution-starts.md),
+[package admission](package-admission-design.md),
+[request intent](request-intent-design.md) and [lease epochs](lease-epoch-design.md).
 
 ## Storage contract
 

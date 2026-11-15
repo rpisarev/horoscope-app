@@ -4,7 +4,10 @@
 **Статуси реалізації нижче оновлюються окремо від Accepted policy.**
 На baseline PR #23, `2b71659`, усі implementation cards були OPEN.
 STAB-015.03a/.05a/.07a/.07b завершено в iteration 3. Iteration 4 додає .02a
-(storage only) і .08c-A (production probe ban); .08c-B та решта implementation cards OPEN.
+(storage only) і .08c-A (production probe ban). Iteration 5 реалізує .02b, .03b
+та .04a foundation; .02c має перевірені primitives, але final atomic admission і
+transport coordinator залишаються залежністю .03c. .08c-B та інші незавершені
+картки OPEN. Production activation лишається заблокованою.
 STAB-003 toolchain також виконано; residual dependency advisories мають окремий
 follow-up. Це локальна реалізація, не deployment або paid permission.
 Батьківський документ: [ADR STAB-015](STAB-015-generation-execution.md).
@@ -65,7 +68,7 @@ P3 admission/locking/fencing protocol залишається залежніст�
 Development/test claim + execution та direct execution + run/link записуються
 атомарно; UUID replay перевіряє immutable snapshot. Caller-owned writes не
 комітяться автономним lifecycle. Production execution залишається закритим;
-справжній epoch, atomic paid admission і решта safety chain потрібні окремо.
+справжній epoch уже надає .04a; atomic paid admission і решта safety chain pending.
 [Контракт і інтегрована перевірка](../generation-execution-starts.md).
 
 - **Проблема:** retry/reclaim повторно використовує або очищає job timestamps.
@@ -143,6 +146,15 @@ activation, paid cap і complete fencing залишаються blocked/pending.
 - **Ризики / розмір:** hot counter/lock order, conservative overcount, double reservation; **M**. Live value не встановлювати в межах code task.
 
 ## STAB-015.04a — lease epoch та bounded heartbeat
+
+**IMPLEMENTED FOUNDATION — iteration 5, 2026-11-15.** Revision 0008, monotonic
+claim epoch, frozen owner/epoch/execution identity та explicit bounded renewal.
+Timing default disabled; production timing/automatic renewal не активовані.
+Historical positive execution epochs блокують migration до DDL, без fabricated
+backfill. Позитивний epoch/ledger history не requeue за timestamp-only heuristic.
+`.04b/.04c` ще потрібні для всіх publication/finalization writes: це не complete
+fencing і не дозволяє automatic paid reclaim. P2 вимірювання/операційні values
+залишаються pending. [Контракт і перевірка](../lease-epoch-design.md).
 
 - **Проблема:** `locked_by` і timestamp не відрізняють старий execution від нового; TTL не вимірює progress.
 - **Scope:** additive epoch/lease fields, claim/renew protocol та fake-clock tests; не активувати новий automatic reclaim або заявляти end-to-end fencing.

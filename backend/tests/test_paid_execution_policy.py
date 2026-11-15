@@ -19,6 +19,7 @@ import sys
 from types import ModuleType, SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
+from uuid import UUID
 
 
 BACKEND = Path(__file__).resolve().parents[1]
@@ -107,7 +108,7 @@ class PaidExecutionPolicyTests(unittest.TestCase):
         # Pure preflight tests never execute SQL. Later services import Core/
         # ORM names, so provide in-memory symbols rather than requiring a host
         # SQLAlchemy installation or importing application database machinery.
-        self._module("sqlalchemy", event=Mock(), inspect=Mock(), select=Mock(), update=Mock())
+        self._module("sqlalchemy", event=Mock(), func=Mock(), inspect=Mock(), select=Mock(), update=Mock())
         self._module("sqlalchemy.exc", IntegrityError=type("IntegrityError", (Exception,), {}))
         self._module("sqlalchemy.orm", Mapper=type("Mapper", (), {}), Session=type("Session", (), {}))
         self.session = Mock()
@@ -131,6 +132,11 @@ class PaidExecutionPolicyTests(unittest.TestCase):
         sys.modules[prefix + ".services.generation_execution_service"].selected_provider_name.side_effect = (
             lambda name=None: (name or os.getenv("HOROSCOPE_PROVIDER") or "stub").strip().lower()
         )
+        sys.modules[prefix + ".services.generation_execution_service"].GenerationClaimLost = type(
+            "GenerationClaimLost", (RuntimeError,), {},
+        )
+        self._load(prefix + ".services.generation_lease_policy",
+                   BACKEND / "app/services/generation_lease_policy.py")
         self.provider = SimpleNamespace(
             name=provider_name, model_name="fake-model",
             generate=Mock(side_effect=AssertionError("Unexpected transport")),
@@ -160,8 +166,11 @@ class PaidExecutionPolicyTests(unittest.TestCase):
                     "run_daily_generation", "run_retry_for_missing_forecasts",
                 )
             })
-            return self._load(prefix + ".services.generation_job_service",
-                              BACKEND / "app/services/generation_job_service.py")
+            service = self._load(prefix + ".services.generation_job_service",
+                                 BACKEND / "app/services/generation_job_service.py")
+            # This pure suite isolates paid policy, not PostgreSQL lease CAS.
+            service._require_current_claim = lambda job, identity: job
+            return service
 
         self.save_forecast = Mock(side_effect=AssertionError("Unexpected publication"))
         self._module(prefix + ".services.forecast_service",
@@ -218,6 +227,7 @@ class PaidExecutionPolicyTests(unittest.TestCase):
                     run_id=None, attempt_count=1, target_date=date(2026, 11, 14),
                     locale="ru", forecast_type="daily",
                 )
+                job._generation_lease_identity = service.LeaseIdentity(1, "unit", 1, UUID(int=1))
                 self.session.get.side_effect = (
                     lambda model, identity, **kwargs: job
                     if model is self.models.GenerationJob else None

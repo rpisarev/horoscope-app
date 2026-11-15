@@ -19,7 +19,9 @@ Iteration 3 adds [exact-key queue conflict handling](docs/generation-job-dedupli
 local CLIs, not public endpoints. Their database reads require an authorized
 environment and never start generation or recover work. Execution-start writers and atomic package admission are implemented. Request-intent
 primitives are available for the future atomic admission coordinator; paid transport
-is blocked until that chain is complete. Fencing, pause and production topology
+is blocked until that chain is complete. Real claim epochs and explicit bounded
+nonproduction renewal are implemented, with timing disabled by default. Complete
+fencing, pause and production topology
 remain pending. See [execution starts](docs/generation-execution-starts.md),
 [package admission](docs/package-admission-design.md) and
 [request intent](docs/request-intent-design.md).
@@ -203,7 +205,18 @@ Current migrations:
 0003_prompt_pipeline.py
 0004_variation_prompt.py
 0005_generation_jobs.py
+0006_generation_ledger.py
+0007_generation_scope_admission.py
+0008_generation_job_leases.py
 ```
+
+The packaged head is 0008. Applying it to a live database is a separate approved
+rollout: 0007 refuses existing running-package overlaps, and 0008 refuses
+preexisting job-linked positive execution epochs before DDL. These failures
+require inspection; migrations do not delete or fabricate historical records.
+See [ledger storage](docs/generation-ledger-schema.md),
+[package admission](docs/package-admission-design.md) and
+[lease epochs](docs/lease-epoch-design.md).
 
 Main tables:
 
@@ -215,6 +228,10 @@ generation_runs
 generation_items
 generation_attempts
 generation_jobs
+generation_executions
+generation_execution_runs
+generation_api_requests
+generation_api_observations
 ```
 
 Seed/reference data:
@@ -1210,7 +1227,8 @@ docker compose exec -T backend python utils/openai_prompt_probe.py --list-profil
 STAB-015.08c-A forbids paid probing in production at both CLI and direct helper
 boundaries, even when the global paid gate is enabled. Missing or unrecognized
 `APP_DEPLOYMENT_MODE` also denies paid diagnostics. Explicit development/test mode
-retains the independent SAFE-001 gate; it is not authorization for real transport.
+retains the independent SAFE-001 gate and now also meets the unconditional
+STAB-015.02c paid-admission blocker; it is not authorization for real transport.
 Keep paid diagnostics disabled pending .08c-B's bounded, audited admission.
 See [probe policy and remaining requirements](docs/production-probe-policy.md).
 
