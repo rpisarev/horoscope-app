@@ -19,6 +19,14 @@ from ..models import GenerationJob, GenerationRun
 from ..providers.publication_policy import require_publication_provider
 from ..providers.registry import PROVIDERS
 from .constants import DEFAULT_FORECAST_TYPE, DEFAULT_LOCALE
+from .generation_execution_service import (
+    assert_autonomous_session_clean,
+    claim_execution_id,
+    deployment_mode,
+    record_execution_start,
+    require_execution_activation,
+    unlinked_claim_execution,
+)
 from .generation_service import (
     get_missing_forecast_signs,
     has_generation_coverage,
@@ -1288,6 +1296,7 @@ def claim_next_generation_job(
     worker_id: str,
     exclude_providers: Iterable[str] | None = None,
 ) -> GenerationJob | None:
+    assert_autonomous_session_clean(db.session())
     query = GenerationJob.query.filter(GenerationJob.status == JOB_STATUS_QUEUED)
 
     normalized_excluded_providers: list[str] = []
@@ -1317,7 +1326,21 @@ def claim_next_generation_job(
     job.started_at = job.started_at or now
     job.attempt_count = (job.attempt_count or 0) + 1
 
-    db.session.commit()
+    try:
+        # Production claim auditing is retained, but no production ledger start
+        # or transport is activated before real epochs/admission are available.
+        if deployment_mode() != "production":
+            db.session.flush()
+            record_execution_start(
+                db.session(), execution_id=claim_execution_id(job),
+                origin="queue_worker", job_id=job.id, provider=job.provider,
+                target_date=job.target_date, locale=job.locale,
+                forecast_type=job.forecast_type,
+            )
+        db.session.commit()
+    except BaseException:
+        db.session.rollback()
+        raise
 
     return job
 
@@ -1471,6 +1494,7 @@ def process_claimed_generation_job(
     allow_openai: bool = False,
     stale_after_hours: int = 2,
 ) -> dict[str, Any]:
+    assert_autonomous_session_clean(db.session())
     if job.status != JOB_STATUS_RUNNING:
         raise GenerationJobProcessingError(
             f"Job id={job.id} is not running and cannot be processed."
@@ -1483,6 +1507,8 @@ def process_claimed_generation_job(
 
     try:
         _ensure_provider_can_execute(job, allow_openai=allow_openai)
+        require_execution_activation()
+        unlinked_claim_execution(db.session(), job)
 
         if job.job_type == JOB_TYPE_RETRY_MISSING:
             run = _run_retry_missing_job(job, stale_after_hours=stale_after_hours)
@@ -1561,6 +1587,7 @@ def _run_standard_generation_job(
         signs=job.signs,
         max_attempts=job.max_attempts,
         stale_after_hours=stale_after_hours,
+        execution_id=claim_execution_id(job),
     )
 
 
@@ -1586,6 +1613,7 @@ def _run_retry_missing_job(
         max_attempts=job.max_attempts,
         max_retry_runs=job.max_retry_runs,
         stale_after_hours=stale_after_hours,
+        execution_id=claim_execution_id(job),
     )
 
     # None also means the retry-run cap was reached. Coverage may have changed

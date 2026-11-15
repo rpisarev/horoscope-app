@@ -61,6 +61,13 @@ P3 admission/locking/fencing protocol залишається залежніст�
 
 ## STAB-015.02b — незмінна історія execution starts
 
+**IMPLEMENTED — iteration 5, 2026-11-15; production activation blocked.**
+Development/test claim + execution та direct execution + run/link записуються
+атомарно; UUID replay перевіряє immutable snapshot. Caller-owned writes не
+комітяться автономним lifecycle. Production execution залишається закритим;
+справжній epoch, atomic paid admission і решта safety chain потрібні окремо.
+[Контракт і інтегрована перевірка](../generation-execution-starts.md).
+
 - **Проблема:** retry/reclaim повторно використовує або очищає job timestamps.
 - **Scope:** execution-start records на claims та дозволені internal/dev paths, stable job/execution/run links; без підміни D2 cap цією одиницею.
 - **Залежності:** .02a completed; D1/D2/D6. Production activation .02b додатково

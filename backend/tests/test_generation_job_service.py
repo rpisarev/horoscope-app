@@ -388,6 +388,7 @@ def test_retry_missing_job_distinguishes_no_run_from_no_work(
     monkeypatch, coverage, run_status, should_fail,
 ):
     job = SimpleNamespace(
+        id=1, attempt_count=1,
         target_date=date(2026, 6, 15), locale="uk", forecast_type="daily",
         provider="stub", max_attempts=2, max_retry_runs=1,
     )
@@ -410,6 +411,7 @@ def test_retry_missing_job_distinguishes_no_run_from_no_work(
         retry.assert_called_once_with(
             target_date=job.target_date, locale="uk", forecast_type="daily",
             provider_name="stub", max_attempts=2, max_retry_runs=1, stale_after_hours=4,
+            execution_id=generation_job_service.claim_execution_id(job),
         )
     else:
         retry.assert_not_called()

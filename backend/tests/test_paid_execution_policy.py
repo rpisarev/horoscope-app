@@ -106,6 +106,14 @@ class PaidExecutionPolicyTests(unittest.TestCase):
         self.session = Mock()
         self._module(prefix, db=SimpleNamespace(session=self.session))
         self._module(prefix + ".services")
+        self._module(prefix + ".services.generation_execution_service", **{
+            name: Mock() for name in (
+                "assert_autonomous_session_clean", "link_execution_run",
+                "record_execution_start", "require_execution_activation",
+                "require_unlinked_execution", "selected_provider_name",
+                "claim_execution_id", "deployment_mode", "unlinked_claim_execution",
+            )
+        })
         self.provider = SimpleNamespace(
             name=provider_name, model_name="fake-model",
             generate=Mock(side_effect=AssertionError("Unexpected transport")),

@@ -442,8 +442,8 @@ class GenerationAttempt(db.Model):
     )
 
 
-# Storage only. PostgreSQL migration 0006 enforces append-only DML and
-# insertion-time cross-table coherence. No lifecycle writer uses these models.
+# PostgreSQL migration 0006 enforces append-only DML and insertion-time
+# cross-table coherence. Execution-start writers are separate from paid admission.
 class GenerationExecution(db.Model):
     __tablename__ = "generation_executions"
 

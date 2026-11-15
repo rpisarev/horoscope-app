@@ -194,10 +194,15 @@ def test_approved_real_capability_is_not_openai_specific(app, monkeypatch, provi
 
     monkeypatch.setitem(PROVIDERS, provider_name, ProviderDefinition(Adapter, False, True))
     production(app, monkeypatch, provider_name)
-    run = generation_service.run_daily_generation(
-        target_date=DAY, provider_name=provider_name, signs=["aries"]
+    # Publication authorization is independent of execution admission. .02b
+    # deliberately blocks production lifecycle until the safety chain exists;
+    # approved real-provider persistence remains provider-capability based.
+    require_publication_provider(provider_name)
+    save_forecast(
+        "aries", DAY, "Спокойный день поможет завершить начатые дела.",
+        source=provider_name, model_version="model-family:version",
+        publication_provider=provider_name,
     )
-    assert run.status == "success"
     assert Forecast.query.one().source == provider_name
     assert Forecast.query.one().model_name == "model-family:version"
 
@@ -220,13 +225,14 @@ def test_persistence_rechecks_policy_changed_during_generation(app, monkeypatch)
     class ChangingPolicyProvider(RealTestProvider):
         def generate(self, request):
             result = super().generate(request)
-            monkeypatch.setitem(app.config, "PRODUCTION_PUBLICATION_PROVIDERS", "")
+            production(app, monkeypatch, "")
             return result
 
-    monkeypatch.setitem(PROVIDERS, "future-real", ProviderDefinition(ChangingPolicyProvider, False, True))
-    production(app, monkeypatch, "future-real")
+    # Begin as an allowed development execution, then change policy before save.
+    # Do not bypass the new production execution prerequisite for this guard test.
+    monkeypatch.setitem(PROVIDERS, "future_real", ProviderDefinition(ChangingPolicyProvider, False, True))
     run = generation_service.run_daily_generation(
-        target_date=DAY, provider_name="future-real", signs=["aries"]
+        target_date=DAY, provider_name="future_real", signs=["aries"]
     )
     assert run.status == "failed"
     assert "Publication policy" in GenerationItem.query.one().error_message
