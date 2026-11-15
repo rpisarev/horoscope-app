@@ -1,0 +1,31 @@
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHON_DOTENV_DISABLED=1 \
+    APP_DEPLOYMENT_MODE=production \
+    FLASK_DEBUG=0 \
+    ADMIN_API_ENABLED=0 \
+    GENERATION_PAID_EXECUTION_ENABLED=0 \
+    GENERATION_JOB_WORKER_ENABLED=0
+
+WORKDIR /app
+
+COPY requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt \
+    && groupadd --gid 10001 app \
+    && useradd --uid 10001 --gid 10001 --no-create-home --home-dir /app \
+        --shell /usr/sbin/nologin app
+
+# Keep application files root-owned and readable by the unprivileged process.
+# Migrations are packaged for readiness/explicit operator use, never run here.
+COPY app ./app
+COPY migrations ./migrations
+COPY utils ./utils
+COPY alembic.ini paid_execution_policy.py paid_admission_policy.py wsgi.py ./
+
+USER 10001:10001
+EXPOSE 8000
+
+# No preload: each worker creates its own Flask app and SQLAlchemy engine.
+CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "2", "--worker-class", "sync", "--worker-tmp-dir", "/tmp", "--access-logfile", "-", "--error-logfile", "-", "wsgi:create_app()"]
