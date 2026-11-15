@@ -4,6 +4,17 @@ Verified on 2026-11-15 in the isolated `fix/stab-003-vite-security` worktree,
 against baseline `4fe11beaa3109f50a738ddcd274b8cab59fd058e`. This records the
 dependency change and local verification, not installation in running containers.
 
+## Later iteration 4 delta
+
+STAB-029 upgrades Swiper to 12.2.0; SEC-001 updates form-data to 4.0.6 and its
+required hasown dependency to 2.0.4 without changing jsdom. The historical
+STAB-003 snapshots below remain unchanged evidence from that task, not the current
+lock. The integrated audit now reports **0 critical, 9 high, 1 moderate** package
+entries. See [Swiper rationale/tests](swiper-security.md),
+[form-data compatibility](form-data-security.md) and the final integrated
+[CURRENT_STATE](CURRENT_STATE.md) checkpoint. No live image or dependency volume
+was updated. Browser smoke and Alpine/Node 22 deployment verification remain separate.
+
 ## Supported compatible versions
 
 | Component | Baseline lock | Selected lock / policy | Reason |
