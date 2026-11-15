@@ -9,7 +9,12 @@ automatic migration, or startup fixture import.
 
 The release images use `backend/Dockerfile.release` (application `/app`, port
 8000) and `frontend/Dockerfile.release` (Caddy and built frontend `/srv`). The
-backend uses `demo_readonly`, production publication policy with an empty provider
+Python setup scripts in `backend/demo_tools/` must be baked into `/opt/demo/`,
+and `frontend/caddy-entrypoint.sh` into `/etc/demo/caddy-entrypoint.sh` by those
+release images. Only the Caddyfile is an external Compose config; executable
+scripts are never mounted. Updating a script requires a reviewed image rebuild.
+
+The backend uses `demo_readonly`, production publication policy with an empty provider
 allowlist, disabled paid/admin/worker gates, and no external network route. Stub
 selection does not authorize production generation. SAFE-001 and application
 publication rules remain unchanged; existing published fixture reads remain valid.
@@ -74,6 +79,13 @@ only the PostgreSQL template databases, `postgres`, the `demo_bootstrap` user
 (plus built-in `pg_*` roles), and an empty public schema. It refuses existing
 databases, roles, schemas, or public objects before DDL. It does not run as a
 PostgreSQL init hook or application startup action.
+
+After that preflight, bootstrap derives SCRAM-SHA-256 verifiers locally with
+libpq before composing role DDL; raw passwords are never SQL literals. The
+bootstrap admin session disables statement/error-statement, duration/sample, and
+parameter logging before password DDL. These settings end with that connection;
+they do not alter server-wide logging or an existing database. Any logging setup
+or verifier failure aborts before the corresponding password DDL.
 
 The initial migration tool checks identity/ownership in a read-only transaction
 and refuses existing public objects before invoking Alembic. It applies the
@@ -206,7 +218,7 @@ the unqualified development Compose command or remove shared Docker volumes.
 `python3 -B -m unittest discover -s deploy/demo -p test_tools.py -v` tests setup
 refusals with mocks and renders base/tools/local Compose models with dummy inputs.
 It never opens a database connection or starts a container. Shell syntax is checked
-with `sh -n deploy/demo/caddy-entrypoint.sh`. Actual image/Caddy validation,
+with `sh -n frontend/caddy-entrypoint.sh`. Actual image/Caddy validation,
 bootstrap/migrations/role enforcement, fixture import and browser checks require
 the separately coordinated isolated integration run. Mock/config checks do not
 claim those runtime results. Database-backed regression tests remain serialized

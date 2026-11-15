@@ -55,8 +55,6 @@ services:
     configs:
       - source: demo_caddyfile
         target: /etc/caddy/Caddyfile
-      - source: demo_caddy_entrypoint
-        target: /etc/demo/caddy-entrypoint.sh
     secrets: [demo_basic_auth_hash]
     ports:
       - "${DEMO_BIND_IP:-127.0.0.1}:80:80"
@@ -126,11 +124,6 @@ services:
       DEMO_EXPECTED_INSTANCE_ID: ${DEMO_EXPECTED_INSTANCE_ID:?Set a new demo UUID}
       DEMO_EXPECTED_DATABASE: horoscope_demo
       # Bootstrap still requires the CLI --confirm-new-isolated-cluster flag.
-    configs:
-      - source: demo_common
-        target: /opt/demo/demo_common.py
-      - source: demo_bootstrap
-        target: /opt/demo/bootstrap.py
     secrets: [demo_admin_password, demo_owner_password, demo_importer_password, demo_readonly_password]
 
   demo-migrate:
@@ -140,11 +133,6 @@ services:
       <<: *demo-safety
       DEMO_EXPECTED_INSTANCE_ID: ${DEMO_EXPECTED_INSTANCE_ID:?Set a new demo UUID}
       DEMO_EXPECTED_DATABASE: horoscope_demo
-    configs:
-      - source: demo_common
-        target: /opt/demo/demo_common.py
-      - source: demo_migrate
-        target: /opt/demo/migrate.py
     secrets: [demo_owner_password]
 
   demo-import:
@@ -155,11 +143,6 @@ services:
       DEMO_EXPECTED_INSTANCE_ID: ${DEMO_EXPECTED_INSTANCE_ID:?Set a new demo UUID}
       DEMO_EXPECTED_DATABASE: horoscope_demo
       DEMO_EXPECTED_ROLE: demo_importer
-    configs:
-      - source: demo_common
-        target: /opt/demo/demo_common.py
-      - source: demo_import
-        target: /opt/demo/import-fixtures.py
     secrets: [demo_importer_password]
 
 networks:
@@ -177,16 +160,6 @@ volumes:
 configs:
   demo_caddyfile:
     file: ./deploy/demo/Caddyfile
-  demo_caddy_entrypoint:
-    file: ./deploy/demo/caddy-entrypoint.sh
-  demo_common:
-    file: ./deploy/demo/demo_common.py
-  demo_bootstrap:
-    file: ./deploy/demo/bootstrap.py
-  demo_migrate:
-    file: ./deploy/demo/migrate.py
-  demo_import:
-    file: ./deploy/demo/import-fixtures.py
 
 secrets:
   demo_basic_auth_hash:

@@ -5,16 +5,19 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, call, patch
 from uuid import UUID
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "backend/demo_tools"))
 
 import bootstrap
 import demo_common as common
 import migrate
 
 INSTANCE = UUID("11111111-1111-4111-8111-111111111111")
-ROOT = Path(__file__).resolve().parents[2]
 
 
 def valid_environment():
@@ -82,6 +85,46 @@ class GuardTests(unittest.TestCase):
         )
         bootstrap.verify_fresh_cluster(connection)
         self.assertTrue(all(call.args[0].startswith("SELECT") for call in connection.execute.call_args_list))
+
+    def test_password_ddl_uses_only_client_scram_and_suppresses_statement_logs(self):
+        roles = (common.OWNER, common.IMPORTER, common.READONLY)
+        passwords = {role: f"raw-{role}-test-password-never-SQL" for role in roles}
+        verifiers = [f"SCRAM-SHA-256$test-verifier-{role}" for role in roles]
+        connection = Mock()
+        connection.transaction.return_value = nullcontext()
+        connection.pgconn.encrypt_password.side_effect = [v.encode() for v in verifiers]
+        # SQL composition double exposes Literal inputs and rendered SQL without
+        # requiring psycopg or a database. This tests the credential boundary.
+        sql = Mock()
+        sql.SQL.side_effect = lambda template: template
+        sql.Identifier.side_effect = lambda value: value
+        sql.Literal.side_effect = lambda value: repr(value)
+        with patch.dict(sys.modules, {"psycopg": Mock(sql=sql)}):
+            bootstrap.create_roles(connection, passwords)
+        self.assertEqual(connection.pgconn.encrypt_password.call_args_list,
+                         [call(passwords[role].encode(), role.encode(), b"scram-sha-256") for role in roles])
+        self.assertEqual(sql.Literal.call_args_list, [call(value) for value in verifiers])
+        statements = [item.args[0] for item in connection.execute.call_args_list]
+        for secret in passwords.values():
+            self.assertNotIn(secret, "\n".join(statements))
+        first_ddl = next(i for i, value in enumerate(statements) if value.startswith("CREATE ROLE"))
+        for setting in ("SET log_statement = 'none'", "SET log_min_error_statement = 'panic'",
+                        "SET log_min_duration_statement = -1", "SET log_min_duration_sample = -1",
+                        "SET log_transaction_sample_rate = 0"):
+            self.assertIn(setting, statements[:first_ddl])
+
+    def test_password_ddl_refuses_invalid_verifier_or_logging_configuration_failure(self):
+        for failure in ("verifier", "logging"):
+            connection = Mock()
+            connection.transaction.return_value = nullcontext()
+            connection.pgconn.encrypt_password.return_value = b"raw-password"
+            if failure == "logging":
+                connection.execute.side_effect = RuntimeError("logging setup failed")
+            sql = Mock()
+            with patch.dict(sys.modules, {"psycopg": Mock(sql=sql)}), \
+                    self.subTest(failure=failure), self.assertRaises(RuntimeError):
+                bootstrap.create_roles(connection, {common.OWNER: "raw-password"})
+            sql.Literal.assert_not_called()
 
     def test_bootstrap_refuses_existing_database_roles_schema_and_objects(self):
         rows = [("postgres", common.ADMIN, common.ADMIN),
@@ -157,6 +200,12 @@ class ComposeTests(unittest.TestCase):
         self.assertEqual([name for name, service in services.items() if service.get("ports")], ["proxy"])
         for service in self.tools["services"].values():
             self.assertTrue(all(volume["type"] != "bind" for volume in service.get("volumes", [])))
+
+    def test_only_caddyfile_is_mounted_as_config(self):
+        self.assertEqual(set(self.tools["configs"]), {"demo_caddyfile"})
+        for name, service in self.tools["services"].items():
+            expected = ["demo_caddyfile"] if name == "proxy" else []
+            self.assertEqual([config["source"] for config in service.get("configs", [])], expected)
 
     def test_backend_only_receives_readonly_secret_and_no_generation_authority(self):
         backend = self.runtime["services"]["backend"]

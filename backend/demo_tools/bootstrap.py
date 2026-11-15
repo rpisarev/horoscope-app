@@ -25,6 +25,38 @@ def verify_fresh_cluster(connection):
     require_empty_public(connection)
 
 
+def create_roles(connection, role_passwords):
+    """Call only after the fresh-cluster preflight, on its admin connection."""
+    from psycopg import sql
+
+    # Session-local settings, before the password DDL transaction. The connection
+    # closes immediately after setup; no server-wide logging policy is changed.
+    for setting in (
+        "SET log_statement = 'none'",
+        "SET log_min_error_statement = 'panic'",
+        "SET log_min_duration_statement = -1",
+        "SET log_min_duration_sample = -1",
+        "SET log_transaction_sample_rate = 0",
+        "SET log_parameter_max_length = 0",
+        "SET log_parameter_max_length_on_error = 0",
+    ):
+        connection.execute(setting)
+    with connection.transaction():
+        for role in (OWNER, IMPORTER, READONLY):
+            # Explicit algorithm avoids a server query or fallback. Raw passwords
+            # are consumed by libpq locally and never interpolated into SQL.
+            verifier = connection.pgconn.encrypt_password(
+                role_passwords[role].encode("utf-8"), role.encode("ascii"), b"scram-sha-256"
+            )
+            require(isinstance(verifier, bytes) and verifier.startswith(b"SCRAM-SHA-256$"),
+                    "Client SCRAM verifier generation failed.")
+            connection.execute(sql.SQL(
+                "CREATE ROLE {} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE "
+                "NOINHERIT NOREPLICATION NOBYPASSRLS PASSWORD {}"
+            ).format(sql.Identifier(role), sql.Literal(verifier.decode("ascii"))))
+        connection.execute("ALTER ROLE demo_readonly SET default_transaction_read_only = on")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--confirm-new-isolated-cluster", action="store_true", required=True)
@@ -32,20 +64,12 @@ def main():
     instance = validate_environment()
     role_passwords = {role: password(role) for role in (ADMIN, OWNER, IMPORTER, READONLY)}
     require(len(set(role_passwords.values())) == 4, "Each demo role needs a distinct password.")
-    from psycopg import sql
-
     with connect(ADMIN, "postgres") as connection:
         with connection.transaction():
             connection.execute("SET TRANSACTION READ ONLY")
             verify_fresh_cluster(connection)
         # Role creation is transactional. CREATE DATABASE must run separately.
-        with connection.transaction():
-            for role in (OWNER, IMPORTER, READONLY):
-                connection.execute(sql.SQL(
-                    "CREATE ROLE {} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE "
-                    "NOINHERIT NOREPLICATION NOBYPASSRLS PASSWORD {}"
-                ).format(sql.Identifier(role), sql.Literal(role_passwords[role])))
-            connection.execute("ALTER ROLE demo_readonly SET default_transaction_read_only = on")
+        create_roles(connection, role_passwords)
         connection.execute("CREATE DATABASE horoscope_demo OWNER demo_owner TEMPLATE template0")
 
     with connect(ADMIN) as connection:
