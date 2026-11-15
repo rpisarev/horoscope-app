@@ -106,6 +106,10 @@ class PaidExecutionPolicyTests(unittest.TestCase):
         self.session = Mock()
         self._module(prefix, db=SimpleNamespace(session=self.session))
         self._module(prefix + ".services")
+        self._module(prefix + ".services.generation_admission_service",
+                     GenerationScopeBusy=type("GenerationScopeBusy", (RuntimeError,), {}),
+                     GenerationPackageScope=Mock(), package_admission=Mock(return_value=nullcontext()),
+                     package_scope_lock=Mock(return_value=nullcontext()))
         self._module(prefix + ".services.generation_execution_service", **{
             name: Mock() for name in (
                 "assert_autonomous_session_clean", "link_execution_run",
@@ -114,6 +118,9 @@ class PaidExecutionPolicyTests(unittest.TestCase):
                 "claim_execution_id", "deployment_mode", "unlinked_claim_execution",
             )
         })
+        sys.modules[prefix + ".services.generation_execution_service"].ExecutionAlreadyStarted = type(
+            "ExecutionAlreadyStarted", (RuntimeError,), {},
+        )
         self.provider = SimpleNamespace(
             name=provider_name, model_name="fake-model",
             generate=Mock(side_effect=AssertionError("Unexpected transport")),
@@ -132,7 +139,7 @@ class PaidExecutionPolicyTests(unittest.TestCase):
         self.models = self._module(prefix + ".models", **{
             name: Mock() for name in (
                 "Forecast", "GenerationAttempt", "GenerationItem", "GenerationRun",
-                "PromptVersion", "GenerationJob",
+                "PromptVersion", "GenerationJob", "GenerationExecution", "GenerationExecutionRun",
             )
         })
         if queue:
@@ -198,9 +205,13 @@ class PaidExecutionPolicyTests(unittest.TestCase):
             with self.subTest(job_type=job_type):
                 job = SimpleNamespace(
                     id=1, status="running", locked_by="unit", provider="openai", job_type=job_type,
-                    run_id=None,
+                    run_id=None, attempt_count=1, target_date=date(2026, 11, 14),
+                    locale="ru", forecast_type="daily",
                 )
-                self.session.get.return_value = job
+                self.session.get.side_effect = (
+                    lambda model, identity, **kwargs: job
+                    if model is self.models.GenerationJob else None
+                )
                 service.serialize_generation_job = lambda row: {"status": row.status}
                 result = service.process_claimed_generation_job(job, worker_id="unit", allow_openai=True)
                 self.assertEqual(result["status"], "failed")
@@ -238,6 +249,8 @@ class PaidExecutionPolicyTests(unittest.TestCase):
         cli.print_run_summary = Mock()
         self._module("app", create_app=Mock(return_value=SimpleNamespace(app_context=nullcontext)))
         self._module("app.services", run_daily_generation=service.run_daily_generation)
+        self._module("app.services.generation_admission_service",
+                     GenerationScopeBusy=type("GenerationScopeBusy", (RuntimeError,), {}))
         os.environ["OPENAI_API_KEY"] = "unit-test-fake-key"
         with patch.object(sys, "argv", ["generate_forecast_package.py", "--date", "2026-11-14",
                                         "--provider", "openai", "--allow-openai"]), patch("builtins.print"):

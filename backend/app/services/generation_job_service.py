@@ -10,16 +10,20 @@ from typing import Any, Iterable
 from uuid import uuid4
 
 from paid_execution_policy import require_paid_execution
-from sqlalchemy import event, inspect
+from sqlalchemy import event, inspect, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Mapper, Session
 
 from .. import db
-from ..models import GenerationJob, GenerationRun
+from ..models import GenerationExecution, GenerationExecutionRun, GenerationJob, GenerationRun
+from .generation_admission_service import (
+    GenerationPackageScope, GenerationScopeBusy, package_scope_lock,
+)
 from ..providers.publication_policy import require_publication_provider
 from ..providers.registry import PROVIDERS
 from .constants import DEFAULT_FORECAST_TYPE, DEFAULT_LOCALE
 from .generation_execution_service import (
+    ExecutionAlreadyStarted,
     assert_autonomous_session_clean,
     claim_execution_id,
     deployment_mode,
@@ -1346,6 +1350,7 @@ def claim_next_generation_job(
 
 
 def close_stale_running_jobs(*, stale_after_minutes: int = 60) -> int:
+    assert_autonomous_session_clean(db.session())
     stale_after_minutes = _validate_int(
         stale_after_minutes,
         default=60,
@@ -1359,6 +1364,11 @@ def close_stale_running_jobs(*, stale_after_minutes: int = 60) -> int:
         GenerationJob.query.filter(
             GenerationJob.status == JOB_STATUS_RUNNING,
             GenerationJob.locked_at < cutoff,
+            # Even a claim with no run link is durable execution evidence, not
+            # proof that reclaim is safe. Leave managed history for .04/.05.
+            ~select(GenerationExecution.id).where(
+                GenerationExecution.job_id == GenerationJob.id,
+            ).exists(),
         )
         .order_by(GenerationJob.locked_at.asc(), GenerationJob.id.asc())
         .all()
@@ -1505,6 +1515,18 @@ def process_claimed_generation_job(
             f"Job id={job.id} is locked by another worker."
         )
 
+    claimed_job_id, claimed_attempt_count = job.id, job.attempt_count
+    claimed_execution_id = claim_execution_id(job)
+    claimed_scope = GenerationPackageScope(job.target_date, job.locale, job.forecast_type)
+
+    # Inspect duplicate dispatch BEFORE mutable permission/configuration gates.
+    # Changed paid/local/publication permission is not authority to fail another
+    # invocation's linked execution. This guard never enters the failure writer.
+    if db.session.get(GenerationExecutionRun, claimed_execution_id) is not None:
+        raise ExecutionAlreadyStarted(
+            "This claim already started a run; inspect its state without replay."
+        )
+
     try:
         _ensure_provider_can_execute(job, allow_openai=allow_openai)
         require_execution_activation()
@@ -1535,6 +1557,51 @@ def process_claimed_generation_job(
         job.locked_by = None
         db.session.commit()
 
+    except ExecutionAlreadyStarted:
+        # A duplicate dispatch is not a failed new execution. Preserve the job,
+        # its owner/locks/run and audit history for status inspection; no replay.
+        raise
+    except GenerationScopeBusy as exc:
+        db.session.rollback()
+        # This new failure path must not let an expired owner finalize a newer
+        # claim. Epoch replaces/enriches the attempt identity in .04a; this is
+        # deliberately not a claim of complete fencing of all existing writers.
+        try:
+            db.session.begin()
+            with package_scope_lock(db.session(), scope=claimed_scope):
+                # Another dispatch of this same claim may have linked its run
+                # after our initial unlinked check. Serialize with that commit.
+                if db.session.get(GenerationExecutionRun, claimed_execution_id) is not None:
+                    raise ExecutionAlreadyStarted(
+                        "This claim already started a run; inspect its state without replay."
+                    )
+                result = db.session.execute(update(GenerationJob).where(
+                    GenerationJob.id == claimed_job_id,
+                    GenerationJob.status == JOB_STATUS_RUNNING,
+                    GenerationJob.locked_by == worker_id,
+                    GenerationJob.attempt_count == claimed_attempt_count,
+                    ~select(GenerationExecutionRun.execution_id).where(
+                        GenerationExecutionRun.execution_id == claimed_execution_id,
+                    ).exists(),
+                ).values(
+                    status=JOB_STATUS_FAILED, run_id=None,
+                    error_message=f"{exc.code}: {exc}", finished_at=utcnow(),
+                    locked_at=None, locked_by=None,
+                ).execution_options(synchronize_session=False))
+            db.session.commit()
+        except GenerationScopeBusy as lock_error:
+            db.session.rollback()
+            raise GenerationJobProcessingError(
+                "Generation admission is still in progress; claim retained for review."
+            ) from lock_error
+        except BaseException:
+            db.session.rollback()
+            raise
+        if result.rowcount != 1:
+            raise GenerationJobProcessingError(
+                "Generation package was busy; job claim ownership changed."
+            ) from exc
+        job = db.session.get(GenerationJob, claimed_job_id, populate_existing=True)
     except Exception as exc:
         db.session.rollback()
         job = db.session.get(GenerationJob, job.id)

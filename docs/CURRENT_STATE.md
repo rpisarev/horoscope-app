@@ -1,12 +1,38 @@
 # Current Project State
 
-- State updated: 2026-11-15 (stabilization iteration 4 implementation; ADR decision date remains 2026-11-14).
+- State updated: 2026-11-15 (iteration 5 in progress; ADR decision date remains 2026-11-14).
 - Main working branch: `feature/main-page-start`
 - Verified iteration 4 base: `17fb256ce8f5e651a5d05b4a8911d905585f4e82` (PR #25 merged; GitHub metadata, local and actual remote `feature/main-page-start` agree). STAB-015 D1–D8 remain Accepted. Work is isolated in `/tmp/horoscope-iter4-integration`, branch `integration/project-stabilization-4`; the live checkout stays on `feature/project-stabilization5` at the base.
 - Historical iteration 3 base: `4fe11be` (PR #24), incorporating STAB-015.01 and earlier safety fixes. The older verification sections below retain their own evidence and dates.
 - Earlier publication audit baseline: `34623b27bd69d681edf1a3ab8f8aac31bc74cafa` (`Update frontend (#20)`). Results and runtime observations in the historical sections below belong to their recorded checkpoints.
 
-## Stabilization checkpoint — iteration 4
+## Stabilization checkpoint — iteration 5 in progress
+
+Verified base `ea3c0ec166b37b00e05164521b7ab9cd4e78fd8f` (PR #26), local and
+actual remote integration SHA agree. Original bind-mounted checkout remains
+untouched on `feature/project-stabilization6`; work is isolated in
+`/tmp/horoscope-iter5-integration`, branch `integration/project-stabilization-5`.
+Owner-requested pause was resumed with all checkpoint file hashes unchanged.
+
+Implemented and integrated so far: `.02b` immutable execution starts and `.03b`
+atomic package admission. Their [execution](generation-execution-starts.md) and
+[admission](package-admission-design.md) contracts distinguish current behavior
+from production activation. Production remains blocked; no cap, complete fencing,
+provider pause or queue-default rollout is claimed.
+
+Current verification: 19 mock safety guards; `.03b` focused **273 passed in
+40.28s**, full integrated backend **864 passed in 86.85s**, via unchanged STAB-007.
+Initial focused failure exposed lazy-savepoint timeout leakage and was fixed
+without weakening assertions. All disposable test containers/networks cleaned.
+`.02c`, `.04a` and SEC-002 remain separate unfinished/unintegrated work at this
+milestone; their task-local results do not describe this integration tree.
+
+Scheduler remains exited; backend/db/frontend unchanged. No real provider calls,
+live DB changes/migrations, scheduler restart, live recreate, push/PR or shared
+merge. Later final iteration verification will supersede this intermediate record.
+
+## Previous checkpoint — iteration 4
+
 
 **IMPLEMENTED:** STAB-029, SEC-001, STAB-005, STAB-015.08c-A and .02a.
 Five native agents used separate worktrees from the same base. The orchestrator

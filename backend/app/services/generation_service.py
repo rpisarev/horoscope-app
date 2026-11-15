@@ -6,10 +6,12 @@ from typing import Iterable
 from uuid import UUID, uuid4
 
 from paid_execution_policy import require_paid_execution
+from sqlalchemy import select
 
 from .constants import DEFAULT_FORECAST_TYPE, DEFAULT_LOCALE
 from .forecast_service import get_published_forecast, save_forecast
 from .forecast_validation_service import find_forbidden_forecast_terms
+from .generation_admission_service import GenerationPackageScope, package_admission
 from .generation_execution_service import (
     assert_autonomous_session_clean,
     link_execution_run,
@@ -21,7 +23,10 @@ from .generation_execution_service import (
 from .prompt_service import build_provider_request, get_prompt_version
 from .sign_service import get_enabled_sign_keys
 from .. import db
-from ..models import Forecast, GenerationAttempt, GenerationItem, GenerationRun, PromptVersion
+from ..models import (
+    Forecast, GenerationAttempt, GenerationExecutionRun, GenerationItem,
+    GenerationRun, PromptVersion,
+)
 from ..providers import (
     GenerationProviderError,
     HoroscopeProvider,
@@ -42,11 +47,15 @@ def utcnow() -> datetime:
 
 
 def close_stale_running_runs(stale_after_hours: int = 2) -> int:
+    assert_autonomous_session_clean(db.session())
     cutoff = utcnow() - timedelta(hours=stale_after_hours)
     stale_runs = (
         GenerationRun.query.filter(
             GenerationRun.status == "running",
             GenerationRun.started_at < cutoff,
+            ~select(GenerationExecutionRun.execution_id).where(
+                GenerationExecutionRun.run_id == GenerationRun.id,
+            ).exists(),
         )
         .order_by(GenerationRun.started_at.asc())
         .all()
@@ -88,26 +97,11 @@ def run_daily_generation(
     max_attempts: int = 3,
     stale_after_hours: int = 2,
     execution_id: UUID | None = None,
-) -> GenerationRun:
+    _max_retry_runs: int | None = None,
+) -> GenerationRun | None:
     assert_autonomous_session_clean(db.session())
-    close_stale_running_runs(stale_after_hours=stale_after_hours)
-
-    active_run = GenerationRun.query.filter_by(
-        target_date=target_date,
-        locale=locale,
-        forecast_type=forecast_type,
-        status="running",
-    ).first()
-
-    if active_run:
-        logger.info(
-            "Generation skipped: active run already exists for %s locale=%s type=%s run_id=%s",
-            target_date.isoformat(),
-            locale,
-            forecast_type,
-            active_run.id,
-        )
-        return active_run
+    # Keep the legacy argument compatible, but age cannot release another run's
+    # package. Recovery needs proof/fencing, not a reaper on generation startup.
 
     sign_keys = list(signs) if signs is not None else get_enabled_sign_keys()
 
@@ -144,26 +138,49 @@ def run_daily_generation(
     # The queue already durably recorded its claim. Direct callers get exactly
     # one new identity. A run and its immutable link commit together, before any
     # item/provider activity. A failure here is never an unrecorded-call fallback.
+    no_work = False
     try:
-        if execution_id is None:
-            execution_id = uuid4()
-            record_execution_start(
-                db.session(), execution_id=execution_id, origin="dev_direct",
-                provider=canonical_provider, target_date=target_date,
-                locale=locale, forecast_type=forecast_type,
-            )
-        else:
-            require_unlinked_execution(
-                db.session(), execution_id=execution_id, provider=canonical_provider,
-                target_date=target_date, locale=locale, forecast_type=forecast_type,
-            )
-        db.session.add(run)
-        db.session.flush()
-        link_execution_run(db.session(), execution_id=execution_id, run_id=run.id)
+        session = db.session()
+        if session.get_transaction() is None:
+            session.begin()
+        with package_admission(session, scope=GenerationPackageScope(
+            target_date, locale, forecast_type,
+        )):
+            if _max_retry_runs is not None:
+                # Authoritative check uses a fresh READ COMMITTED snapshot under
+                # the package lock, even if a prior contender already finalized.
+                retry_count = GenerationRun.query.filter_by(
+                    run_type="retry", target_date=target_date, locale=locale,
+                    forecast_type=forecast_type,
+                ).count()
+                sign_keys = get_missing_forecast_signs(
+                    target_date=target_date, locale=locale, forecast_type=forecast_type,
+                )
+                no_work = retry_count >= _max_retry_runs or not sign_keys
+                run.total_items = len(sign_keys)
+            if not no_work:
+                if execution_id is None:
+                    execution_id = uuid4()
+                    record_execution_start(
+                        session, execution_id=execution_id, origin="dev_direct",
+                        provider=canonical_provider, target_date=target_date,
+                        locale=locale, forecast_type=forecast_type,
+                    )
+                else:
+                    require_unlinked_execution(
+                        session, execution_id=execution_id, provider=canonical_provider,
+                        target_date=target_date, locale=locale, forecast_type=forecast_type,
+                    )
+                session.add(run)
+                session.flush()
+                link_execution_run(session, execution_id=execution_id, run_id=run.id)
         db.session.commit()
     except BaseException:
         db.session.rollback()
         raise
+
+    if no_work:
+        return None
 
     items = [
         GenerationItem(
@@ -256,6 +273,7 @@ def run_retry_for_missing_forecasts(
         signs=missing_signs,
         max_attempts=max_attempts,
         stale_after_hours=stale_after_hours,
+        _max_retry_runs=max_retry_runs,
         **({"execution_id": execution_id} if execution_id is not None else {}),
     )
 

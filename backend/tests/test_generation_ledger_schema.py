@@ -217,6 +217,11 @@ def test_link_scope_diagnostic_and_timestamp_constraints(connection):
 
 def test_product_request_requires_coherent_execution_run_item_and_legacy_attempt(connection):
     old = legacy(connection)
+    # Two historical runs for one package remain valid; only one may be active.
+    # Keep all cross-run linkage assertions unchanged.
+    connection.execute(sa.update(GenerationRun).where(
+        GenerationRun.id == old["run_id"],
+    ).values(status="failed"))
     other = legacy(connection)
     e = execution(connection)
     reject(connection, lambda: request(connection, e))

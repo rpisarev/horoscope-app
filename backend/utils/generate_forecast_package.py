@@ -246,6 +246,7 @@ def main() -> int:
 
     from app import create_app
     from app.services import run_daily_generation
+    from app.services.generation_admission_service import GenerationScopeBusy
 
     app = create_app()
 
@@ -258,13 +259,17 @@ def main() -> int:
     print(f"started_at_local_script_time: {datetime.now().isoformat(timespec='seconds')}")
 
     with app.app_context():
-        run = run_daily_generation(
-            target_date=target_date,
-            run_type=args.run_type,
-            provider_name=provider_name,
-            locale=args.locale,
-            forecast_type=args.forecast_type,
-        )
+        try:
+            run = run_daily_generation(
+                target_date=target_date,
+                run_type=args.run_type,
+                provider_name=provider_name,
+                locale=args.locale,
+                forecast_type=args.forecast_type,
+            )
+        except GenerationScopeBusy as exc:
+            print(f"{exc.code}: {exc}", file=sys.stderr)
+            return 1
 
         print_run_summary(run)
 
@@ -274,7 +279,6 @@ def main() -> int:
         if args.show_errors:
             print_failed_attempts(run.id)
 
-        # An existing active run may be returned without completing this request.
         return 0 if run.status == "success" else 1
 
 

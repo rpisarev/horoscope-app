@@ -12,6 +12,7 @@ from app.services.generation_job_service import (
     JOB_STATUS_CANCELLED,
     JOB_STATUS_FAILED,
     JOB_STATUS_QUEUED,
+    JOB_STATUS_RUNNING,
     JOB_STATUS_SUCCESS,
     JOB_TYPE_BACKFILL,
     JOB_TYPE_RETRY_MISSING,
@@ -317,7 +318,7 @@ def test_retry_generation_job_requeues_failed_job(app):
         assert retried_job.finished_at is None
 
 
-def test_close_stale_running_jobs_marks_expired_job_failed(app):
+def test_close_stale_running_jobs_preserves_ledger_managed_claim(app):
     with app.app_context():
         job, _ = create_generation_job(
             job_type=JOB_TYPE_BACKFILL,
@@ -331,11 +332,12 @@ def test_close_stale_running_jobs_marks_expired_job_failed(app):
 
         closed_count = close_stale_running_jobs(stale_after_minutes=60)
 
-        assert closed_count == 1
+        assert closed_count == 0
 
         expired_job = db.session.get(GenerationJob, job.id)
-        assert expired_job.status == JOB_STATUS_FAILED
-        assert expired_job.finished_at is not None
+        assert expired_job.status == JOB_STATUS_RUNNING
+        assert expired_job.finished_at is None
+        assert expired_job.locked_by == "test-worker"
 
 
 def test_process_generation_jobs_runs_stub_job(app):

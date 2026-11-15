@@ -111,6 +111,12 @@ single/batch retry collisions покрито PostgreSQL regressions.
 
 ## STAB-015.03b — атомарний package-level admission
 
+**IMPLEMENTED — iteration 5, 2026-11-15.** Partial unique package index, short
+transaction advisory lock, controlled busy outcomes та retry-helper admission
+recheck. Managed history не звільняється автоматично за віком. Production
+activation, paid cap і complete fencing залишаються blocked/pending.
+[Контракт, migration та перевірки](../package-admission-design.md).
+
 - **Проблема:** active-run SELECT і retry-cap count race; dedupe hashes не покривають overlapping jobs.
 - **Scope:** DB-enforced exclusivity **date + locale + forecast_type** across providers/job types/direct/queue/subsets; controlled busy/deferred. Без sign-level parallelism або нового overwrite behavior.
 - **Залежності:** .01/.02b; D3 accepted; P3 migration/locking contract, історичні overlaps перевірити без видалення.

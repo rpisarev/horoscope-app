@@ -211,6 +211,13 @@ class GenerationRun(db.Model):
         foreign_keys="GenerationJob.run_id",
     )
 
+    __table_args__ = (
+        db.Index(
+            "uq_generation_runs_active_package", "target_date", "locale", "forecast_type",
+            unique=True, postgresql_where=db.text("status = 'running'"),
+        ),
+    )
+
 
 class GenerationJob(db.Model):
     __tablename__ = "generation_jobs"

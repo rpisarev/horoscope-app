@@ -215,17 +215,20 @@ def test_manual_retry_preserves_execution_history(app, monkeypatch, fake_provide
     assert result["status"] == "success" and len(fake_provider) == 1
 
 
-def test_stale_reclaim_keeps_old_execution_and_distinct_start(app, fake_provider):
+def test_stale_claim_keeps_history_without_automatic_managed_reclaim(app, fake_provider):
     job, _ = jobs.create_generation_job(target_date=DAY, signs=["aries"], max_job_attempts=2)
     first = jobs.claim_next_generation_job(worker_id="same-worker")
     identity = ledger.claim_execution_id(first)
     first.locked_at = datetime.now(timezone.utc) - timedelta(hours=3)
     db.session.commit()
-    assert jobs.close_stale_running_jobs(stale_after_minutes=60) == 1
-    second = jobs.claim_next_generation_job(worker_id="same-worker")
-    assert ledger.claim_execution_id(second) != identity
-    assert GenerationExecution.query.count() == 2
-    assert jobs.process_claimed_generation_job(second, worker_id="same-worker")["status"] == "success"
+    # .03b intentionally tightens .02b's former age-only reclaim behavior.
+    # A committed start without a run link does not prove transport was absent.
+    assert jobs.close_stale_running_jobs(stale_after_minutes=60) == 0
+    assert jobs.claim_next_generation_job(worker_id="same-worker") is None
+    assert GenerationExecution.query.count() == 1
+    assert db.session.get(GenerationExecution, identity).job_id == job.id
+    assert db.session.get(GenerationJob, job.id).status == "running"
+    assert fake_provider == []
 
 
 def test_repeated_linked_claim_never_dispatches_again(app, fake_provider):
@@ -237,8 +240,11 @@ def test_repeated_linked_claim_never_dispatches_again(app, fake_provider):
     )
     assert completed.status == "success" and len(fake_provider) == 1
     # Simulates a crash before worker finalization: job still running/owned.
-    result = jobs.process_claimed_generation_job(claimed, worker_id="worker")
-    assert result["status"] == "failed" and "already started" in result["error_message"]
+    before = jobs.serialize_generation_job(claimed)
+    with pytest.raises(ledger.ExecutionAlreadyStarted, match="already started"):
+        jobs.process_claimed_generation_job(claimed, worker_id="worker")
+    db.session.refresh(claimed)
+    assert jobs.serialize_generation_job(claimed) == before
     assert len(fake_provider) == 1 and GenerationRun.query.count() == 1
     assert GenerationExecution.query.count() == 1
 
