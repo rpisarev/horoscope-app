@@ -6,10 +6,12 @@ import os
 import random
 import sys
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from dotenv import load_dotenv
-from openai import OpenAI
+
+if TYPE_CHECKING:
+    from openai import OpenAI
 
 # Direct script invocation places utils/, rather than backend/, on sys.path.
 # Import the standalone policy without importing or creating the Flask app.
@@ -17,12 +19,31 @@ _backend_dir = str(Path(__file__).resolve().parents[1])
 if _backend_dir not in sys.path:
     sys.path.insert(0, _backend_dir)
 
-from paid_execution_policy import require_paid_execution
+from paid_execution_policy import PaidExecutionDenied, require_paid_execution
 
 
 DEFAULT_MODEL = "gpt-5.4-mini"
 DEFAULT_TIMEOUT_SECONDS = 30.0
 DEFAULT_MAX_OUTPUT_TOKENS = 500
+
+
+class ProbeExecutionDenied(PaidExecutionDenied):
+    """A nonretryable deployment-policy denial before probe SDK access."""
+
+
+def require_probe_deployment_mode() -> None:
+    """Require an explicit non-production mode at each probe boundary.
+
+    This standalone diagnostic deliberately has no implicit development default.
+    SAFE-001 remains independently necessary; bounded dev admission is separate.
+    """
+    mode = os.environ.get("APP_DEPLOYMENT_MODE", "").strip().lower()
+    if mode == "production":
+        raise ProbeExecutionDenied("Paid prompt probe is forbidden in production.")
+    if mode not in {"development", "test"}:
+        raise ProbeExecutionDenied(
+            "Paid prompt probe denied: APP_DEPLOYMENT_MODE is missing or invalid."
+        )
 
 
 FORBIDDEN_TIME_ENDING_PHRASES = [
@@ -286,24 +307,26 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Probe horoscope prompt quality with one or more OpenAI requests. "
+            "Paid probes are forbidden in production and require an explicit "
+            "non-production APP_DEPLOYMENT_MODE plus the SAFE-001 paid gate. "
             "This script does not use Flask app or database."
         )
     )
     parser.add_argument(
         "--model",
-        default=os.getenv("OPENAI_MODEL", DEFAULT_MODEL),
+        default=None,
         help=f"OpenAI model name. Default: env OPENAI_MODEL or {DEFAULT_MODEL}",
     )
     parser.add_argument(
         "--timeout",
         type=float,
-        default=float(os.getenv("OPENAI_TIMEOUT_SECONDS", DEFAULT_TIMEOUT_SECONDS)),
+        default=None,
         help=f"Request timeout in seconds. Default: {DEFAULT_TIMEOUT_SECONDS}",
     )
     parser.add_argument(
         "--max-output-tokens",
         type=int,
-        default=int(os.getenv("OPENAI_MAX_OUTPUT_TOKENS", DEFAULT_MAX_OUTPUT_TOKENS)),
+        default=None,
         help=f"Max output tokens per request. Default: {DEFAULT_MAX_OUTPUT_TOKENS}",
     )
     parser.add_argument(
@@ -552,6 +575,7 @@ def call_openai(
     max_output_tokens: int,
     user_prompt: str,
 ) -> Any:
+    require_probe_deployment_mode()
     require_paid_execution("openai")
     return client.responses.create(
         model=model,
@@ -646,13 +670,14 @@ def print_batch_summary(results: list[dict[str, Any]]) -> None:
 
 
 def main() -> int:
-    load_local_env()
     args = parse_args()
 
     if args.list_profiles:
         print_profiles()
         return 0
 
+    load_local_env()
+    require_probe_deployment_mode()
     require_paid_execution("openai")
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
@@ -660,11 +685,22 @@ def main() -> int:
             "OPENAI_API_KEY is missing. Add it to .env or export it before running."
         )
 
+    # Resolve request defaults only for generation, after dotenv loading, so
+    # profile listing never loads credentials or parses SDK environment options.
+    if args.model is None:
+        args.model = os.getenv("OPENAI_MODEL", DEFAULT_MODEL)
+    if args.timeout is None:
+        args.timeout = float(os.getenv("OPENAI_TIMEOUT_SECONDS", DEFAULT_TIMEOUT_SECONDS))
+    if args.max_output_tokens is None:
+        args.max_output_tokens = int(os.getenv("OPENAI_MAX_OUTPUT_TOKENS", DEFAULT_MAX_OUTPUT_TOKENS))
+
     profile_sequence = build_profile_sequence(
         selected_profile_key=args.profile,
         batch_size=args.batch,
         seed=args.seed,
     )
+
+    from openai import OpenAI
 
     client = OpenAI(
         api_key=api_key,

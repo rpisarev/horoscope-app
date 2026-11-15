@@ -17,7 +17,7 @@ Iteration 3 adds [exact-key queue conflict handling](docs/generation-job-dedupli
 [operations coverage/queue report](docs/generation-operations.md).
 `GET /health/ready` has minimal 200/503 output; detailed diagnostics are explicit
 local CLIs, not public endpoints. Their database reads require an authorized
-environment and never start generation or recover work. Accepted ledger,
+environment and never start generation or recover work. Runtime ledger writers,
 admission, fencing, pause and production-topology changes remain pending.
 
 The project runs locally with Docker Compose and includes:
@@ -1191,14 +1191,18 @@ Utilities are run inside the backend container.
 backend/utils/openai_prompt_probe.py
 ```
 
-Examples:
+Read-only profile listing (no dotenv loading, SDK import or provider request):
 
 ```bash
-docker compose exec -T backend python utils/openai_prompt_probe.py --model gpt-5.4-mini
-docker compose exec -T backend python utils/openai_prompt_probe.py --list-variations
-docker compose exec -T backend python utils/openai_prompt_probe.py --model gpt-5.4-mini --variation relationships
-docker compose exec -T backend python utils/openai_prompt_probe.py --model gpt-5.4-mini --variation creative_view --show-prompt
+docker compose exec -T backend python utils/openai_prompt_probe.py --list-profiles
 ```
+
+STAB-015.08c-A forbids paid probing in production at both CLI and direct helper
+boundaries, even when the global paid gate is enabled. Missing or unrecognized
+`APP_DEPLOYMENT_MODE` also denies paid diagnostics. Explicit development/test mode
+retains the independent SAFE-001 gate; it is not authorization for real transport.
+Keep paid diagnostics disabled pending .08c-B's bounded, audited admission.
+See [probe policy and remaining requirements](docs/production-probe-policy.md).
 
 ### Generate one forecast package immediately
 
