@@ -61,7 +61,7 @@ primitives, але не final paid coordinator/cap; `.04a` додає справ
 і explicit bounded nonproduction renewal (0008), timing default disabled.
 Known paid paths безумовно blocked до завершення admission/safety chain.
 Complete fencing, automatic recovery, provider pause, async/keyless topology і
-production rollout не реалізовані.
+production rollout не реалізовані. SEC-002 окремо оновлює Vue/ws без зміни UI.
 [CURRENT_STATE](../CURRENT_STATE.md) містить integrated verification;
 [backlog](STAB-015-backlog.md) — точні completion/activation boundaries.
 Історичні source facts нижче не переписані; D1–D8 не переглядаються.

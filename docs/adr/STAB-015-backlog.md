@@ -8,8 +8,9 @@ STAB-015.03a/.05a/.07a/.07b завершено в iteration 3. Iteration 4 до�
 та .04a foundation; .02c має перевірені primitives, але final atomic admission і
 transport coordinator залишаються залежністю .03c. .08c-B та інші незавершені
 картки OPEN. Production activation лишається заблокованою.
-STAB-003 toolchain також виконано; residual dependency advisories мають окремий
-follow-up. Це локальна реалізація, не deployment або paid permission.
+STAB-003 toolchain також виконано; SEC-002 в iteration 5 усуває targeted Vue/ws
+advisories, але 6 High/1 Moderate residual entries мають окремий security follow-up.
+Це локальна реалізація, не deployment або paid permission.
 Батьківський документ: [ADR STAB-015](STAB-015-generation-execution.md).
 Ці картки не є implementation або дозволом на runtime/DB/paid зміни.
 

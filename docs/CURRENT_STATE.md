@@ -1,6 +1,6 @@
 # Current Project State
 
-- State updated: 2026-11-15 (iteration 5 integration; ADR decision date remains 2026-11-14).
+- State updated: 2026-11-15 (iteration 5 verified checkpoint; ADR decision date remains 2026-11-14).
 - Main working branch: `feature/main-page-start`
 - Historical iteration 4 base: `17fb256ce8f5e651a5d05b4a8911d905585f4e82` (PR #25). Its worktree/runtime observations below describe that earlier iteration, not the current checkout. STAB-015 D1–D8 remain Accepted.
 - Historical iteration 3 base: `4fe11be` (PR #24), incorporating STAB-015.01 and earlier safety fixes. The older verification sections below retain their own evidence and dates.
@@ -20,6 +20,7 @@ Owner-requested pause was resumed with all checkpoint file hashes unchanged.
 | .03b | Running-package unique index and short advisory admission transaction across providers/job types/sign subsets; controlled busy outcomes, retry-helper recheck. No hard paid-attempt cap. [Contract](package-admission-design.md). |
 | .02c | **Incremental implementation:** transaction-owned durable intent/observation primitives and conservative evidence reader. No runtime paid coordinator/final atomic reservation boundary. Known paid application paths unconditionally denied until .03c and the remaining safety chain. [Contract](request-intent-design.md). |
 | .04a | Real monotonic claim epoch, frozen ownership identity and explicit bounded nonproduction renewal. Timing default disabled; no automatic heartbeat/reclaim or complete fencing. [Contract](lease-epoch-design.md). |
+| SEC-002 | Vue/core/server-renderer 3.5.45 and ws 8.23.0; targeted advisories absent, application code unchanged. Seven other audit entries remain. [Evidence](vue-ws-security.md). |
 
 Five native agents prepared independent changes in separate worktrees. Backend
 prerequisites and DB suites were integrated serially; frontend verification ran
@@ -46,9 +47,20 @@ passing rerun. All DB runs used disposable PostgreSQL, dummy credentials and
 fail-on-unexpected-network/process guards; their test containers/networks were
 removed. The STAB-007 script, guard, conftest and Compose isolation are unchanged;
 the test image allowlist/COPY additionally includes the new paid-admission module.
-SEC-002 frontend is independently verified on the integrated tree (181 tests, 22 POC,
-typecheck/build/ci/ls passed; audit 6 High/1 Moderate); its separate commit is pending
-at this backend milestone.
+**Final integrated frontend:** `npm ci`, `npm ls --all`, typecheck, **181 unit
+tests / 14 files**, production build and **22 POC fixture checks** passed with
+private Node 24.22.2/npm 11.19.1, no personal registry credentials, and a network
+guard on execution checks. `npm audit` exits 1: **0 Critical, 6 High, 1 Moderate**,
+down from 0/9/1. Vue/server-renderer/ws are absent. Remaining High entries:
+brace-expansion 2.0.1, browserslist 4.24.5, editorconfig 1.0.4, glob 10.4.5,
+js-cookie 3.0.5, minimatch 9.0.1/9.0.5 (one entry). Moderate:
+postcss-selector-parser 6.1.2. These are affected packages, not reproduced exploits.
+
+Static checks passed: Python AST, the single 0001–0008 Alembic chain, relative
+documentation links/anchors and `git diff --check`. Source/test harness guards and
+Compose defaults remain intact. Browser inventory is empty; real-browser/touch,
+Node 22 Alpine deployment and GitHub CI were not executed. Final commits are
+local review checkpoints, not CI or deployed runtime evidence.
 
 **Migration/runtime boundary:** packaged head is **0008**, never applied to live
 PostgreSQL here. 0007 refuses historical running-scope overlaps; 0008 refuses
