@@ -1,8 +1,8 @@
 <template>
-  <div class="fixed inset-0 flex items-center justify-center pointer-events-none">
+  <div class="zodiac-wheel fixed inset-0 flex items-center justify-center pointer-events-none">
     <div
       ref="wheel"
-      class="relative w-[100px] h-[100px] animate-spin-slow pointer-events-auto"
+      class="wheel-orbit relative animate-spin-slow pointer-events-auto"
       style="transform-origin:50% 50%"
     >
       <div
@@ -12,8 +12,8 @@
         class="absolute"
       >
         <div
-          class="group relative flex flex-col items-center justify-center
-                 w-24 h-24 rounded-full bg-amber-400/90 text-black
+          class="wheel-sign group relative flex flex-col items-center justify-center
+                 rounded-full bg-amber-400/90 text-black
                  cursor-pointer animate-spin-inner-reverse
                  focus:outline-none focus:ring-2 focus:ring-amber-200"
           role="button"
@@ -24,10 +24,11 @@
           @keydown.enter.prevent="select(z)"
           @keydown.space.prevent="select(z)"
         >
-          <span class="text-3xl">{{ z.glyph }}</span>
-          <small class="-mt-1">{{ z.name }}</small>
+          <span class="wheel-glyph">{{ z.glyph }}</span>
+          <small class="wheel-name -mt-1">{{ z.name }}</small>
 
           <ZodiacTooltip
+            class="wheel-tooltip-orbit"
             :show="active === i"
             :sign="z.name"
             :range="z.range"
@@ -35,6 +36,13 @@
         </div>
       </div>
     </div>
+
+    <ZodiacTooltip
+      class="wheel-tooltip-center"
+      :show="active !== null"
+      :sign="zodiacs[active]?.name || ''"
+      :range="zodiacs[active]?.range || ''"
+    />
   </div>
 </template>
 
@@ -59,7 +67,7 @@ function circleStyle(i) {
   const a = i * 360 / props.zodiacs.length
 
   return {
-    transform: `rotate(${a}deg) translateY(-240px) rotate(-${a}deg)`,
+    transform: `rotate(${a}deg) translateY(calc(-1 * var(--wheel-radius))) rotate(-${a}deg)`,
   }
 }
 
@@ -99,3 +107,56 @@ function select(zodiac) {
   emit('select', zodiac)
 }
 </script>
+
+<style scoped>
+.zodiac-wheel {
+  --wheel-node-size: clamp(3.5rem, 16vmin, 6rem);
+  /* Reserve 12px for the focus ring at every point in the rotation. */
+  --wheel-radius: min(240px,
+    calc(50vw - var(--wheel-node-size) / 2 - 12px),
+    calc(50svh - var(--wheel-node-size) / 2 - 12px));
+}
+
+.wheel-orbit,
+.wheel-sign {
+  width: var(--wheel-node-size);
+  height: var(--wheel-node-size);
+}
+
+.wheel-glyph {
+  font-size: clamp(1.25rem, 5vmin, 1.875rem);
+  line-height: 1.2;
+}
+
+.wheel-name {
+  font-size: clamp(.625rem, 2.2vmin, .8rem);
+}
+
+.wheel-tooltip-center {
+  display: none;
+}
+
+@media (max-width: 767px), (max-height: 767px) {
+  .wheel-tooltip-orbit {
+    display: none;
+  }
+
+  .wheel-tooltip-center {
+    display: block;
+    left: 50%;
+    top: 50%;
+    width: min(14rem, 45vmin);
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+  }
+
+  .wheel-tooltip-center :deep(h3) {
+    font-size: 1rem;
+  }
+
+  .wheel-tooltip-center :deep(p) {
+    font-size: .75rem;
+    line-height: 1rem;
+  }
+}
+</style>
