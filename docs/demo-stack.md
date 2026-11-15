@@ -91,8 +91,13 @@ uses [`!override`](https://docs.docker.com/reference/compose-file/merge/)), rele
 images, OpenSSL, and Caddy's CLI for interactive password hashing.
 
 Use a dedicated absolute directory outside every build context. Protect the
-directory with mode `0700`; make its individual files `0444` so nonroot backend
-UID 10001 can read its mounted secret. Compose file-backed secrets retain host
+directory with mode `0700`; make all mounted password/hash files `0444` so the
+backend and setup tools running as UID/GID `10001:10001` can read their secrets.
+Tools retain `cap_drop: ALL`, `no-new-privileges`, and a read-only filesystem.
+Database administrator authority comes from the bootstrap credential, not the
+container UID. UID 0 with all capabilities dropped cannot bypass a host owner's
+`0600` file permissions; changing UID alone does not make that file readable.
+Compose file-backed secrets retain host
 file permissions; declaring `mode` in Compose does not fix unreadable `0600`
 files. Only the exact secret files listed per service are mounted, not the
 directory. The owner-only host directory prevents other local users traversing

@@ -24,8 +24,9 @@ x-demo-tool: &demo-tool
   profiles: [tools]
   command: []
   restart: "no"
-  # File-backed Compose secrets retain host modes; tools need operator-only files.
-  user: "0:0"
+  # File-backed secrets need mode 0444 inside a host-only 0700 directory.
+  # Match the release image's unprivileged UID; do not add DAC capabilities.
+  user: "10001:10001"
   working_dir: /app
   read_only: true
   tmpfs: [/tmp]

@@ -177,6 +177,24 @@ class ComposeTests(unittest.TestCase):
         importer = self.tools["services"]["demo-import"]
         self.assertEqual([s["source"] for s in importer["secrets"]], ["demo_importer_password"])
 
+    def test_tools_are_unprivileged_without_extra_capabilities_or_secrets(self):
+        expected_secrets = {
+            "demo-bootstrap": {"demo_admin_password", "demo_owner_password",
+                               "demo_importer_password", "demo_readonly_password"},
+            "demo-migrate": {"demo_owner_password"},
+            "demo-import": {"demo_importer_password"},
+        }
+        for name, secrets in expected_secrets.items():
+            with self.subTest(service=name):
+                tool = self.tools["services"][name]
+                self.assertEqual(tool["user"], "10001:10001")
+                self.assertEqual(tool["cap_drop"], ["ALL"])
+                self.assertFalse(tool.get("cap_add"))
+                self.assertFalse(tool.get("privileged"))
+                self.assertIn("no-new-privileges:true", tool["security_opt"])
+                self.assertTrue(tool["read_only"])
+                self.assertEqual({s["source"] for s in tool["secrets"]}, secrets)
+
     def test_local_override_replaces_ports_and_storage(self):
         services = self.local["services"]
         ports = services["proxy"]["ports"]
