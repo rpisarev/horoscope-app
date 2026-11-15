@@ -15,7 +15,9 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[2]
 ALLOWED = {
     "backend": (
-        "requirements.txt", "wsgi.py", "paid_execution_policy.py",
+        "demo_fixture_import.py", "fixtures/demo-2026-11-15-v1.json",
+        "demo_tools/bootstrap.py", "demo_tools/demo_common.py", "demo_tools/migrate.py",
+        "demo_tools/import-fixtures.py", "requirements.txt", "wsgi.py", "paid_execution_policy.py",
         "paid_admission_policy.py", "alembic.ini", "app/__init__.py",
         "app/services/readiness_service.py", "migrations/env.py",
         "migrations/versions/0008_generation_job_leases.py",
@@ -24,7 +26,7 @@ ALLOWED = {
     "frontend": (
         "package.json", "package-lock.json", "index.html", "vite.config.js",
         "tsconfig.json", "postcss.config.cjs", "tailwind.config.cjs",
-        "Caddyfile.release", "src/main.js", "src/App.vue",
+        "Caddyfile.release", "caddy-entrypoint.sh", "src/main.js", "src/App.vue",
         "src/api/forecast.ts", "src/style.css",
         "src/assets/zodiac/constellations/aries.png",
     ),
@@ -33,12 +35,12 @@ COMMON_DENIED = (
     ".env", ".env.production", ".env.py", ".env.js", "private.env",
     ".npmrc", ".pypirc", "pip.conf", ".git/config", "secrets/token.py",
     "secrets/token.js", "private.key", "private.pem", "credentials.py",
-    "credentials.js", "local_secret.py", "local_secret.ts", "tests/probe.py",
+    "credentials.js", "credentials.json", "local_secret.json", "local_secret.py", "local_secret.ts", "tests/probe.py",
     "tests/probe.js", "artifacts/probe.py", "artifacts/probe.js",
     "node_modules/probe.js", "dist/probe.js", "unlisted.txt",
 )
 PREFIXES = {
-    "backend": ("", "app/", "app/deep/", "migrations/", "utils/"),
+    "backend": ("", "app/", "app/deep/", "migrations/", "utils/", "demo_tools/", "fixtures/"),
     "frontend": ("", "src/", "src/deep/", "src/assets/"),
 }
 EXTRA_DENIED = {

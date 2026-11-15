@@ -1,6 +1,12 @@
 # Build with context ./backend. Only runtime code and migration inputs may enter.
 **
 !requirements.txt
+!demo_fixture_import.py
+!fixtures/demo-*-v*.json
+!demo_tools/bootstrap.py
+!demo_tools/demo_common.py
+!demo_tools/migrate.py
+!demo_tools/import-fixtures.py
 !wsgi.py
 !paid_execution_policy.py
 !paid_admission_policy.py

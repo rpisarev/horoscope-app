@@ -56,10 +56,13 @@ the fixed worker count/bind address, override the complete command in the
 integration configuration. No Docker healthcheck is added: the parent stack owns
 probe selection, routing and readiness timing.
 
-The parent will add exact allowlist/COPY entries for `demo_fixture_import.py`,
-`fixtures/` and any offline bootstrap script after those files are integrated.
-This image already supplies Python and psycopg. It has no importer placeholder,
-fixture data or source bind mount; those integration additions require a rebuild.
+The integrated demo image additionally packages `demo_fixture_import.py`, the
+versioned `fixtures/` JSON and `demo_tools/` under `/opt/demo`. They are explicit
+image inputs, never executable source mounts or web-start actions. The Caddy
+image also bakes its secret-loading wrapper at `/etc/demo/caddy-entrypoint.sh`.
+The [demo stack](demo-stack.md) supplies the reviewed routing configuration and
+per-role secret files. [Final acceptance](demo-acceptance.md) supersedes the
+agent-local pre-integration verification boundary below.
 
 ## Frontend contract
 
@@ -105,7 +108,7 @@ Python and Node base tags track their selected major/minor release lines; Caddy
 and Gunicorn are version-pinned. Image digests and the existing loosely pinned
 Python transitive dependencies are not locked by this change.
 
-### MVP-A01 verification, 2026-11-15
+### Historical agent-local MVP-A01 verification, 2026-11-15
 
 Both release image builds passed on the local Linux builder. Frontend `npm ci`
 and Vite build ran in the Node 24 Alpine stage; 1,699 modules compiled. Existing
@@ -124,5 +127,6 @@ relative documentation links and diff whitespace checks passed.
 
 No application container startup, WSGI runtime smoke, DB-backed suite, frontend
 unit/typecheck run, browser check or live-stack change was performed in MVP-A01.
-Those runtime/integration checks remain with the parent; successful image builds
-do not establish them.
+Those checks were subsequently performed on the integrated demo; see
+[final acceptance](demo-acceptance.md). These original image-build results alone
+do not establish runtime behavior.

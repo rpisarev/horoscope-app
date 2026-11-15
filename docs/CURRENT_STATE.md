@@ -1,10 +1,49 @@
 # Current Project State
 
-- State updated: 2026-11-15 (iteration 5 verified checkpoint; ADR decision date remains 2026-11-14).
+- State updated: 2026-11-15 (private demo MVP checkpoint; ADR decision date remains 2026-11-14).
 - Main working branch: `feature/main-page-start`
 - Historical iteration 4 base: `17fb256ce8f5e651a5d05b4a8911d905585f4e82` (PR #25). Its worktree/runtime observations below describe that earlier iteration, not the current checkout. STAB-015 D1–D8 remain Accepted.
 - Historical iteration 3 base: `4fe11be` (PR #24), incorporating STAB-015.01 and earlier safety fixes. The older verification sections below retain their own evidence and dates.
 - Earlier publication audit baseline: `34623b27bd69d681edf1a3ab8f8aac31bc74cafa` (`Update frontend (#20)`). Results and runtime observations in the historical sections below belong to their recorded checkpoints.
+
+## Private demo checkpoint — MVP iteration 1, 2026-11-15
+
+The current product priority is a small private, read-only hosted demonstration.
+Verified local and actual remote integration base: `33974d9` (PR #27, iteration 5
+merged). Implementation is isolated on `integration/mvp-demo-1`; the original
+`feature/mvp-000` checkout and live source mounts remain unchanged. Scheduler
+stayed exited; existing container IDs/start times/restart counts matched baseline.
+
+Implemented: MVP-A01 release images (built Vue/Caddy and Flask/Gunicorn), MVP-A02
+standalone authenticated HTTPS demo stack with distinct database roles, MVP-A03
+guarded static fixtures/importer, MVP-A04 responsive Wheel. MVP-A05 real Chrome
+acceptance passed 42 integrated checks plus 320px forecast/archive layout checks.
+**Ready with manual checks**: physical-phone/Safari and later approved-host TLS
+remain. [Runbook](demo-stack.md), [dataset](demo-fixtures.md) and
+[dated acceptance evidence](demo-acceptance.md) contain the operating limits.
+
+Final verification: 29 mock safety + 18 setup/config checks; 5 focused DB tests;
+**1054 backend tests**, **188 frontend tests**, typecheck/build and **22 POC checks**.
+All PostgreSQL tests used STAB-007; actual demo bootstrap/import used a distinct
+tmpfs PostgreSQL with explicit marker/role validation. The demo has 143 marked
+static rows for 11 dates, including the 2026-11-15–21 presentation window. Repeat
+import is a no-op; no generation history was fabricated. Runtime DB writes were
+denied, and data stayed unchanged after GETs and a disposable backend restart.
+
+No paid calls, live data/schema changes, scheduler start, existing container
+recreate, public deployment, push or PR occurred. Only Caddy is exposed; backend
+and DB are internal, runtime access is readonly, admin/paid gates stay disabled,
+and no provider credential is supplied. Executable tools are baked into images;
+there are no source bind mounts or web-start migrations. One cosmetic preexisting
+favicon404 remains; no browser page exceptions occurred. Current frontend
+packages are unchanged, including previously documented residual advisories.
+Disposable demo/test runtime resources and temporary credentials were removed;
+only tested images/build cache and sanitized local evidence remain.
+
+STAB-015 D1–D8 remain **Accepted, partially implemented and deferred**. This MVP
+adds no ledger/admission/fencing/recovery mechanism, nightly generation, worker
+rollout or 06:00 publication SLO. Historical stabilization sections below retain
+their own dates/results; they are not claims about this demo's production rollout.
 
 ## Stabilization checkpoint — iteration 5
 

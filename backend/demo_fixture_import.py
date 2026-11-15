@@ -82,8 +82,16 @@ def verify_identity(connection, target):
         "has_database_privilege(current_user,current_database(),'TEMP'), "
         "has_schema_privilege(current_user,'public','CREATE'), "
         "has_table_privilege(current_user,'demo_control.identity','INSERT,UPDATE,DELETE,TRUNCATE'), "
-        "has_table_privilege(current_user,'forecasts','UPDATE,DELETE,TRUNCATE')").fetchone()
+        "has_table_privilege(current_user,'public.forecasts','UPDATE,DELETE,TRUNCATE')").fetchone()
     require(privileges == (False, False, False, False, False), 'Excess importer privileges refused.')
+    require(connection.execute("SELECT 1 FROM pg_namespace WHERE nspname !~ '^pg_' "
+        "AND nspname <> 'information_schema' AND has_schema_privilege(current_user,oid,'CREATE') LIMIT 1").fetchone() is None,
+        'Importer schema creation privileges refused.')
+    require(connection.execute("SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace "
+        "WHERE c.relkind IN ('r','p','v','m','f') AND n.nspname !~ '^pg_' "
+        "AND n.nspname <> 'information_schema' AND NOT (n.nspname='public' AND c.relname='forecasts') "
+        "AND has_table_privilege(current_user,c.oid,'INSERT,UPDATE,DELETE,TRUNCATE') LIMIT 1").fetchone() is None,
+        'Importer has writes outside demo forecasts.')
 
 
 def load_dataset(path):
@@ -120,11 +128,11 @@ def fixture_values(dataset, sign, day):
 
 def plan_import(connection, dataset):
     signs = [r[0] for r in connection.execute(
-        'SELECT key FROM zodiac_signs WHERE is_enabled ORDER BY sort_order LIMIT 65').fetchall()]
+        'SELECT key FROM public.zodiac_signs WHERE is_enabled ORDER BY sort_order LIMIT 65').fetchall()]
     require(0 < len(signs) <= 64 and set(signs) <= set(dataset['texts']),
             'Enabled-sign metadata is empty or not covered by this dataset.')
     rows = connection.execute('SELECT sign_key,target_date,locale,forecast_type,title,text,payload,status,source,'
-        'model_name,prompt_version_id,generation_item_id,generated_at,published_at FROM forecasts '
+        'model_name,prompt_version_id,generation_item_id,generated_at,published_at FROM public.forecasts '
         'WHERE sign_key = ANY(%s) AND target_date = ANY(%s) AND locale=%s AND forecast_type=%s',
         (signs, dataset['parsed_dates'], 'ru', 'daily')).fetchall()
     existing = {(r[0], r[1]): r for r in rows}
@@ -147,7 +155,7 @@ def _insert_rows(connection, target, pending):
     from psycopg.types.json import Jsonb
     for row in pending:
         values = (*row[:6], Jsonb(row[6]), *row[7:])
-        connection.execute('INSERT INTO forecasts '
+        connection.execute('INSERT INTO public.forecasts '
             '(sign_key,target_date,locale,forecast_type,title,text,payload,status,source,model_name,'
             'prompt_version_id,generation_item_id,generated_at,published_at) '
             'VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,CURRENT_TIMESTAMP)', values)

@@ -19,6 +19,9 @@ RUN pip install --no-cache-dir -r requirements.txt \
 
 # Keep application files root-owned and readable by the unprivileged process.
 # Migrations are packaged for readiness/explicit operator use, never run here.
+COPY demo_fixture_import.py ./
+COPY fixtures ./fixtures
+COPY demo_tools /opt/demo/
 COPY app ./app
 COPY migrations ./migrations
 COPY utils ./utils

@@ -118,6 +118,7 @@ file appropriate for each container; do not mount owner/importer credentials in
 the backend.
 
 ```bash
+demo_image_tag=mvp-demo-20261115
 demo_secrets=/absolute/private/horoscope-demo-secrets
 install -d -m 700 "$demo_secrets"
 umask 077
@@ -142,6 +143,7 @@ prevents accidental root `.env`, provider, Compose-file, or project overrides:
 demo() {
   env -i PATH="$PATH" \
     DEMO_HOST=localhost \
+    DEMO_IMAGE_TAG="$demo_image_tag" \
     DEMO_SECRETS_DIR="$demo_secrets" \
     DEMO_EXPECTED_INSTANCE_ID=REPLACE_WITH_GENERATED_UUID \
     DEMO_LOCAL_HTTPS_PORT=8443 \
@@ -173,8 +175,10 @@ demo build backend proxy
 demo up -d db
 demo --profile tools run --rm demo-bootstrap --confirm-new-isolated-cluster
 demo --profile tools run --rm demo-migrate
-# Inspect available fixture-import arguments; this does not import data.
-demo --profile tools run --rm demo-import --help
+# Inspect the static dataset plan; default dry-run performs no writes.
+demo --profile tools run --rm demo-import
+# After reviewing the plan, explicitly insert only into this isolated instance.
+demo --profile tools run --rm demo-import --apply
 ```
 
 Import approved curated fixtures through `demo-import` before starting the web
@@ -189,7 +193,7 @@ no-op/conflict handling. It does not invoke generation or publication services.
 ```bash
 demo up -d backend proxy
 demo ps
-demo cp proxy:/data/caddy/pki/authorities/local/root.crt /tmp/horoscope-demo-root.crt
+demo exec -T proxy cat /data/caddy/pki/authorities/local/root.crt > /tmp/horoscope-demo-root.crt
 # Use the local CA, not a permanent browser TLS bypass.
 curl --cacert /tmp/horoscope-demo-root.crt -i https://localhost:8443/api
 curl --cacert /tmp/horoscope-demo-root.crt --user demo -i https://localhost:8443/api/meta
@@ -223,3 +227,30 @@ bootstrap/migrations/role enforcement, fixture import and browser checks require
 the separately coordinated isolated integration run. Mock/config checks do not
 claim those runtime results. Database-backed regression tests remain serialized
 through the parent-owned STAB-007 harness.
+
+## Image update and rollback
+
+Record the tested image IDs and release tag before any future host rollout. Build
+with a new `demo_image_tag`; never replace a known rollback image in place. A
+separately approved rollout updates only proxy/backend, with no automatic DDL:
+
+```bash
+# On the approved isolated persistent demo only; preserve its existing db service.
+demo_image_tag=REVIEWED_NEW_TAG
+demo up -d --no-deps backend proxy
+# If application acceptance fails, select retained compatible images:
+demo_image_tag=PREVIOUS_TESTED_TAG
+demo up -d --no-deps backend proxy
+```
+
+These commands do not roll back schema/data. Do not rerun initial bootstrap or
+migration against an established database. Schema upgrades or backup restoration
+need a separate reviewed procedure. `demo stop backend proxy` disables the site
+while preserving PostgreSQL; `demo down` on the persistent base keeps named
+volumes. The local tmpfs override is disposable and is not a persistent deployment.
+No hosting purchase, public deployment or live rollout is authorized by these docs.
+
+See [fixtures](demo-fixtures.md) for the finite presentation window and explicit
+refresh procedure, and [acceptance](demo-acceptance.md) for tested scope/remaining
+manual checks. MVP-A has no nightly generation and does not meet the STAB-015
+06:00 publication SLO; that accepted architecture remains deferred.

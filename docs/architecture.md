@@ -47,7 +47,7 @@ deadline values, migration windows and operational settings remain pending.
 
 [`docker-compose.yml`](../docker-compose.yml) defines PostgreSQL 17 Alpine, a Python 3.12 backend, a scheduler using the same backend image, and a Node 22 frontend. STAB-003 updates the isolated frontend toolchain to Vite 6.4.6 / Vitest 4.1.12; see [version rationale and verification](frontend-toolchain.md). This does not update running images or dependency volumes. Backend starts with `alembic upgrade head && python run.py`; scheduler waits for backend health. PostgreSQL data and frontend dependencies use named volumes. The database password comes from a local Docker secret.
 
-The frontend runs Vite's dev server on 5173; Flask runs its development server on 8000 with debug enabled by default. Source directories are bind-mounted. Vite proxies `/api` to `VITE_API_PROXY_TARGET` or localhost:8000. There is no production reverse proxy/static hosting or SPA fallback deployment configuration here. Flask enables CORS for `/api/*` and registers public, admin, and root sitemap blueprints in [`backend/app/__init__.py`](../backend/app/__init__.py).
+The frontend runs Vite's dev server on 5173; Flask runs its development server on 8000 with debug enabled by default. Source directories are bind-mounted. Vite proxies `/api` to `VITE_API_PROXY_TARGET` or localhost:8000. The development stack has no reverse proxy; the separate private demo described below provides production static serving and SPA fallback. Flask enables CORS for `/api/*` and registers public, admin, and root sitemap blueprints in [`backend/app/__init__.py`](../backend/app/__init__.py).
 
 STAB-015.07a additionally registers `GET /health/ready` outside `/api`. Its minimal
 200/503 JSON reports PostgreSQL access and exact packaged Alembic revision markers
@@ -62,6 +62,27 @@ unset or empty retains loopback. Internal service DNS, ports, Vite's `0.0.0.0`
 listener, and its `http://backend:8000` Compose proxy remain unchanged. This is a
 configuration default, not a change to already running containers. See
 [development-networking.md](development-networking.md).
+
+## Read-only private demonstration (MVP-A)
+
+The standalone [demo Compose](../compose.demo.yml) does not inherit development
+services. Its only runtime roles are Caddy (built Vue `/srv`, HTTPS and Basic Auth),
+Gunicorn (`wsgi:create_app()`) and isolated PostgreSQL. Only Caddy has host ports.
+Backend/database networks are internal; no scheduler/worker, provider credentials,
+source bind mounts or startup migrations are present. Executable setup tools are
+baked into images; only Caddy configuration and per-role secrets are mounted.
+
+`/api` paths preserve Flask prefix/status; authenticated admin paths are denied.
+Static misses stay 404 and frontend deep links use SPA fallback. The backend has
+a SELECT-only role. Explicit fresh-cluster bootstrap/migration tools use separate
+credentials; a staging-marker-validated INSERT-only offline importer loads static
+[demo fixtures](demo-fixtures.md), leaving generation/audit history empty. Public
+read/publication policies are unchanged. [Runbook](demo-stack.md) and
+[acceptance evidence](demo-acceptance.md) define the finite dataset/rollout limits.
+
+This path demonstrates the existing site, not automated production generation.
+Accepted D1–D8 remain authoritative, with incomplete ledger/admission/fencing,
+recovery and async topology deferred. No nightly generation or 06:00 SLO is claimed.
 
 ## Frontend structure and main-page flow
 

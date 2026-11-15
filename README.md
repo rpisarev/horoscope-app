@@ -2,6 +2,12 @@
 
 Vue + Flask application for sign-agnostic daily horoscope generation.
 
+A private, read-only demonstration can use the separate [demo stack](docs/demo-stack.md):
+built Vue assets, Caddy HTTPS/Basic Auth, Gunicorn and an isolated PostgreSQL
+database with [marked static fixtures](docs/demo-fixtures.md). It has no scheduler,
+worker or paid generation. Never combine its Compose file with the development
+stack below. Hosting requires separate owner approval.
+
 Current implementation and verification are recorded in
 [CURRENT_STATE.md](docs/CURRENT_STATE.md) and [architecture.md](docs/architecture.md).
 The [STAB-015 production execution ADR](docs/adr/STAB-015-generation-execution.md)
@@ -26,7 +32,7 @@ remain pending. See [execution starts](docs/generation-execution-starts.md),
 [package admission](docs/package-admission-design.md) and
 [request intent](docs/request-intent-design.md).
 
-The project runs locally with Docker Compose and includes:
+The development stack runs locally with Docker Compose and includes:
 
 ```text
 frontend   Vue/Vite dev server

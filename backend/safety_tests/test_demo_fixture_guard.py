@@ -29,6 +29,7 @@ def good_connection():
         MagicMock(fetchall=lambda:[('demo_owner',)*3]),
         MagicMock(fetchall=lambda:[(1,'horoscope-demo',1,INSTANCE,'horoscope_demo','demo_importer')]),
         MagicMock(fetchone=lambda:(False,)*5),
+        MagicMock(fetchone=lambda:None), MagicMock(fetchone=lambda:None),
     ]
     return c
 
@@ -68,7 +69,8 @@ class TargetTests(unittest.TestCase):
         replacements=[MagicMock(fetchone=lambda:('horoscope','demo_importer','demo_importer',5432)),
                       MagicMock(fetchone=lambda:(True,False,False,False,False)),MagicMock(fetchone=lambda:(1,)),
                       MagicMock(fetchall=lambda:[('other',)*3]),MagicMock(fetchall=lambda:[]),
-                      MagicMock(fetchone=lambda:(False,False,False,False,True))]
+                      MagicMock(fetchone=lambda:(False,False,False,False,True)),
+                      MagicMock(fetchone=lambda:(1,)), MagicMock(fetchone=lambda:(1,))]
         for index,replacement in enumerate(replacements):
             c=good_connection();results=list(c.execute.side_effect);results[index]=replacement;c.execute.side_effect=results
             with self.subTest(index=index),self.assertRaises(m.Refused):m.verify_identity(c,m.target_from_environment(env()))

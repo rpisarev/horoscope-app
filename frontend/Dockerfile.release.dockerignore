@@ -8,6 +8,7 @@
 !postcss.config.cjs
 !tailwind.config.cjs
 !Caddyfile.release
+!caddy-entrypoint.sh
 !src/**/*.vue
 !src/**/*.js
 !src/**/*.ts

@@ -14,7 +14,10 @@ The presentation window is finite. `/api/meta` and the server clock remain real.
 After 2026-11-21, prepare/review another version with explicit later dates and
 marked text. Import only nonconflicting dates; do not overwrite old datasets,
 change the business date, generate content nightly, or run generation utilities.
-A new version overlapping existing content is intentionally refused.
+A new version overlapping existing content is intentionally refused. For example,
+the next nonoverlapping dataset can cover 2026-11-22–29: presentation window
+2026-11-23–29 plus its previous day 2026-11-22. Do not reinclude already imported
+archive dates; those rows remain available from the old version.
 
 ## Guarded offline import
 
