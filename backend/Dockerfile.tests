@@ -4,6 +4,8 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+COPY demo_fixture_import.py ./
+COPY fixtures ./fixtures
 COPY app ./app
 COPY migrations ./migrations
 COPY tests ./tests

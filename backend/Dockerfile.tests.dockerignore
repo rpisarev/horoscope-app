@@ -1,6 +1,8 @@
 # Positive build-context allowlist, followed by exclusions at EVERY depth.
 **
 !requirements.txt
+!demo_fixture_import.py
+!fixtures/*.json
 !app/
 !app/**
 !migrations/
