@@ -6,6 +6,7 @@ from typing import Iterable
 from uuid import UUID, uuid4
 
 from paid_execution_policy import require_paid_execution
+from paid_admission_policy import require_paid_admission
 from sqlalchemy import select
 
 from .constants import DEFAULT_FORECAST_TYPE, DEFAULT_LOCALE
@@ -118,6 +119,10 @@ def run_daily_generation(
     )
     try:
         canonical_provider = selected_provider_name(provider_name)
+        # Admission uses selected identity before factory access, never mutable
+        # adapter/result metadata. This remains closed until atomic .03c exists.
+        require_paid_execution(canonical_provider)
+        require_paid_admission(canonical_provider)
         provider = get_horoscope_provider(canonical_provider)
         publication_provider = provider.name
         require_paid_execution(publication_provider)

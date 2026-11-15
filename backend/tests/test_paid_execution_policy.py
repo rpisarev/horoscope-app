@@ -31,6 +31,7 @@ from paid_execution_policy import (
     paid_execution_enabled,
     require_paid_execution,
 )
+from paid_admission_policy import PaidAdmissionUnavailable
 
 
 class PaidExecutionPolicyTests(unittest.TestCase):
@@ -103,6 +104,12 @@ class PaidExecutionPolicyTests(unittest.TestCase):
 
     def _service(self, *, queue=False, provider_name="openai"):
         prefix = "_paid_execution_unit"
+        # Pure preflight tests never execute SQL. Later services import Core/
+        # ORM names, so provide in-memory symbols rather than requiring a host
+        # SQLAlchemy installation or importing application database machinery.
+        self._module("sqlalchemy", event=Mock(), inspect=Mock(), select=Mock(), update=Mock())
+        self._module("sqlalchemy.exc", IntegrityError=type("IntegrityError", (Exception,), {}))
+        self._module("sqlalchemy.orm", Mapper=type("Mapper", (), {}), Session=type("Session", (), {}))
         self.session = Mock()
         self._module(prefix, db=SimpleNamespace(session=self.session))
         self._module(prefix + ".services")
@@ -120,6 +127,9 @@ class PaidExecutionPolicyTests(unittest.TestCase):
         })
         sys.modules[prefix + ".services.generation_execution_service"].ExecutionAlreadyStarted = type(
             "ExecutionAlreadyStarted", (RuntimeError,), {},
+        )
+        sys.modules[prefix + ".services.generation_execution_service"].selected_provider_name.side_effect = (
+            lambda name=None: (name or os.getenv("HOROSCOPE_PROVIDER") or "stub").strip().lower()
         )
         self.provider = SimpleNamespace(
             name=provider_name, model_name="fake-model",
@@ -231,7 +241,21 @@ class PaidExecutionPolicyTests(unittest.TestCase):
         with self.assertRaisesRegex(service.GenerationJobProcessingError, "OPENAI_API_KEY"):
             service._ensure_provider_can_execute(job, allow_openai=True)
         os.environ["OPENAI_API_KEY"] = "unit-test-fake-key"
-        service._ensure_provider_can_execute(job, allow_openai=True)
+        with self.assertRaises(PaidAdmissionUnavailable):
+            service._ensure_provider_can_execute(job, allow_openai=True)
+
+    def test_enabled_lifecycle_denies_canonical_provider_before_factory(self):
+        os.environ[PAID_EXECUTION_ENV] = "1"
+        service = self._service(provider_name="stub")  # misleading factory result
+        run = service.run_daily_generation(
+            target_date=date(2026, 11, 14), provider_name=" OPENAI ", signs=["aries"]
+        )
+        self.assertEqual(run.status, "failed")
+        self.assertIn("atomic request admission", run.error_message)
+        service.get_horoscope_provider.assert_not_called()
+        self.models.GenerationItem.assert_not_called()
+        self.models.GenerationAttempt.assert_not_called()
+        self.provider.generate.assert_not_called()
 
     def test_disabled_worker_keeps_stub_path_and_publication_policy(self):
         service = self._service(queue=True)
@@ -266,6 +290,13 @@ class PaidExecutionPolicyTests(unittest.TestCase):
         os.environ[PAID_EXECUTION_ENV] = "1"
         with self.assertRaisesRegex(SystemExit, "without --allow-openai"):
             cli.require_openai_safety_confirmation("openai", False)
+        with patch.object(sys, "argv", ["generate_forecast_package.py", "--date", "2026-11-14",
+                                        "--provider", "openai", "--allow-openai"]), patch("builtins.print"):
+            self.assertEqual(cli.main(), 1)
+        self.assertIn("atomic request admission", cli.print_run_summary.call_args.args[0].error_message)
+        self.models.GenerationItem.assert_not_called()
+        self.models.GenerationAttempt.assert_not_called()
+        self.provider.generate.assert_not_called()
 
 
 if __name__ == "__main__":

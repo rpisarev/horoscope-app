@@ -265,6 +265,10 @@ def test_openai_quota_lifecycle_attempts_match_http_requests_without_publication
     monkeypatch.setattr(httpx.HTTPTransport, "handle_request", forbidden_network)
     monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", forbidden_network)
     monkeypatch.setattr(generation_service, "save_forecast", forbidden_publication)
+    # Scope-only mocks: reach the existing quota/retry machinery through the
+    # MockTransport installed below. Unavailable-admission tests stay unpatched.
+    monkeypatch.setattr(generation_service, "require_paid_admission", lambda _: None)
+    monkeypatch.setattr(openai_provider, "require_paid_admission", lambda _: None)
 
     def handle(request):
         assert request.method == "POST"

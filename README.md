@@ -17,8 +17,12 @@ Iteration 3 adds [exact-key queue conflict handling](docs/generation-job-dedupli
 [operations coverage/queue report](docs/generation-operations.md).
 `GET /health/ready` has minimal 200/503 output; detailed diagnostics are explicit
 local CLIs, not public endpoints. Their database reads require an authorized
-environment and never start generation or recover work. Runtime ledger writers,
-admission, fencing, pause and production-topology changes remain pending.
+environment and never start generation or recover work. Execution-start writers and atomic package admission are implemented. Request-intent
+primitives are available for the future atomic admission coordinator; paid transport
+is blocked until that chain is complete. Fencing, pause and production topology
+remain pending. See [execution starts](docs/generation-execution-starts.md),
+[package admission](docs/package-admission-design.md) and
+[request intent](docs/request-intent-design.md).
 
 The project runs locally with Docker Compose and includes:
 
@@ -129,7 +133,9 @@ OpenAI should stay disabled by default in local automation unless you explicitly
 gate. Only the exact value `1` permits known paid adapters to proceed; unset, `0`
 or invalid values deny execution, including direct scheduler/lifecycle calls and
 the standalone prompt probe. CLI `--allow-openai` cannot override this denial.
-Publication approval does not authorize spending. See
+Publication approval does not authorize spending. STAB-015.02c additionally blocks
+all known paid transport while atomic request admission is incomplete, even with
+the global switch set to `1`. There is no temporary bypass. See
 [paid-execution boundaries](docs/paid-execution.md) for the remaining local gates,
 audit behavior and controlled environment reload requirements.
 
@@ -956,6 +962,10 @@ OpenAI is intentionally disabled by default at both job-creation and job-executi
 ## OpenAI safety gates and queue limits
 
 OpenAI jobs are protected by multiple gates.
+
+The OpenAI execution examples below describe local authorization syntax, not
+currently usable paid transport: `.02c` rejects execution until `.03c` and the
+remaining safety prerequisites are implemented.
 
 All OpenAI execution examples require an explicitly authorized
 `GENERATION_PAID_EXECUTION_ENABLED=1` in the executing process, in addition to the

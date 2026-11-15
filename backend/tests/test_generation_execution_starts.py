@@ -167,6 +167,9 @@ def test_production_capability_does_not_activate_execution(app, monkeypatch, pro
     monkeypatch.setitem(app.config, "APP_DEPLOYMENT_MODE", "production")
     monkeypatch.setitem(app.config, "PRODUCTION_PUBLICATION_PROVIDERS", provider)
     monkeypatch.setenv("GENERATION_PAID_EXECUTION_ENABLED", "1")
+    # Reach .02b's independent production activation boundary using only the
+    # explicitly registered fake above; real transport is forbidden by the spy.
+    monkeypatch.setattr(lifecycle, "require_paid_admission", lambda _: None)
     run = lifecycle.run_daily_generation(target_date=DAY, provider_name=provider, signs=["aries"])
     assert run.status == "failed" and "Production execution is blocked" in run.error_message
     assert GenerationExecution.query.count() == GenerationItem.query.count() == 0

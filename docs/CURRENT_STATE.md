@@ -14,8 +14,9 @@ untouched on `feature/project-stabilization6`; work is isolated in
 `/tmp/horoscope-iter5-integration`, branch `integration/project-stabilization-5`.
 Owner-requested pause was resumed with all checkpoint file hashes unchanged.
 
-Implemented and integrated so far: `.02b` immutable execution starts and `.03b`
-atomic package admission. Their [execution](generation-execution-starts.md) and
+Implemented and integrated so far: `.02b` immutable execution starts, `.03b`
+atomic package admission and incremental `.02c` intent/observation primitives
+with unconditional known-paid transport denial. Their [execution](generation-execution-starts.md) and
 [admission](package-admission-design.md) contracts distinguish current behavior
 from production activation. Production remains blocked; no cap, complete fencing,
 provider pause or queue-default rollout is claimed.
@@ -24,8 +25,12 @@ Current verification: 19 mock safety guards; `.03b` focused **273 passed in
 40.28s**, full integrated backend **864 passed in 86.85s**, via unchanged STAB-007.
 Initial focused failure exposed lazy-savepoint timeout leakage and was fixed
 without weakening assertions. All disposable test containers/networks cleaned.
-`.02c`, `.04a` and SEC-002 remain separate unfinished/unintegrated work at this
-milestone; their task-local results do not describe this integration tree.
+`.02c` then passed **67 standalone**, **297 focused** and **943 full backend
+tests in 104.86s**; its [contract](request-intent-design.md) explicitly leaves the
+transport coordinator and atomic cap to `.03c`. `.04a` remains unfinished.
+SEC-002 frontend has been integrated and independently verified (181 tests, 22 POC,
+typecheck/build/ci/ls passed; audit 6 High/1 Moderate), with its separate commit
+still pending at this milestone.
 
 Scheduler remains exited; backend/db/frontend unchanged. No real provider calls,
 live DB changes/migrations, scheduler restart, live recreate, push/PR or shared

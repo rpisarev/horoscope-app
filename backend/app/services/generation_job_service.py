@@ -10,6 +10,7 @@ from typing import Any, Iterable
 from uuid import uuid4
 
 from paid_execution_policy import require_paid_execution
+from paid_admission_policy import require_paid_admission
 from sqlalchemy import event, inspect, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Mapper, Session
@@ -1627,6 +1628,7 @@ def _ensure_provider_can_execute(
     require_paid_execution(job.provider)
     require_publication_provider(job.provider)
     if job.provider != "openai":
+        require_paid_admission(job.provider)
         return
 
     if not allow_openai:
@@ -1638,6 +1640,7 @@ def _ensure_provider_can_execute(
         raise GenerationJobProcessingError(
             "OPENAI_API_KEY is missing; cannot process provider=openai job."
         )
+    require_paid_admission(job.provider)
 
 
 def _run_standard_generation_job(

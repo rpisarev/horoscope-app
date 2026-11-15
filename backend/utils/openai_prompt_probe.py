@@ -20,6 +20,7 @@ if _backend_dir not in sys.path:
     sys.path.insert(0, _backend_dir)
 
 from paid_execution_policy import PaidExecutionDenied, require_paid_execution
+from paid_admission_policy import require_paid_admission
 
 
 DEFAULT_MODEL = "gpt-5.4-mini"
@@ -309,6 +310,7 @@ def parse_args() -> argparse.Namespace:
             "Probe horoscope prompt quality with one or more OpenAI requests. "
             "Paid probes are forbidden in production and require an explicit "
             "non-production APP_DEPLOYMENT_MODE plus the SAFE-001 paid gate. "
+            "Paid transport is currently unavailable pending atomic request admission. "
             "This script does not use Flask app or database."
         )
     )
@@ -577,6 +579,7 @@ def call_openai(
 ) -> Any:
     require_probe_deployment_mode()
     require_paid_execution("openai")
+    require_paid_admission("openai")
     return client.responses.create(
         model=model,
         instructions=SYSTEM_PROMPT,
@@ -679,6 +682,7 @@ def main() -> int:
     load_local_env()
     require_probe_deployment_mode()
     require_paid_execution("openai")
+    require_paid_admission("openai")
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         raise RuntimeError(

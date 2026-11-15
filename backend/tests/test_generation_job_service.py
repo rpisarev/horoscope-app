@@ -603,6 +603,11 @@ def test_process_generation_jobs_respects_openai_per_run_limit(
         "app.services.generation_job_service._run_standard_generation_job",
         fake_run_standard_generation_job,
     )
+    # This local test substitutes the entire execution body above; it tests
+    # legacy queue counts, not permission to dispatch paid transport.
+    monkeypatch.setattr(
+        "app.services.generation_job_service.require_paid_admission", lambda _: None,
+    )
 
     with app.app_context():
         first_openai_job, _ = create_generation_job(

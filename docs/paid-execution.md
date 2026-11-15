@@ -1,4 +1,4 @@
-# Paid execution gate
+# Paid execution gates and pending admission
 
 **Implemented SAFE-001; future architecture is separate.**
 [STAB-015 D1–D8](adr/STAB-015-generation-execution.md) is Accepted (2026-11-14)
@@ -10,6 +10,37 @@ remain pending. This is not completion of .08c or permission for real diagnostic
 SAFE-001 remains required under the accepted design; enabling it alone cannot
 satisfy the new admission guarantees. Acceptance and the publication SLO do not
 authorize live configuration changes or paid generation.
+
+## Current additional admission blocker — STAB-015.02c
+
+Known paid transport is now **unconditionally unavailable** until atomic request
+admission `.03c` and the remaining safety chain are implemented. This also applies
+to explicit development/test diagnostics. Setting SAFE-001 to `1`, supplying a key,
+`--allow-openai`, an injected SDK client or a purported ledger receipt cannot bypass
+[`paid_admission_policy.py`](../backend/paid_admission_policy.py). No additional
+enablement flag exists. The error is nonretryable `PaidAdmissionUnavailable`
+(code `paid_admission_unavailable`), derived from `PaidExecutionDenied`.
+
+Lifecycle checks the canonical factory selection before constructing a provider;
+worker checks the persisted provider while retaining its existing local permissions.
+Adapter and probe independently use literal `openai` immediately before transport.
+Denied preflight creates no fabricated request reservation or provider attempt;
+failed-run/job and actual claim/execution audit remain honest. An already-linked
+duplicate worker dispatch is handled before mutable gates, as documented in
+[package admission](package-admission-design.md). General transition fencing remains
+pending. Stub/fake workflows stay available without paid authorization.
+
+The [request-intent primitives](request-intent-design.md) support exact replay,
+append-only observations and conservative unknown evidence in caller-owned short
+transactions. They are not a production transport coordinator or hard cap. No
+receipt is spending permission, and no ledger failure falls back to transport.
+Tests reaching fake SDK/parser/quota paths explicitly mock only this new blocker
+inside the individual test; denial tests use the unpatched application guard.
+The test image explicitly includes the new module without broadening secret access.
+
+Production lifecycle remains separately blocked by `.02b` activation policy;
+production probe remains independently forbidden. The following SAFE-001 contract
+still applies, but global opt-in is no longer enough to reach any paid transport.
 
 `GENERATION_PAID_EXECUTION_ENABLED` is a process-wide opt-in for paid provider
 execution. Only the exact environment string `1` enables it. Unset, empty, `0`,
@@ -68,9 +99,11 @@ a disabled global gate. Direct legacy scheduler execution has no separate local
 OpenAI flag; it now reaches the lifecycle global preflight check.
 
 This covers known application paths, not arbitrary external code or other users
-of the same API key. It is not account-level budget control. Once enabled, direct
-execution still lacks the queue's count limits. The standalone probe retains its
-SDK retry defaults and does not acquire lifecycle audit/retry semantics.
+of the same API key. It is not account-level budget control. The old direct
+execution path lacks the queue's count limits, which is one reason transport now
+remains blocked pending atomic admission. The standalone probe retains its SDK
+retry defaults internally, but cannot reach transport; bounded diagnostics and
+retry/accounting ownership require .08c-B before any future development activation.
 
 ## Environment and reload boundary
 
@@ -117,7 +150,7 @@ checks direct denial, spoofed adapter identity, a conflicting Flask config snaps
 rechecking immediately before transport, and honest nonretryable audit after a
 post-preflight denial. All transport is fake or forbidden.
 
-Integrated verification (2026-11-14): **126 focused tests** and **315 full backend
+Historical SAFE-001 verification (2026-11-14): **126 focused tests** and **315 full backend
 tests** passed serially through `scripts/backend-test.sh`; disposable projects
 cleaned up. Compose rendering confirmed default `0` and explicit value propagation
 to backend and scheduler. This verifies repository behavior, not deployment or

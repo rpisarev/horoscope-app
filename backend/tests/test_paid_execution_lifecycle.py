@@ -5,12 +5,18 @@ owns DB isolation; every paid transport below is forbidden or replaced by a fake
 """
 
 from datetime import date
+from unittest.mock import Mock
 
 import httpx
 import pytest
 
 from app import db
-from app.models import Forecast, GenerationAttempt, GenerationItem, GenerationJob, GenerationRun
+from app.models import (
+    Forecast, GenerationApiRequest, GenerationAttempt, GenerationExecution,
+    GenerationItem, GenerationJob, GenerationRun,
+)
+import app.services.generation_service as lifecycle
+import app.services.generation_job_service as jobs
 from app.providers import OpenAIHoroscopeProvider, ProviderResult
 from app.providers.registry import PROVIDERS, ProviderDefinition
 from app.services.generation_job_service import create_generation_job, process_generation_jobs
@@ -102,6 +108,10 @@ def test_enabled_worker_with_local_auth_runs_fake_provider_lifecycle(app, monkey
 
     monkeypatch.setenv(SETTING, "1")
     monkeypatch.setitem(PROVIDERS, "openai", ProviderDefinition(FakePaidProvider, False, True))
+    # Explicit test-only admission mocks: all HTTP/real adapter entry points are
+    # forbidden by the fixture and the registry contains only this fake.
+    monkeypatch.setattr(lifecycle, "require_paid_admission", lambda _: None)
+    monkeypatch.setattr(jobs, "require_paid_admission", lambda _: None)
     with app.app_context():
         job = create_paid_job()
         process_generation_jobs(limit=1, worker_id="paid-policy-test", allow_openai=True)
@@ -127,3 +137,41 @@ def test_enabled_worker_still_denies_missing_local_authorization(app, monkeypatc
         assert persisted.attempt_count == 1
         assert GenerationRun.query.count() == 0
         assert_no_generation_work()
+
+
+@pytest.mark.parametrize("provider_name", ["openai", " OPENAI ", None])
+def test_enabled_lifecycle_admission_denial_precedes_factory_and_creates_no_intent(app, monkeypatch, provider_name):
+    monkeypatch.setenv(SETTING, "1")
+    monkeypatch.setenv("HOROSCOPE_PROVIDER", "openai")
+    factory = Mock(side_effect=AssertionError("Denied canonical provider must not reach factory"))
+    monkeypatch.setattr(lifecycle, "get_horoscope_provider", factory)
+    with app.app_context():
+        run = run_daily_generation(target_date=DAY, provider_name=provider_name, signs=["aries"])
+        assert run.status == "failed"
+        assert "atomic request admission" in run.error_message
+        assert run.total_items == 0
+        assert GenerationExecution.query.count() == 0
+        assert GenerationApiRequest.query.count() == 0
+        assert_no_generation_work()
+    factory.assert_not_called()
+
+
+def test_enabled_worker_admission_denial_preserves_claim_history_without_intent(app, monkeypatch):
+    monkeypatch.setenv(SETTING, "1")
+    dispatch = Mock(side_effect=AssertionError("Denied worker must not dispatch lifecycle"))
+    monkeypatch.setattr(jobs, "_run_standard_generation_job", dispatch)
+    with app.app_context():
+        job = create_paid_job()
+        result = process_generation_jobs(limit=1, worker_id="admission-test", allow_openai=True)
+        persisted = db.session.get(GenerationJob, job.id)
+        assert result["processed_count"] == 1
+        assert persisted.status == "failed"
+        assert "atomic request admission" in persisted.error_message
+        assert persisted.attempt_count == 1
+        assert persisted.run_id is None
+        assert GenerationExecution.query.count() == 1
+        assert GenerationExecution.query.one().job_id == job.id
+        assert GenerationRun.query.count() == 0
+        assert GenerationApiRequest.query.count() == 0
+        assert_no_generation_work()
+    dispatch.assert_not_called()

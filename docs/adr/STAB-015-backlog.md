@@ -79,6 +79,15 @@ Development/test claim + execution та direct execution + run/link запису
 
 ## STAB-015.02c — durable request intent та unknown outcome
 
+**INCREMENTAL IMPLEMENTATION VERIFIED — iteration 5, 2026-11-15.**
+Transaction-owned intent/replay/observations і conservative evidence reader
+реалізовані. Усі known paid transport paths безумовно закриті до atomic `.03c`;
+SAFE-001, local permissions і production probe ban залишаються незалежними.
+Production coordinator/runtime request admission **не реалізовано**; receipt не є
+дозволом transport. Final atomic boundary і end-to-end dispatcher verification —
+залежності `.03c`, не завершена гарантія цієї картки.
+[Інтерфейси, fault tests та activation blockers](../request-intent-design.md).
+
 - **Проблема:** attempt flush до provider не переживає crash/rollback; no-result не доводить not-sent.
 - **Scope:** durable per-paid-request intent/phase protocol та outcome correlation. Перед transport intent і reservation мають спільну atomic boundary з .03c; поки її немає, paid rollout заборонений.
 - **Залежності:** .02a/.02b; D2/D4; final SDK retry ownership і SAFE-001.
