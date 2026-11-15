@@ -54,6 +54,18 @@ verification. Таблиці source facts нижче зберігають іст
 уточнює лише зазначені реалізовані ділянки. D1–D8, paid deny default і runtime
 не змінені; schema implementation не є deployed ledger або paid authorization.
 
+**Implementation delta — iteration 5, 2026-11-15:** Base `ea3c0ec` (PR #26).
+`.02b` записує execution starts для development/test; `.03b` забезпечує atomic
+package admission (0007); `.02c` додає transaction-owned intent/observation
+primitives, але не final paid coordinator/cap; `.04a` додає справжній claim epoch
+і explicit bounded nonproduction renewal (0008), timing default disabled.
+Known paid paths безумовно blocked до завершення admission/safety chain.
+Complete fencing, automatic recovery, provider pause, async/keyless topology і
+production rollout не реалізовані. SEC-002 окремо оновлює Vue/ws без зміни UI.
+[CURRENT_STATE](../CURRENT_STATE.md) містить integrated verification;
+[backlog](STAB-015-backlog.md) — точні completion/activation boundaries.
+Історичні source facts нижче не переписані; D1–D8 не переглядаються.
+
 ## 2. Контекст і перевірені факти
 
 ### Межі доказів

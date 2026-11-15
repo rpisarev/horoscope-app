@@ -16,6 +16,7 @@
 !pytest.ini
 !test_db_guard.py
 !paid_execution_policy.py
+!paid_admission_policy.py
 **/.env
 **/.env.*
 **/secrets

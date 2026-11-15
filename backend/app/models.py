@@ -211,6 +211,13 @@ class GenerationRun(db.Model):
         foreign_keys="GenerationJob.run_id",
     )
 
+    __table_args__ = (
+        db.Index(
+            "uq_generation_runs_active_package", "target_date", "locale", "forecast_type",
+            unique=True, postgresql_where=db.text("status = 'running'"),
+        ),
+    )
+
 
 class GenerationJob(db.Model):
     __tablename__ = "generation_jobs"
@@ -251,6 +258,12 @@ class GenerationJob(db.Model):
     finished_at = db.Column(db.DateTime(timezone=True), nullable=True)
     locked_at = db.Column(db.DateTime(timezone=True), nullable=True, index=True)
     locked_by = db.Column(db.String(128), nullable=True)
+    lease_epoch = db.Column(db.BigInteger, nullable=False, server_default="0")
+    lease_heartbeat_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    lease_expires_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    lease_deadline_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    lease_ttl_seconds = db.Column(db.Integer, nullable=True)
+    lease_heartbeat_interval_seconds = db.Column(db.Integer, nullable=True)
     created_at = db.Column(
         db.DateTime(timezone=True),
         nullable=False,
@@ -270,6 +283,27 @@ class GenerationJob(db.Model):
     )
 
     __table_args__ = (
+        db.CheckConstraint("lease_epoch >= 0", name="ck_gen_job_lease_epoch"),
+        db.CheckConstraint("""
+            (lease_heartbeat_at IS NULL AND lease_expires_at IS NULL
+             AND lease_deadline_at IS NULL AND lease_ttl_seconds IS NULL
+             AND lease_heartbeat_interval_seconds IS NULL)
+            OR (lease_heartbeat_at IS NOT NULL AND lease_expires_at IS NOT NULL
+                AND lease_deadline_at IS NOT NULL AND lease_ttl_seconds IS NOT NULL
+                AND lease_heartbeat_interval_seconds IS NOT NULL
+                AND lease_epoch > 0 AND lease_heartbeat_interval_seconds > 0
+                AND lease_ttl_seconds > lease_heartbeat_interval_seconds
+                AND isfinite(lease_heartbeat_at) AND isfinite(lease_expires_at)
+                AND isfinite(lease_deadline_at)
+                AND lease_heartbeat_at < lease_expires_at
+                AND lease_expires_at <= lease_deadline_at
+                AND lease_expires_at <= lease_heartbeat_at + make_interval(secs => lease_ttl_seconds))
+        """, name="ck_gen_job_lease_timing"),
+        db.CheckConstraint("""
+            lease_epoch = 0 OR status <> 'running' OR (
+                locked_by IS NOT NULL AND length(btrim(locked_by)) > 0
+                AND locked_at IS NOT NULL AND isfinite(locked_at))
+        """, name="ck_gen_job_lease_owner"),
         db.Index(
             "ix_generation_jobs_status_priority_created",
             "status",
@@ -442,8 +476,8 @@ class GenerationAttempt(db.Model):
     )
 
 
-# Storage only. PostgreSQL migration 0006 enforces append-only DML and
-# insertion-time cross-table coherence. No lifecycle writer uses these models.
+# PostgreSQL migration 0006 enforces append-only DML and insertion-time
+# cross-table coherence. Execution-start writers are separate from paid admission.
 class GenerationExecution(db.Model):
     __tablename__ = "generation_executions"
 

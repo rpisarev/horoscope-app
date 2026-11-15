@@ -4,6 +4,14 @@ STAB-015.08c-A implements only the production-denial part of Accepted D6.
 STAB-015.08c-B (bounded, auditable development admission) remains pending;
 this is not completion of .08c or implementation of all Accepted D1–D8.
 
+**Iteration 5 delta:** `.02c` now additionally denies known paid transport in
+both probe entry points, even in explicit development/test mode with SAFE-001
+enabled. There is no configuration override for this incomplete-admission blocker.
+The mode rules below remain independently necessary. Fake compatibility tests
+explicitly isolate the new blocker; denial tests keep it intact. Real diagnostic
+transport remains unavailable until `.03c` and `.08c-B` supply the required
+bounded, auditable path. See [request-intent contract](request-intent-design.md).
+
 ## Enforced boundary
 
 [`openai_prompt_probe.py`](../backend/utils/openai_prompt_probe.py) checks the
@@ -61,7 +69,7 @@ set an explicit recognized non-production mode. Production cannot be enabled by
 setting the paid gate or supplying a key. These notes are not paid activation
 instructions.
 
-## Verification
+## Historical iteration 4 verification
 
 [`test_paid_execution_probe.py`](../backend/tests/test_paid_execution_probe.py)
 covers main/helper production denial with global `0`/`1`, missing/invalid modes,

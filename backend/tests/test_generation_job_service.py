@@ -12,6 +12,7 @@ from app.services.generation_job_service import (
     JOB_STATUS_CANCELLED,
     JOB_STATUS_FAILED,
     JOB_STATUS_QUEUED,
+    JOB_STATUS_RUNNING,
     JOB_STATUS_SUCCESS,
     JOB_TYPE_BACKFILL,
     JOB_TYPE_RETRY_MISSING,
@@ -317,7 +318,7 @@ def test_retry_generation_job_requeues_failed_job(app):
         assert retried_job.finished_at is None
 
 
-def test_close_stale_running_jobs_marks_expired_job_failed(app):
+def test_close_stale_running_jobs_preserves_ledger_managed_claim(app, monkeypatch):
     with app.app_context():
         job, _ = create_generation_job(
             job_type=JOB_TYPE_BACKFILL,
@@ -325,17 +326,18 @@ def test_close_stale_running_jobs_marks_expired_job_failed(app):
             provider="stub",
             max_job_attempts=1,
         )
+        monkeypatch.setattr(generation_job_service, "_claim_utcnow",
+                            lambda: datetime.now(timezone.utc) - timedelta(minutes=120))
         claimed_job = claim_next_generation_job(worker_id="test-worker")
-        claimed_job.locked_at = claimed_job.locked_at - timedelta(minutes=120)
-        db.session.commit()
 
         closed_count = close_stale_running_jobs(stale_after_minutes=60)
 
-        assert closed_count == 1
+        assert closed_count == 0
 
         expired_job = db.session.get(GenerationJob, job.id)
-        assert expired_job.status == JOB_STATUS_FAILED
-        assert expired_job.finished_at is not None
+        assert expired_job.status == JOB_STATUS_RUNNING
+        assert expired_job.finished_at is None
+        assert expired_job.locked_by == "test-worker"
 
 
 def test_process_generation_jobs_runs_stub_job(app):
@@ -388,8 +390,12 @@ def test_retry_missing_job_distinguishes_no_run_from_no_work(
     monkeypatch, coverage, run_status, should_fail,
 ):
     job = SimpleNamespace(
+        id=1, attempt_count=1,
         target_date=date(2026, 6, 15), locale="uk", forecast_type="daily",
         provider="stub", max_attempts=2, max_retry_runs=1,
+    )
+    job._generation_lease_identity = generation_job_service.LeaseIdentity(
+        job.id, "fixture-worker", 1, generation_job_service.claim_execution_id(job),
     )
     run = SimpleNamespace(status=run_status) if run_status else None
     missing = Mock(side_effect=coverage)
@@ -410,6 +416,7 @@ def test_retry_missing_job_distinguishes_no_run_from_no_work(
         retry.assert_called_once_with(
             target_date=job.target_date, locale="uk", forecast_type="daily",
             provider_name="stub", max_attempts=2, max_retry_runs=1, stale_after_hours=4,
+            execution_id=generation_job_service.claim_execution_id(job),
         )
     else:
         retry.assert_not_called()
@@ -598,6 +605,11 @@ def test_process_generation_jobs_respects_openai_per_run_limit(
     monkeypatch.setattr(
         "app.services.generation_job_service._run_standard_generation_job",
         fake_run_standard_generation_job,
+    )
+    # This local test substitutes the entire execution body above; it tests
+    # legacy queue counts, not permission to dispatch paid transport.
+    monkeypatch.setattr(
+        "app.services.generation_job_service.require_paid_admission", lambda _: None,
     )
 
     with app.app_context():

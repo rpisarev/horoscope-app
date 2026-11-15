@@ -4,9 +4,13 @@
 **Статуси реалізації нижче оновлюються окремо від Accepted policy.**
 На baseline PR #23, `2b71659`, усі implementation cards були OPEN.
 STAB-015.03a/.05a/.07a/.07b завершено в iteration 3. Iteration 4 додає .02a
-(storage only) і .08c-A (production probe ban); .08c-B та решта implementation cards OPEN.
-STAB-003 toolchain також виконано; residual dependency advisories мають окремий
-follow-up. Це локальна реалізація, не deployment або paid permission.
+(storage only) і .08c-A (production probe ban). Iteration 5 реалізує .02b, .03b
+та .04a foundation; .02c має перевірені primitives, але final atomic admission і
+transport coordinator залишаються залежністю .03c. .08c-B та інші незавершені
+картки OPEN. Production activation лишається заблокованою.
+STAB-003 toolchain також виконано; SEC-002 в iteration 5 усуває targeted Vue/ws
+advisories, але 6 High/1 Moderate residual entries мають окремий security follow-up.
+Це локальна реалізація, не deployment або paid permission.
 Батьківський документ: [ADR STAB-015](STAB-015-generation-execution.md).
 Ці картки не є implementation або дозволом на runtime/DB/paid зміни.
 
@@ -61,6 +65,13 @@ P3 admission/locking/fencing protocol залишається залежніст�
 
 ## STAB-015.02b — незмінна історія execution starts
 
+**IMPLEMENTED — iteration 5, 2026-11-15; production activation blocked.**
+Development/test claim + execution та direct execution + run/link записуються
+атомарно; UUID replay перевіряє immutable snapshot. Caller-owned writes не
+комітяться автономним lifecycle. Production execution залишається закритим;
+справжній epoch уже надає .04a; atomic paid admission і решта safety chain pending.
+[Контракт і інтегрована перевірка](../generation-execution-starts.md).
+
 - **Проблема:** retry/reclaim повторно використовує або очищає job timestamps.
 - **Scope:** execution-start records на claims та дозволені internal/dev paths, stable job/execution/run links; без підміни D2 cap цією одиницею.
 - **Залежності:** .02a completed; D1/D2/D6. Production activation .02b додатково
@@ -71,6 +82,15 @@ P3 admission/locking/fencing protocol залишається залежніст�
 - **Ризики / розмір:** подвійний start або пропущений caller; **M**. Request accounting завершують .02c/.03c.
 
 ## STAB-015.02c — durable request intent та unknown outcome
+
+**INCREMENTAL IMPLEMENTATION VERIFIED — iteration 5, 2026-11-15.**
+Transaction-owned intent/replay/observations і conservative evidence reader
+реалізовані. Усі known paid transport paths безумовно закриті до atomic `.03c`;
+SAFE-001, local permissions і production probe ban залишаються незалежними.
+Production coordinator/runtime request admission **не реалізовано**; receipt не є
+дозволом transport. Final atomic boundary і end-to-end dispatcher verification —
+залежності `.03c`, не завершена гарантія цієї картки.
+[Інтерфейси, fault tests та activation blockers](../request-intent-design.md).
 
 - **Проблема:** attempt flush до provider не переживає crash/rollback; no-result не доводить not-sent.
 - **Scope:** durable per-paid-request intent/phase protocol та outcome correlation. Перед transport intent і reservation мають спільну atomic boundary з .03c; поки її немає, paid rollout заборонений.
@@ -104,6 +124,12 @@ single/batch retry collisions покрито PostgreSQL regressions.
 
 ## STAB-015.03b — атомарний package-level admission
 
+**IMPLEMENTED — iteration 5, 2026-11-15.** Partial unique package index, short
+transaction advisory lock, controlled busy outcomes та retry-helper admission
+recheck. Managed history не звільняється автоматично за віком. Production
+activation, paid cap і complete fencing залишаються blocked/pending.
+[Контракт, migration та перевірки](../package-admission-design.md).
+
 - **Проблема:** active-run SELECT і retry-cap count race; dedupe hashes не покривають overlapping jobs.
 - **Scope:** DB-enforced exclusivity **date + locale + forecast_type** across providers/job types/direct/queue/subsets; controlled busy/deferred. Без sign-level parallelism або нового overwrite behavior.
 - **Залежності:** .01/.02b; D3 accepted; P3 migration/locking contract, історичні overlaps перевірити без видалення.
@@ -121,6 +147,15 @@ single/batch retry collisions покрито PostgreSQL regressions.
 - **Ризики / розмір:** hot counter/lock order, conservative overcount, double reservation; **M**. Live value не встановлювати в межах code task.
 
 ## STAB-015.04a — lease epoch та bounded heartbeat
+
+**IMPLEMENTED FOUNDATION — iteration 5, 2026-11-15.** Revision 0008, monotonic
+claim epoch, frozen owner/epoch/execution identity та explicit bounded renewal.
+Timing default disabled; production timing/automatic renewal не активовані.
+Historical positive execution epochs блокують migration до DDL, без fabricated
+backfill. Позитивний epoch/ledger history не requeue за timestamp-only heuristic.
+`.04b/.04c` ще потрібні для всіх publication/finalization writes: це не complete
+fencing і не дозволяє automatic paid reclaim. P2 вимірювання/операційні values
+залишаються pending. [Контракт і перевірка](../lease-epoch-design.md).
 
 - **Проблема:** `locked_by` і timestamp не відрізняють старий execution від нового; TTL не вимірює progress.
 - **Scope:** additive epoch/lease fields, claim/renew protocol та fake-clock tests; не активувати новий automatic reclaim або заявляти end-to-end fencing.

@@ -6,6 +6,7 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 
 from app import create_app
 from app.business_date import business_datetime
+from app.services.generation_admission_service import GenerationScopeBusy
 from app.services import (
     DEFAULT_FORECAST_TYPE,
     DEFAULT_LOCALE,
@@ -352,15 +353,23 @@ def generate_daily_forecasts(run_type: str = "scheduled"):
 
     with app.app_context():
         for target_day in target_days:
-            run = run_daily_generation(
-                target_date=target_day,
-                run_type=run_type,
-                locale=DEFAULT_LOCALE,
-                forecast_type=DEFAULT_FORECAST_TYPE,
-                provider_name=HOROSCOPE_PROVIDER,
-                max_attempts=GENERATION_MAX_ATTEMPTS,
-                stale_after_hours=GENERATION_STALE_HOURS,
-            )
+            try:
+                run = run_daily_generation(
+                    target_date=target_day,
+                    run_type=run_type,
+                    locale=DEFAULT_LOCALE,
+                    forecast_type=DEFAULT_FORECAST_TYPE,
+                    provider_name=HOROSCOPE_PROVIDER,
+                    max_attempts=GENERATION_MAX_ATTEMPTS,
+                    stale_after_hours=GENERATION_STALE_HOURS,
+                )
+            except GenerationScopeBusy as exc:
+                logger.info("Generation package busy for %s: %s", target_day, exc.code)
+                runs.append({
+                    "date": target_day.isoformat(), "target_date": target_day.isoformat(),
+                    "run_id": None, "status": "skipped", "reason": exc.code,
+                })
+                continue
 
             logger.info(
                 "Daily forecast generation finished for %s: run_id=%s status=%s "
@@ -511,15 +520,23 @@ def retry_missing_forecasts():
                 )
                 continue
 
-            run = run_retry_for_missing_forecasts(
-                target_date=target_day,
-                locale=DEFAULT_LOCALE,
-                forecast_type=DEFAULT_FORECAST_TYPE,
-                provider_name=HOROSCOPE_PROVIDER,
-                max_attempts=GENERATION_MAX_ATTEMPTS,
-                max_retry_runs=MAX_RETRY_RUNS_PER_DAY,
-                stale_after_hours=GENERATION_STALE_HOURS,
-            )
+            try:
+                run = run_retry_for_missing_forecasts(
+                    target_date=target_day,
+                    locale=DEFAULT_LOCALE,
+                    forecast_type=DEFAULT_FORECAST_TYPE,
+                    provider_name=HOROSCOPE_PROVIDER,
+                    max_attempts=GENERATION_MAX_ATTEMPTS,
+                    max_retry_runs=MAX_RETRY_RUNS_PER_DAY,
+                    stale_after_hours=GENERATION_STALE_HOURS,
+                )
+            except GenerationScopeBusy as exc:
+                logger.info("Retry package busy for %s: %s", target_day, exc.code)
+                runs.append({
+                    "date": target_day.isoformat(), "target_date": target_day.isoformat(),
+                    "run_id": None, "status": "skipped", "reason": exc.code,
+                })
+                continue
 
             if not run:
                 logger.info("Retry skipped for %s: no retry run created.", target_day)

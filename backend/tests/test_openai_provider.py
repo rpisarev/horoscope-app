@@ -47,6 +47,13 @@ def forbid_real_openai_network(monkeypatch):
     monkeypatch.setattr(socket.socket, "connect_ex", forbidden)
 
 
+@pytest.fixture
+def mock_paid_admission_for_fake_transport(monkeypatch):
+    # Explicitly requested only by parser/SDK regressions below. The network
+    # prohibition above remains active; application guard has no test bypass.
+    monkeypatch.setattr(openai_provider, "require_paid_admission", lambda _: None)
+
+
 class FakeOpenAIResponse:
     def __init__(self, output_text=None, payload=None):
         self.output_text = output_text
@@ -159,6 +166,7 @@ def test_factory_returns_openai_provider(monkeypatch):
     assert provider.name == "openai"
 
 
+@pytest.mark.usefixtures("mock_paid_admission_for_fake_transport")
 def test_openai_provider_requires_api_key_without_injected_client(monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
@@ -170,6 +178,7 @@ def test_openai_provider_requires_api_key_without_injected_client(monkeypatch):
     assert exc_info.value.retryable is False
 
 
+@pytest.mark.usefixtures("mock_paid_admission_for_fake_transport")
 def test_openai_provider_generates_provider_result_from_structured_response(monkeypatch):
     monkeypatch.delenv("OPENAI_MODEL", raising=False)
 
@@ -232,6 +241,7 @@ def test_openai_provider_generates_provider_result_from_structured_response(monk
     assert "2026-05-13" not in provider_facing_text
 
 
+@pytest.mark.usefixtures("mock_paid_admission_for_fake_transport")
 def test_openai_provider_uses_env_model_before_prompt_model(monkeypatch):
     monkeypatch.setenv("OPENAI_MODEL", "gpt-env-model")
 
@@ -256,6 +266,7 @@ def test_openai_provider_uses_env_model_before_prompt_model(monkeypatch):
     assert fake_client.responses.calls[0]["model"] == "gpt-env-model"
 
 
+@pytest.mark.usefixtures("mock_paid_admission_for_fake_transport")
 def test_openai_provider_rejects_malformed_json_as_retryable(monkeypatch):
     monkeypatch.delenv("OPENAI_MODEL", raising=False)
 
@@ -272,6 +283,7 @@ def test_openai_provider_rejects_malformed_json_as_retryable(monkeypatch):
     assert exc_info.value.retryable is True
 
 
+@pytest.mark.usefixtures("mock_paid_admission_for_fake_transport")
 def test_openai_provider_rejects_empty_text_as_retryable(monkeypatch):
     monkeypatch.delenv("OPENAI_MODEL", raising=False)
 
@@ -290,6 +302,7 @@ def test_openai_provider_rejects_empty_text_as_retryable(monkeypatch):
     assert exc_info.value.retryable is True
 
 
+@pytest.mark.usefixtures("mock_paid_admission_for_fake_transport")
 def test_openai_provider_rejects_refusal_as_non_retryable(monkeypatch):
     monkeypatch.delenv("OPENAI_MODEL", raising=False)
 
@@ -322,6 +335,7 @@ def test_openai_provider_rejects_refusal_as_non_retryable(monkeypatch):
     assert exc_info.value.retryable is False
 
 
+@pytest.mark.usefixtures("mock_paid_admission_for_fake_transport")
 def test_openai_provider_rejects_invalid_output_schema_as_non_retryable(monkeypatch):
     monkeypatch.delenv("OPENAI_MODEL", raising=False)
 
@@ -403,6 +417,7 @@ def test_openai_error_classification():
         ),
     ],
 )
+@pytest.mark.usefixtures("mock_paid_admission_for_fake_transport")
 def test_quota_classification_uses_structured_sdk_metadata(code, body, retryable):
     response = httpx.Response(
         429, request=httpx.Request("POST", "https://openai.invalid/v1/responses")
@@ -439,6 +454,7 @@ def test_quota_classification_uses_structured_sdk_metadata(code, body, retryable
         (500, None, True, InternalServerError),
     ],
 )
+@pytest.mark.usefixtures("mock_paid_admission_for_fake_transport")
 def test_sdk_http_errors_make_one_request_per_provider_call(
     monkeypatch, client_origin, status_code, code, retryable, exception_type
 ):
@@ -497,6 +513,7 @@ def test_sdk_http_errors_make_one_request_per_provider_call(
     "transport_error, sdk_error",
     [(httpx.ReadTimeout, APITimeoutError), (httpx.ConnectError, APIConnectionError)],
 )
+@pytest.mark.usefixtures("mock_paid_admission_for_fake_transport")
 def test_sdk_transport_failures_are_retryable_without_hidden_retries(
     transport_error, sdk_error
 ):
@@ -524,6 +541,7 @@ def test_sdk_transport_failures_are_retryable_without_hidden_retries(
         assert injected.max_retries == 2
 
 
+@pytest.mark.usefixtures("mock_paid_admission_for_fake_transport")
 def test_injected_sdk_preserves_transport_and_options_on_success(monkeypatch):
     monkeypatch.delenv("OPENAI_MODEL", raising=False)
     calls = []

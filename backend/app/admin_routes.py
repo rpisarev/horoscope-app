@@ -3,6 +3,7 @@ from __future__ import annotations
 from flask import Blueprint, jsonify, request
 
 from .admin_auth import require_admin_api_access
+from .services.generation_admission_service import GenerationScopeBusy
 from .services.generation_admin_service import (
     AdminGenerationValidationError,
     cancel_admin_generation_job,
@@ -69,6 +70,8 @@ def create_generation_run():
         payload = create_manual_generation_run(_json_body())
     except AdminGenerationValidationError as exc:
         return _error_response(400, "bad_admin_generation_request", str(exc))
+    except GenerationScopeBusy as exc:
+        return _error_response(409, exc.code, str(exc))
 
     return jsonify(payload)
 
@@ -79,6 +82,8 @@ def retry_missing_forecasts():
         payload = retry_missing_generation(_json_body())
     except AdminGenerationValidationError as exc:
         return _error_response(400, "bad_admin_generation_request", str(exc))
+    except GenerationScopeBusy as exc:
+        return _error_response(409, exc.code, str(exc))
 
     return jsonify(payload)
 

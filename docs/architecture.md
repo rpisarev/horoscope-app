@@ -1,12 +1,11 @@
 # Current architecture
 
-This describes iteration 3 on verified `feature/main-page-start` base `4fe11be`
-(PR #24, including accepted STAB-015.01 and prior stabilization fixes). It adds
-the frontend toolchain update, exact-key conflict handling and read-only operational
-diagnostics. Current behavior and accepted but unimplemented architecture are
-separated below. Production publication and paid-execution guards are implemented;
-an Ollama/Qwen adapter is not. See [CURRENT_STATE.md](CURRENT_STATE.md) for dated
-verification and open decisions. [README.md](../README.md) remains the setup reference.
+This describes stabilization iteration 5 on verified `feature/main-page-start`
+base `ea3c0ec` (PR #26), including accepted D1–D8 and prior safety/read-only
+operational work. Execution-start writers, package admission and request-intent
+primitives are described separately from remaining production guarantees.
+An Ollama/Qwen adapter is not implemented. See [CURRENT_STATE.md](CURRENT_STATE.md)
+for dated verification/rollout limits and [README.md](../README.md) for setup.
 
 ## System overview and entry points
 
@@ -35,8 +34,12 @@ credentials; and enabled-sign published coverage by 06:00 Europe/Kyiv.
 These are **not all current implementation guarantees**. The diagram above still
 describes actual execution defaults. Documentation acceptance introduced no
 runtime change. Iteration 4 separately adds the [ledger storage schema](generation-ledger-schema.md)
-and [production probe prohibition](production-probe-policy.md); it adds no ledger
-writers, paid admission, fencing, topology switch, paid permission or deployment.
+and [production probe prohibition](production-probe-policy.md). Iteration 5 adds
+[execution-start writers](generation-execution-starts.md),
+[package admission](package-admission-design.md),
+[request-intent primitives](request-intent-design.md) and
+[lease epoch/explicit bounded renewal](lease-epoch-design.md). These do not implement
+the hard paid cap, full fencing, topology switch, paid permission or deployment.
 [The backlog](adr/STAB-015-backlog.md) retains the prerequisites; .08b authorization
 migration must precede worker-only credentials. The ADR entry-point matrix separates
 enqueue, execution, publication and recovery authority. Numeric cap, measured lease/
@@ -91,15 +94,23 @@ Models live in [`backend/app/models.py`](../backend/app/models.py). Alembic uses
 | `generation_runs` | Execution for a date/locale/type, status and counters. |
 | `generation_items` | Per-sign work, provider metadata, status, result link, payloads/errors. |
 | `generation_attempts` | Numbered attempts per item, request/response/raw output, failure details and timestamps. |
-| `generation_jobs` | Queue scope, provider, optional signs, priority, batch/dedupe key, attempts, worker lock, linked run. |
-| `generation_executions` | Immutable execution-start snapshot; no runtime writer yet. |
+| `generation_jobs` | Queue scope, provider, optional signs, priority, batch/dedupe key, attempts, worker lock, monotonic claim epoch, optional bounded lease timing, linked run. |
+| `generation_executions` | Immutable execution-start snapshot; development/test claims and direct starts have writers. |
 | `generation_execution_runs` | Append-only execution-to-run link; multiple historical executions may share a run. |
-| `generation_api_requests` | One immutable paid-request intent/reservation identity with a generated UTC admission day; no runtime admission yet. |
-| `generation_api_observations` | Append-only outcome/usage observations; missing outcome remains unknown, never proof of not-sent. |
+| `generation_api_requests` | Immutable intent/reservation identity with UTC admission day; transaction-owned primitive exists, runtime atomic admission remains blocked. |
+| `generation_api_observations` | Append-only observation primitive and conservative evidence reader; missing outcome remains unknown, never proof of not-sent. |
 
 Forecast uniqueness is `(sign_key, target_date, locale, forecast_type)`, independent of status or provider. `save_forecast` updates the matching row or inserts one, sets generation/publication timestamps, and commits unless called with `commit=False`. Thus there are not separate stub and OpenAI rows for the same scope.
 
-Migration sequence: `0001_initial_schema` creates persistence/reference tables and seeds 13 signs plus `daily-ru-v1`; `0002_add_generation_attempts` adds attempt history and updates prompts; `0003_prompt_pipeline` and `0004_variation_prompt` update prompt content/schema; `0005_generation_jobs` adds the queue; `0006_generation_ledger` adds four empty append-only ledger tables, constraints, indexes and insertion-time coherence triggers. It does not backfill history or write admissions during generation. Nonempty downgrade is refused. Legacy table identities and data are preserved; PostgreSQL-only DML immutability does not protect against privileged DDL/TRUNCATE. See [schema and future transaction contract](generation-ledger-schema.md). Deploying this packaged head makes readiness require revision 0006; applying it to a live database needs a separate approved rollout. `app/init_db.py` now exits with Alembic instructions. PostgreSQL is the supported Compose/test path; `Config` still falls back to SQLite when no database settings exist, which is not equivalent to the tested PostgreSQL migration/locking environment.
+Migration sequence: `0001_initial_schema` creates persistence/reference tables and seeds 13 signs plus `daily-ru-v1`; `0002_add_generation_attempts` adds attempt history and updates prompts; `0003_prompt_pipeline` and `0004_variation_prompt` update prompt content/schema; `0005_generation_jobs` adds the queue. `0006_generation_ledger` adds four empty append-only ledger tables, constraints, indexes and insertion-time coherence triggers without historical backfill. Nonempty downgrade is refused. `0007_generation_scope_admission` adds the unique running-package invariant and refuses historical overlaps without deleting rows. `0008_generation_job_leases` adds epoch/timing columns and transition constraints; it refuses preexisting job-linked positive execution epochs before DDL rather than guessing an allocator high-water mark. Legacy IDs/data are preserved. PostgreSQL-only DML immutability does not protect against privileged DDL/TRUNCATE. See [schema contract](generation-ledger-schema.md) and [lease migration limits](lease-epoch-design.md).
+
+The packaged readiness head is now **0008**, not evidence of a live migration.
+Applying these revisions to a live database requires a separately approved rollout
+and preflight for their explicit refusal conditions. Compose backend startup runs
+Alembic, so a recreate is not a harmless way to test the new source.
+`app/init_db.py` exits with Alembic instructions. PostgreSQL is the supported
+Compose/test path; the SQLite configuration fallback is not equivalent to the
+tested migration, admission or lease environment.
 
 ## Public forecast read: published-only and read-only
 
@@ -136,7 +147,7 @@ Admin immediate API / package CLI / legacy scheduler
   -----------------------------------------> same lifecycle (no queue job)
 ```
 
-[`generation_job_service.py`](../backend/app/services/generation_job_service.py) creates manual, backfill, scheduled, and retry-missing jobs, including inclusive date ranges, dry runs, coverage checks, active duplicate checks, and batches. Claims use descending priority then creation time/id; PostgreSQL uses `FOR UPDATE SKIP LOCKED`. Jobs transition from queued/running to success/partial_failed/failed/cancelled. Stale locks are requeued or failed according to attempt limits. Batch status aggregates jobs; cancel affects queued members, while retry-failed requeues failed/partial-failed members. Running jobs cannot be cancelled by the single-job API.
+[`generation_job_service.py`](../backend/app/services/generation_job_service.py) creates manual, backfill, scheduled, and retry-missing jobs, including inclusive date ranges, dry runs, coverage checks, active duplicate checks, and batches. Claims use descending priority then creation time/id; PostgreSQL uses `FOR UPDATE SKIP LOCKED`. Jobs transition from queued/running to success/partial_failed/failed/cancelled. Legacy unmanaged stale locks may be requeued or failed according to attempt limits; ledger-managed history is excluded from age-only cleanup. Batch status aggregates jobs; cancel affects queued members, while retry-failed requeues failed/partial-failed members. Running jobs cannot be cancelled by the single-job API.
 
 STAB-015.03a normalizes only the existing active dedupe-key unique-index conflict.
 Creation reuses an active winner or raises the existing validation error; a winner
@@ -147,16 +158,50 @@ and retries use private transactions, preserving unrelated caller writes. Relate
 pending/flushed ORM edits are rejected before refresh or private writes. Raw SQL
 and explicitly acquired caller locks are outside that tracking contract. See
 [transaction ownership and PostgreSQL regressions](generation-job-deduplication.md).
-The hash/index, queue algorithm, providers and broader package-admission races are
-unchanged.
+The exact-key hash/index and queue ordering are unchanged. Broader package
+exclusion is now separately enforced by `.03b`; dedupe is not that authority.
 
-[`generation_service.py`](../backend/app/services/generation_service.py) closes stale runs, returns an existing running run when its date/locale/type lookup finds one, creates per-sign items, skips published forecasts, retries retryable provider errors, validates output, persists successful forecasts, and finalizes counters/status. Default sign selection queries enabled database signs; `sign_service.get_enabled_sign_keys` retains a static `SIGNS` fallback when that query is empty. This fallback differs from archive coverage's zero-active-sign handling.
+`.04a` increments a real epoch in the same claim transaction as attempt count and
+development/test execution history. The returned job carries a frozen claim
+identity; reloaded jobs need that original identity explicitly and cannot adopt
+the latest database epoch. Optional timing is disabled by default. An explicitly
+invoked nonproduction renewal helper uses a separate bounded transaction and
+checks owner, epoch, execution, cadence, expiry and a fixed overall deadline.
+There is no heartbeat thread, production timing policy or new automatic reclaim.
+Positive-epoch, known-paid and ledger-linked history is excluded from age-only
+cleanup. This protects entry/renewal; forecast/item/attempt writes and remaining
+job/run finalizers still need `.04b/.04c` fencing. A real epoch does not lift the
+production execution or paid-admission blocker.
+
+[`generation_service.py`](../backend/app/services/generation_service.py) performs
+canonical provider preflight, then `.03b` admission for exact date/locale/type.
+A short transaction advisory lock plus partial unique index permit one running
+package across providers/job types/sign subsets. Run/execution/link commit before
+item processing. Busy callers receive a controlled failure, never a foreign run;
+Admin adds 409, CLI exits 1, scheduler continues other targets. Automatic stale
+run cleanup on admission is removed. Retry-helper counts/coverage are rechecked
+under the lock; denied preflight audit rows are not a hard counted admission cap.
+Published forecasts are skipped; successful items persist and final counters
+retain their prior contracts. Enabled-sign selection still retains a static
+fallback when metadata is empty, unlike archive coverage; that behavior is unchanged.
+
+Immutable execution starts use canonical provider identity and DB UTC time.
+Queue claim history is distinct from paid-request attempts; old records are not
+backfilled. Transaction-owned intent/observation primitives do not dispatch HTTP
+or grant admission. Known paid paths are unconditionally blocked by `.02c` until
+`.03c` and the remaining safety chain exist. No ledger failure permits unrecorded
+transport. Missing/ambiguous evidence requires review, never automatic retry/refund.
+The existing item transaction/attempt loop remains for stub/fake workflows; a
+future paid coordinator must release its locks before transport and persist
+outcome independently of publication.
+
 
 [`prompt_service.py`](../backend/app/services/prompt_service.py) loads prompts from the database, validates supported template variables, and builds provider requests. Sign/date select deterministic variation profiles and are retained in audit metadata; they are excluded as literal creative instructions from prompt messages. The seeded prompt is Russian/daily; accepting locale/type parameters is not proof of equivalent generated content for every combination. `forecast_validation_service.py` rejects forbidden zodiac terms/phrases in generated text; lifecycle also rejects empty text.
 
 Providers implement `ProviderRequest` → `ProviderResult` and do not persist forecasts. The stub returns fixed Russian text. `openai_provider.py` calls the Responses API with structured JSON output, parses results/refusals, and maps provider errors for lifecycle retry handling. Tests inject fake clients. Local-LLM provider aliases raise an explicit unimplemented error.
 
-The lifecycle owns transport retries; the adapter configures `max_retries=0` in
+For preserved fake/SDK regression behavior, the lifecycle owns transport retries;
+actual paid transport is blocked by `.02c`. The adapter configures `max_retries=0` in
 the OpenAI SDK, including a nonmutating copy of an injected real SDK client.
 Structured `insufficient_quota` stops retries for the current item. Transient 429,
 timeout and connection failures remain retryable; authentication, permission and
@@ -175,9 +220,9 @@ Utilities in `backend/utils/` support immediate packages, queue creation/process
 STAB-015.08c-A forbids paid prompt probing in production in both CLI and direct
 transport helper, independently of SAFE-001. Missing/unrecognized process deployment
 mode also denies probing. Static profile listing skips dotenv, request defaults and
-SDK import. Explicit development/test mode retains the existing paid gate but not
-the future bounded accounting contract: .08c-B remains required before real diagnostic
-transport is authorized. No generation/publication service or SDK retry policy changed.
+SDK import. Explicit development/test mode also faces the unconditional `.02c` admission
+blocker. `.08c-B` bounded diagnostic accounting remains required before real
+diagnostic transport; diagnostic output is never automatically published.
 
 STAB-015.05a adds an explicitly invoked [per-job inspection CLI](generation-recovery-inspection.md)
 with no provider or recovery actions. It reads safe projected columns for one
@@ -213,11 +258,14 @@ check it; the adapter checks literal `openai` on entry and immediately before SD
 transport, and the standalone probe checks before client construction and in its
 call helper. A local flag, mutable adapter name or returned metadata cannot bypass
 the final adapter gate. Unset/invalid values deny; stub workflows are unchanged.
-The entry-point-specific controls below remain additional requirements.
+The entry-point-specific controls below remain additional requirements. `.02c`
+adds an unconditional known-paid admission denial, even with SAFE-001 enabled.
+Production lifecycle is separately blocked by execution activation policy. The
+matrix lists local permissions, not a way to activate transport today.
 
 | Entry point | Selection and defaults | Relevant gates / persistence |
 | --- | --- | --- |
-| Direct lifecycle `run_daily_generation` | Explicit `provider_name`, otherwise factory environment/default. | Global paid-execution guard and shared publication policy before generation. Once globally enabled, direct execution still lacks queue count/admission limits. |
+| Direct lifecycle `run_daily_generation` | Explicit `provider_name`, otherwise factory environment/default. | Global paid-execution guard and shared publication policy before generation. Known-paid transport remains blocked pending atomic admission; package exclusion is separately enforced. |
 | Direct scheduler daily and retry-missing | `tasks.py` reads `HOROSCOPE_PROVIDER` at process initialization, default `stub`; Compose also defaults it to `stub`. | Default `GENERATION_SCHEDULER_USE_QUEUE=0` calls lifecycle directly. Queue OpenAI flags do not guard this path. |
 | Scheduler queue producer | Same scheduler provider, passed explicitly into scheduled/retry-missing job creation. | OpenAI creation requires `GENERATION_SCHEDULED_JOBS_ALLOW_OPENAI`; provider persists in each job. |
 | Queue creation service, ranges/backfills | Omitted provider defaults to `stub`, independently of `HOROSCOPE_PROVIDER`; accepts only `stub`/`openai`. | OpenAI needs `allow_openai`; each range member stores the selected provider. |
@@ -372,7 +420,7 @@ Flask exposes JSON URL/document inspection under `/api/seo/sitemap/urls` and `/a
 
 Compose explicitly maps selected environment variables; root `.env` is not automatically a container environment file. Current mappings omit `PUBLIC_SITE_URL`, `SITEMAP_CHUNK_SIZE`, `GENERATION_SCHEDULED_TARGET_POLICY`, `GENERATION_SCHEDULED_ROLLING_DAYS`, and `GENERATION_OPENAI_MAX_*`. Code supports these settings, but README/root `.env` examples alone do not wire them into Compose services.
 
-OpenAI job creation and execution have distinct opt-ins. Admin additionally requires its enable/token controls and OpenAI allow flag plus request confirmation. Queue execution requires worker opt-in and an API key; range/per-run/per-UTC-day limits are count-based. Service defaults are seven backfill days, two OpenAI jobs per worker call, and ten started jobs per UTC day. Scheduler's separate total-job limit defaults to one. The global paid-execution gate now protects direct scheduler and standalone probe calls too. When globally enabled, direct execution still has no queue count limits; the probe retains its own SDK retry defaults and does not use lifecycle audit. The switch is not an account-level budget control. See [paid-execution.md](paid-execution.md).
+OpenAI job creation and execution have distinct opt-ins. Admin additionally requires its enable/token controls and OpenAI allow flag plus request confirmation. Queue execution requires worker opt-in and an API key; range/per-run/per-UTC-day limits are count-based. Service defaults are seven backfill days, two OpenAI jobs per worker call, and ten started jobs per UTC day. Scheduler's separate total-job limit defaults to one. The global paid-execution gate now protects direct scheduler and standalone probe calls too. Known-paid transport is currently blocked regardless of global enablement until atomic admission exists. The old direct count-limit gap is not a budget guarantee; the probe remains forbidden in production and unavailable in development pending admission/accounting. The switch is not an account-level budget control. See [paid-execution.md](paid-execution.md).
 
 Compose maps `GENERATION_PAID_EXECUTION_ENABLED` to backend and scheduler with
 default `0`. Other processes need their own intended environment. Updating `.env`

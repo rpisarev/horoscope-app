@@ -4,7 +4,7 @@ import pytest
 
 from app import create_app, db
 from app.config import Config
-from app.models import Forecast, GenerationAttempt, GenerationItem, GenerationRun
+from app.models import Forecast, GenerationAttempt, GenerationItem, GenerationJob, GenerationRun
 from app.providers import ProviderResult
 from app.providers.openai_provider import OpenAIHoroscopeProvider
 from app.providers.publication_policy import PublicationPolicyError, require_publication_provider
@@ -105,17 +105,23 @@ def test_generic_draft_persistence_remains_available_in_production(app, monkeypa
 @pytest.mark.parametrize("job_type", ["manual", "scheduled", "retry_missing", "backfill"])
 def test_worker_rechecks_persisted_stub_jobs_and_retries(app, monkeypatch, job_type):
     job, _ = create_generation_job(target_date=DAY, job_type=job_type, provider="stub")
+    job_id = job.id
     production(app, monkeypatch)
     forbid_stub_call(monkeypatch)
     for attempt in range(2):
         if attempt:
-            retry_generation_job(job.id)
+            retry_generation_job(job_id)
         process_generation_jobs(limit=1, worker_id="publication-test")
-        db.session.refresh(job)
+        # A new claim preserves the old captured owner handle on a detached
+        # object. Inspect current persisted state without reusing that authority.
+        job = db.session.get(GenerationJob, job_id, populate_existing=True)
+        assert job is not None
         assert job.status == "failed"
         assert job.provider == "stub"
         assert "forbids provider 'stub' in production" in job.error_message
         assert job.finished_at is not None
+        assert job.lease_epoch == attempt + 1
+        assert GenerationItem.query.count() == GenerationAttempt.query.count() == 0
         assert Forecast.query.count() == 0
 
 
@@ -194,10 +200,15 @@ def test_approved_real_capability_is_not_openai_specific(app, monkeypatch, provi
 
     monkeypatch.setitem(PROVIDERS, provider_name, ProviderDefinition(Adapter, False, True))
     production(app, monkeypatch, provider_name)
-    run = generation_service.run_daily_generation(
-        target_date=DAY, provider_name=provider_name, signs=["aries"]
+    # Publication authorization is independent of execution admission. .02b
+    # deliberately blocks production lifecycle until the safety chain exists;
+    # approved real-provider persistence remains provider-capability based.
+    require_publication_provider(provider_name)
+    save_forecast(
+        "aries", DAY, "Спокойный день поможет завершить начатые дела.",
+        source=provider_name, model_version="model-family:version",
+        publication_provider=provider_name,
     )
-    assert run.status == "success"
     assert Forecast.query.one().source == provider_name
     assert Forecast.query.one().model_name == "model-family:version"
 
@@ -220,13 +231,14 @@ def test_persistence_rechecks_policy_changed_during_generation(app, monkeypatch)
     class ChangingPolicyProvider(RealTestProvider):
         def generate(self, request):
             result = super().generate(request)
-            monkeypatch.setitem(app.config, "PRODUCTION_PUBLICATION_PROVIDERS", "")
+            production(app, monkeypatch, "")
             return result
 
-    monkeypatch.setitem(PROVIDERS, "future-real", ProviderDefinition(ChangingPolicyProvider, False, True))
-    production(app, monkeypatch, "future-real")
+    # Begin as an allowed development execution, then change policy before save.
+    # Do not bypass the new production execution prerequisite for this guard test.
+    monkeypatch.setitem(PROVIDERS, "future_real", ProviderDefinition(ChangingPolicyProvider, False, True))
     run = generation_service.run_daily_generation(
-        target_date=DAY, provider_name="future-real", signs=["aries"]
+        target_date=DAY, provider_name="future_real", signs=["aries"]
     )
     assert run.status == "failed"
     assert "Publication policy" in GenerationItem.query.one().error_message

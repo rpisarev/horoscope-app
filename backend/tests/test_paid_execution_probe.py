@@ -6,6 +6,7 @@ import builtins
 import importlib.util
 import io
 import os
+from functools import wraps
 from pathlib import Path
 import socket
 import sys
@@ -21,6 +22,15 @@ PRODUCTION_DENIAL = "Paid prompt probe is forbidden in production."
 INVALID_MODE_DENIAL = (
     "Paid prompt probe denied: APP_DEPLOYMENT_MODE is missing or invalid."
 )
+
+
+def mocked_admission_for_fake_sdk(test):
+    """Opt-in per test only; setUp still forbids real sockets, SDK and app access."""
+    @wraps(test)
+    def wrapped(self, *args, **kwargs):
+        with patch.object(self.probe, "require_paid_admission", return_value=None):
+            return test(self, *args, **kwargs)
+    return wrapped
 
 
 class PaidExecutionProbeTests(unittest.TestCase):
@@ -83,6 +93,7 @@ class PaidExecutionProbeTests(unittest.TestCase):
                 self.client.responses.create.assert_not_called()
                 self.sdk.OpenAI.assert_not_called()
 
+    @mocked_admission_for_fake_sdk
     def test_enabled_helper_uses_fake_sdk_then_rechecks_after_disable(self):
         os.environ.update({MODE_SETTING: "development", SETTING: "1"})
         self.assertIs(self.call_probe(), self.client.responses.create.return_value)
@@ -101,6 +112,7 @@ class PaidExecutionProbeTests(unittest.TestCase):
                 self.probe.main()
         self.sdk.OpenAI.assert_not_called()
 
+    @mocked_admission_for_fake_sdk
     def test_enabled_main_still_requires_key(self):
         os.environ.update({MODE_SETTING: "development", SETTING: "1"})
         with patch.object(sys, "argv", ["openai_prompt_probe.py"]):
@@ -137,6 +149,7 @@ class PaidExecutionProbeTests(unittest.TestCase):
                         self.sdk.OpenAI.assert_not_called()
                         self.client.responses.create.assert_not_called()
 
+    @mocked_admission_for_fake_sdk
     def test_main_rechecks_inside_helper_after_preflight(self):
         os.environ.update({
             MODE_SETTING: "development", SETTING: "1", "OPENAI_API_KEY": "unit-test-fake-key"
@@ -212,6 +225,7 @@ class PaidExecutionProbeTests(unittest.TestCase):
                     self.client.responses.create.assert_not_called()
                     self.sdk.OpenAI.assert_not_called()
 
+    @mocked_admission_for_fake_sdk
     def test_explicit_nonproduction_helper_compatibility_uses_only_fake_requests(self):
         os.environ[SETTING] = "1"
         for mode in ("development", "test", " Development ", "TEST"):
@@ -222,6 +236,7 @@ class PaidExecutionProbeTests(unittest.TestCase):
                 self.client.responses.create.reset_mock()
         self.sdk.OpenAI.assert_not_called()
 
+    @mocked_admission_for_fake_sdk
     def test_helper_rechecks_mode_on_every_call(self):
         os.environ[SETTING] = "1"
         for mode, message in (
@@ -237,6 +252,7 @@ class PaidExecutionProbeTests(unittest.TestCase):
                 self.set_mode(mode)
                 self.assert_mode_denied(self.call_probe, message)
 
+    @mocked_admission_for_fake_sdk
     def test_main_rechecks_mode_inside_helper_after_preflight(self):
         os.environ.update({SETTING: "1", "OPENAI_API_KEY": "unit-test-fake-key"})
         self.allow_sdk_import = True
@@ -258,6 +274,7 @@ class PaidExecutionProbeTests(unittest.TestCase):
                 self.sdk.OpenAI.assert_called_once()
                 self.sdk.OpenAI.reset_mock()
 
+    @mocked_admission_for_fake_sdk
     def test_main_rechecks_mode_between_batch_requests(self):
         os.environ.update({
             MODE_SETTING: "development", SETTING: "1", "OPENAI_API_KEY": "unit-test-fake-key"
@@ -306,6 +323,7 @@ class PaidExecutionProbeTests(unittest.TestCase):
         self.assertEqual(os.environ[MODE_SETTING], "production")
         self.sdk.OpenAI.assert_not_called()
 
+    @mocked_admission_for_fake_sdk
     def test_main_preserves_request_option_precedence_with_fake_sdk(self):
         self.allow_sdk_import = True
         self.sdk.OpenAI.side_effect = None
@@ -344,6 +362,40 @@ class PaidExecutionProbeTests(unittest.TestCase):
                 self.assertEqual(request["max_output_tokens"], tokens)
                 self.sdk.OpenAI.reset_mock()
                 self.client.responses.create.reset_mock()
+
+    def test_enabled_nonproduction_probe_denies_missing_atomic_admission(self):
+        unavailable = sys.modules["paid_admission_policy"].PaidAdmissionUnavailable
+        for mode in ("development", "test"):
+            with self.subTest(mode=mode):
+                os.environ.update({MODE_SETTING: mode, SETTING: "1", "OPENAI_API_KEY": "unit-test-fake-key"})
+                with self.assertRaises(unavailable) as caught:
+                    self.call_probe()
+                self.assertIs(caught.exception.retryable, False)
+                with patch.object(sys, "argv", ["openai_prompt_probe.py", "--batch", "2"]):
+                    with self.assertRaises(unavailable):
+                        self.probe.main()
+                self.client.responses.create.assert_not_called()
+                self.sdk.OpenAI.assert_not_called()
+
+    def test_probe_helper_rechecks_admission_after_mocked_main_preflight(self):
+        os.environ.update({MODE_SETTING: "development", SETTING: "1", "OPENAI_API_KEY": "unit-test-fake-key"})
+        self.allow_sdk_import = True
+        self.sdk.OpenAI.side_effect = None
+        self.sdk.OpenAI.return_value = self.client
+        actual_guard = self.probe.require_paid_admission
+        checks = []
+
+        def permit_main_only(identity):
+            checks.append(identity)
+            if len(checks) > 1:
+                actual_guard(identity)
+
+        with patch.object(self.probe, "require_paid_admission", side_effect=permit_main_only), \
+                patch.object(sys, "argv", ["openai_prompt_probe.py"]):
+            with self.assertRaises(sys.modules["paid_admission_policy"].PaidAdmissionUnavailable):
+                self.probe.main()
+        self.assertEqual(checks, ["openai", "openai"])
+        self.client.responses.create.assert_not_called()
 
 
 if __name__ == "__main__":

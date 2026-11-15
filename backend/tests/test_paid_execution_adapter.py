@@ -8,7 +8,9 @@ import pytest
 
 from app.models import Forecast, GenerationAttempt, GenerationItem
 from app.providers import OpenAIHoroscopeProvider, ProviderRequest
+import app.providers.openai_provider as openai_provider
 import app.services.generation_service as generation_service
+from paid_admission_policy import PaidAdmissionUnavailable, require_paid_admission
 from paid_execution_policy import PaidExecutionDenied
 
 SETTING = "GENERATION_PAID_EXECUTION_ENABLED"
@@ -69,13 +71,20 @@ def switching_provider(monkeypatch):
 
 
 def test_adapter_rechecks_gate_immediately_before_sdk_request(monkeypatch):
+    # Fake client only: reach the existing SAFE-001 late-denial boundary.
+    monkeypatch.setattr(openai_provider, "require_paid_admission", lambda _: None)
     provider, client = switching_provider(monkeypatch)
-    with pytest.raises(PaidExecutionDenied):
+    with pytest.raises(PaidExecutionDenied) as error:
         provider.generate(request())
+    assert type(error.value) is PaidExecutionDenied
     client.responses.create.assert_not_called()
 
 
 def test_post_preflight_denial_records_one_honest_nonretryable_attempt(app, monkeypatch):
+    # This regression deliberately tests SAFE-001 after preflight with a fake
+    # client; new admission-denial regressions below leave the guard unpatched.
+    monkeypatch.setattr(openai_provider, "require_paid_admission", lambda _: None)
+    monkeypatch.setattr(generation_service, "require_paid_admission", lambda _: None)
     provider, client = switching_provider(monkeypatch)
     monkeypatch.setattr(generation_service, "get_horoscope_provider", lambda _: provider)
     with app.app_context():
@@ -94,4 +103,44 @@ def test_post_preflight_denial_records_one_honest_nonretryable_attempt(app, monk
         assert attempt.finished_at is not None
         assert "Paid execution denied" in attempt.error_message
         assert Forecast.query.count() == 0
+    client.responses.create.assert_not_called()
+
+
+@pytest.mark.parametrize("mode", [None, "test", "development", "production"])
+def test_enabled_direct_adapter_still_denies_without_atomic_admission(monkeypatch, mode):
+    monkeypatch.setenv(SETTING, "1")
+    if mode is None:
+        monkeypatch.delenv("APP_DEPLOYMENT_MODE", raising=False)
+    else:
+        monkeypatch.setenv("APP_DEPLOYMENT_MODE", mode)
+    client = fake_client()
+    provider = OpenAIHoroscopeProvider(api_key="test-key", client=client)
+    provider.name = "stub"
+    get_client = Mock(side_effect=AssertionError("Unexpected SDK access"))
+    monkeypatch.setattr(provider, "_get_client", get_client)
+    # Called directly, outside an explicit application context. A supplied client,
+    # dummy key, deployment mode or mutable identity is not an admission permit.
+    with pytest.raises(PaidAdmissionUnavailable) as error:
+        provider.generate(request())
+    assert error.value.retryable is False
+    get_client.assert_not_called()
+    client.responses.create.assert_not_called()
+
+
+def test_adapter_rechecks_admission_immediately_before_sdk_request(monkeypatch):
+    monkeypatch.setenv(SETTING, "1")
+    client = fake_client()
+    provider = OpenAIHoroscopeProvider(api_key="test-key", client=client)
+    checks = []
+
+    def permit_only_mocked_entry(identity):
+        checks.append(identity)
+        if len(checks) == 1:
+            return
+        require_paid_admission(identity)
+
+    monkeypatch.setattr(openai_provider, "require_paid_admission", permit_only_mocked_entry)
+    with pytest.raises(PaidAdmissionUnavailable):
+        provider.generate(request())
+    assert checks == ["openai", "openai"]
     client.responses.create.assert_not_called()

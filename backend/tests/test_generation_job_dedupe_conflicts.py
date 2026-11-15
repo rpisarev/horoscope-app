@@ -56,9 +56,14 @@ def test_fake_model_import_leaves_no_hooks_before_real_flush(sessions, monkeypat
             models = sys.modules[prefix + ".models"]
             models.GenerationJob = Mock() if fake_model == "mock" else type("UnmappedJob", (), {})
             models.GenerationRun = Mock()
+            models.GenerationExecution = Mock()
+            models.GenerationExecutionRun = Mock()
             for suffix in (
                 ".providers.publication_policy", ".providers.registry",
                 ".services.constants", ".services.generation_service", ".services.sign_service",
+                ".services.generation_execution_service",
+                ".services.generation_lease_policy",
+                ".services.generation_admission_service",
             ):
                 patch.setitem(sys.modules, prefix + suffix, sys.modules["app" + suffix])
             name = prefix + ".services.generation_job_service"
@@ -314,7 +319,9 @@ def test_repeated_winner_finalization_is_bounded(sessions, commit, skip_duplicat
 
 
 def _run(**kwargs):
-    return GenerationRun(run_type="manual", target_date=DAY, **kwargs)
+    # These are unrelated/history rows for transaction ownership tests, not
+    # concurrent active package executions under .03b's new invariant.
+    return GenerationRun(**(dict(run_type="manual", target_date=DAY, status="failed") | kwargs))
 
 
 def _hide_first_precheck(monkeypatch):

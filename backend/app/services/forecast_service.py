@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
+from paid_admission_policy import require_paid_admission
 
 from .constants import DEFAULT_FORECAST_TYPE, DEFAULT_LOCALE
 from .prompt_service import get_prompt_version
@@ -47,8 +48,29 @@ def generate_horoscope(sign: str, day: date) -> str:
     for DB routing and frontend display, but the generated text itself is
     sign-agnostic by product design.
     """
+    from uuid import uuid4
+
+    from .generation_execution_service import (
+        assert_autonomous_session_clean, record_execution_start,
+        require_execution_activation,
+    )
+
+    assert_autonomous_session_clean(db.session())
+    require_execution_activation()
+    canonical_provider = "stub"
+    require_paid_admission(canonical_provider)
     prompt_version = get_prompt_version()
-    provider = get_horoscope_provider("stub")
+    provider = get_horoscope_provider(canonical_provider)
+    try:
+        record_execution_start(
+            db.session(), execution_id=uuid4(), origin="dev_direct",
+            provider=canonical_provider, target_date=day, locale=DEFAULT_LOCALE,
+            forecast_type=DEFAULT_FORECAST_TYPE,
+        )
+        db.session.commit()
+    except BaseException:
+        db.session.rollback()
+        raise
     result = provider.generate(
         ProviderRequest(
             target_date=day,

@@ -1,12 +1,90 @@
 # Current Project State
 
-- State updated: 2026-11-15 (stabilization iteration 4 implementation; ADR decision date remains 2026-11-14).
+- State updated: 2026-11-15 (iteration 5 verified checkpoint; ADR decision date remains 2026-11-14).
 - Main working branch: `feature/main-page-start`
-- Verified iteration 4 base: `17fb256ce8f5e651a5d05b4a8911d905585f4e82` (PR #25 merged; GitHub metadata, local and actual remote `feature/main-page-start` agree). STAB-015 D1–D8 remain Accepted. Work is isolated in `/tmp/horoscope-iter4-integration`, branch `integration/project-stabilization-4`; the live checkout stays on `feature/project-stabilization5` at the base.
+- Historical iteration 4 base: `17fb256ce8f5e651a5d05b4a8911d905585f4e82` (PR #25). Its worktree/runtime observations below describe that earlier iteration, not the current checkout. STAB-015 D1–D8 remain Accepted.
 - Historical iteration 3 base: `4fe11be` (PR #24), incorporating STAB-015.01 and earlier safety fixes. The older verification sections below retain their own evidence and dates.
 - Earlier publication audit baseline: `34623b27bd69d681edf1a3ab8f8aac31bc74cafa` (`Update frontend (#20)`). Results and runtime observations in the historical sections below belong to their recorded checkpoints.
 
-## Stabilization checkpoint — iteration 4
+## Stabilization checkpoint — iteration 5
+
+Verified base `ea3c0ec166b37b00e05164521b7ab9cd4e78fd8f` (PR #26), local and
+actual remote integration SHA agree. Original bind-mounted checkout remains
+untouched on `feature/project-stabilization6`; work is isolated in
+`/tmp/horoscope-iter5-integration`, branch `integration/project-stabilization-5`.
+Owner-requested pause was resumed with all checkpoint file hashes unchanged.
+
+| Task | Implemented boundary and activation limit |
+| --- | --- |
+| .02b | Immutable development/test execution starts and run links; canonical provider and DB UTC clock, exact UUID replay. Production activation still blocked. [Contract](generation-execution-starts.md). |
+| .03b | Running-package unique index and short advisory admission transaction across providers/job types/sign subsets; controlled busy outcomes, retry-helper recheck. No hard paid-attempt cap. [Contract](package-admission-design.md). |
+| .02c | **Incremental implementation:** transaction-owned durable intent/observation primitives and conservative evidence reader. No runtime paid coordinator/final atomic reservation boundary. Known paid application paths unconditionally denied until .03c and the remaining safety chain. [Contract](request-intent-design.md). |
+| .04a | Real monotonic claim epoch, frozen ownership identity and explicit bounded nonproduction renewal. Timing default disabled; no automatic heartbeat/reclaim or complete fencing. [Contract](lease-epoch-design.md). |
+| SEC-002 | Vue/core/server-renderer 3.5.45 and ws 8.23.0; targeted advisories absent, application code unchanged. Seven other audit entries remain. [Evidence](vue-ws-security.md). |
+
+Five native agents prepared independent changes in separate worktrees. Backend
+prerequisites and DB suites were integrated serially; frontend verification ran
+independently. Shared worker imports, test doubles and transaction boundaries were
+reviewed explicitly. Independent cross-task review found no remaining new blocker;
+generic error/publication/finalization races remain `.04b/.04c` work.
+
+**Verification milestones:** 19 mock safety guards passed before PostgreSQL work.
+`.02b`: 210 focused / 795 full; `.03b`: 273 focused / 864 full; `.02c`: 67 primitive,
+297 focused / 943 full. `.04a` integrated selection: **354 passed in 59.24s**.
+These are distinct prerequisite runs, not a substitute for final combined results.
+An admission test found lazy-savepoint timeout leakage; the coordinator now opens
+its savepoint before connection-level settings. Cross-review found a historical
+positive-epoch migration hazard; 0008 now refuses that history before DDL.
+Full integration also exposed old publication tests refreshing detached claim
+handles; they now read current state by ID and additionally verify monotonic epoch
+and zero items/attempts. No publication/paid-denial assertion was removed.
+
+**Final combined backend verification:** `bash scripts/backend-test.sh` passed
+**1049 tests in 127.24s** after **64 publication/lease regressions in 10.29s**.
+The initial combined run had 1045 passes and the four detached-handle test
+failures described above. Only the test's state-read contract changed before the
+passing rerun. All DB runs used disposable PostgreSQL, dummy credentials and
+fail-on-unexpected-network/process guards; their test containers/networks were
+removed. The STAB-007 script, guard, conftest and Compose isolation are unchanged;
+the test image allowlist/COPY additionally includes the new paid-admission module.
+**Final integrated frontend:** `npm ci`, `npm ls --all`, typecheck, **181 unit
+tests / 14 files**, production build and **22 POC fixture checks** passed with
+private Node 24.22.2/npm 11.19.1, no personal registry credentials, and a network
+guard on execution checks. `npm audit` exits 1: **0 Critical, 6 High, 1 Moderate**,
+down from 0/9/1. Vue/server-renderer/ws are absent. Remaining High entries:
+brace-expansion 2.0.1, browserslist 4.24.5, editorconfig 1.0.4, glob 10.4.5,
+js-cookie 3.0.5, minimatch 9.0.1/9.0.5 (one entry). Moderate:
+postcss-selector-parser 6.1.2. These are affected packages, not reproduced exploits.
+
+Static checks passed: Python AST, the single 0001–0008 Alembic chain, relative
+documentation links/anchors and `git diff --check`. Source/test harness guards and
+Compose defaults remain intact. Browser inventory is empty; real-browser/touch,
+Node 22 Alpine deployment and GitHub CI were not executed. Final commits are
+local review checkpoints, not CI or deployed runtime evidence.
+
+**Migration/runtime boundary:** packaged head is **0008**, never applied to live
+PostgreSQL here. 0007 refuses historical running-scope overlaps; 0008 refuses
+preexisting job-linked positive epochs. Inspect/refine an approved migration plan
+instead of deleting history or bypassing refusal. Live revision was not queried;
+readiness may report mismatch until an approved rollout. Compose startup runs
+Alembic, so no live backend recreate is authorized by these changes.
+
+Read-only runtime inspection found scheduler exited and backend/db/frontend running
+on their original source mounts. The runtime still selects OpenAI/direct scheduler
+mode, global paid setting unset (fail-closed), worker OpenAI permission false.
+Configured keys were reported only as configured/absent; no values were exposed.
+No known generation CLI/probe process was observed. New worktree code is not
+deployed into those processes. No real provider calls, live data/schema changes,
+scheduler restart, live recreate, push/PR or shared merge occurred.
+
+**Still required:** final atomic cap/coordinator `.03c`, all-writer fencing
+`.04b/.04c`, provider pause `.06a`, constrained retries `.06b`, reliable usage `.02d`,
+conservative recovery `.05b`, async contracts/keyless roles/queue-default rollout
+and bounded development diagnostics `.08c-B`. P1 account/cap configuration and P2
+measured timing remain pending; no arbitrary production values were chosen.
+
+## Previous checkpoint — iteration 4
+
 
 **IMPLEMENTED:** STAB-029, SEC-001, STAB-005, STAB-015.08c-A and .02a.
 Five native agents used separate worktrees from the same base. The orchestrator

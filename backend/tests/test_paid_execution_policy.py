@@ -19,6 +19,7 @@ import sys
 from types import ModuleType, SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
+from uuid import UUID
 
 
 BACKEND = Path(__file__).resolve().parents[1]
@@ -31,6 +32,7 @@ from paid_execution_policy import (
     paid_execution_enabled,
     require_paid_execution,
 )
+from paid_admission_policy import PaidAdmissionUnavailable
 
 
 class PaidExecutionPolicyTests(unittest.TestCase):
@@ -103,9 +105,38 @@ class PaidExecutionPolicyTests(unittest.TestCase):
 
     def _service(self, *, queue=False, provider_name="openai"):
         prefix = "_paid_execution_unit"
+        # Pure preflight tests never execute SQL. Later services import Core/
+        # ORM names, so provide in-memory symbols rather than requiring a host
+        # SQLAlchemy installation or importing application database machinery.
+        self._module("sqlalchemy", event=Mock(), func=Mock(), inspect=Mock(), select=Mock(), update=Mock())
+        self._module("sqlalchemy.exc", IntegrityError=type("IntegrityError", (Exception,), {}))
+        self._module("sqlalchemy.orm", Mapper=type("Mapper", (), {}), Session=type("Session", (), {}))
         self.session = Mock()
         self._module(prefix, db=SimpleNamespace(session=self.session))
         self._module(prefix + ".services")
+        self._module(prefix + ".services.generation_admission_service",
+                     GenerationScopeBusy=type("GenerationScopeBusy", (RuntimeError,), {}),
+                     GenerationPackageScope=Mock(), package_admission=Mock(return_value=nullcontext()),
+                     package_scope_lock=Mock(return_value=nullcontext()))
+        self._module(prefix + ".services.generation_execution_service", **{
+            name: Mock() for name in (
+                "assert_autonomous_session_clean", "link_execution_run",
+                "record_execution_start", "require_execution_activation",
+                "require_unlinked_execution", "selected_provider_name",
+                "claim_execution_id", "deployment_mode", "unlinked_claim_execution",
+            )
+        })
+        sys.modules[prefix + ".services.generation_execution_service"].ExecutionAlreadyStarted = type(
+            "ExecutionAlreadyStarted", (RuntimeError,), {},
+        )
+        sys.modules[prefix + ".services.generation_execution_service"].selected_provider_name.side_effect = (
+            lambda name=None: (name or os.getenv("HOROSCOPE_PROVIDER") or "stub").strip().lower()
+        )
+        sys.modules[prefix + ".services.generation_execution_service"].GenerationClaimLost = type(
+            "GenerationClaimLost", (RuntimeError,), {},
+        )
+        self._load(prefix + ".services.generation_lease_policy",
+                   BACKEND / "app/services/generation_lease_policy.py")
         self.provider = SimpleNamespace(
             name=provider_name, model_name="fake-model",
             generate=Mock(side_effect=AssertionError("Unexpected transport")),
@@ -124,7 +155,7 @@ class PaidExecutionPolicyTests(unittest.TestCase):
         self.models = self._module(prefix + ".models", **{
             name: Mock() for name in (
                 "Forecast", "GenerationAttempt", "GenerationItem", "GenerationRun",
-                "PromptVersion", "GenerationJob",
+                "PromptVersion", "GenerationJob", "GenerationExecution", "GenerationExecutionRun",
             )
         })
         if queue:
@@ -135,8 +166,11 @@ class PaidExecutionPolicyTests(unittest.TestCase):
                     "run_daily_generation", "run_retry_for_missing_forecasts",
                 )
             })
-            return self._load(prefix + ".services.generation_job_service",
-                              BACKEND / "app/services/generation_job_service.py")
+            service = self._load(prefix + ".services.generation_job_service",
+                                 BACKEND / "app/services/generation_job_service.py")
+            # This pure suite isolates paid policy, not PostgreSQL lease CAS.
+            service._require_current_claim = lambda job, identity: job
+            return service
 
         self.save_forecast = Mock(side_effect=AssertionError("Unexpected publication"))
         self._module(prefix + ".services.forecast_service",
@@ -190,9 +224,14 @@ class PaidExecutionPolicyTests(unittest.TestCase):
             with self.subTest(job_type=job_type):
                 job = SimpleNamespace(
                     id=1, status="running", locked_by="unit", provider="openai", job_type=job_type,
-                    run_id=None,
+                    run_id=None, attempt_count=1, target_date=date(2026, 11, 14),
+                    locale="ru", forecast_type="daily",
                 )
-                self.session.get.return_value = job
+                job._generation_lease_identity = service.LeaseIdentity(1, "unit", 1, UUID(int=1))
+                self.session.get.side_effect = (
+                    lambda model, identity, **kwargs: job
+                    if model is self.models.GenerationJob else None
+                )
                 service.serialize_generation_job = lambda row: {"status": row.status}
                 result = service.process_claimed_generation_job(job, worker_id="unit", allow_openai=True)
                 self.assertEqual(result["status"], "failed")
@@ -212,7 +251,21 @@ class PaidExecutionPolicyTests(unittest.TestCase):
         with self.assertRaisesRegex(service.GenerationJobProcessingError, "OPENAI_API_KEY"):
             service._ensure_provider_can_execute(job, allow_openai=True)
         os.environ["OPENAI_API_KEY"] = "unit-test-fake-key"
-        service._ensure_provider_can_execute(job, allow_openai=True)
+        with self.assertRaises(PaidAdmissionUnavailable):
+            service._ensure_provider_can_execute(job, allow_openai=True)
+
+    def test_enabled_lifecycle_denies_canonical_provider_before_factory(self):
+        os.environ[PAID_EXECUTION_ENV] = "1"
+        service = self._service(provider_name="stub")  # misleading factory result
+        run = service.run_daily_generation(
+            target_date=date(2026, 11, 14), provider_name=" OPENAI ", signs=["aries"]
+        )
+        self.assertEqual(run.status, "failed")
+        self.assertIn("atomic request admission", run.error_message)
+        service.get_horoscope_provider.assert_not_called()
+        self.models.GenerationItem.assert_not_called()
+        self.models.GenerationAttempt.assert_not_called()
+        self.provider.generate.assert_not_called()
 
     def test_disabled_worker_keeps_stub_path_and_publication_policy(self):
         service = self._service(queue=True)
@@ -230,6 +283,8 @@ class PaidExecutionPolicyTests(unittest.TestCase):
         cli.print_run_summary = Mock()
         self._module("app", create_app=Mock(return_value=SimpleNamespace(app_context=nullcontext)))
         self._module("app.services", run_daily_generation=service.run_daily_generation)
+        self._module("app.services.generation_admission_service",
+                     GenerationScopeBusy=type("GenerationScopeBusy", (RuntimeError,), {}))
         os.environ["OPENAI_API_KEY"] = "unit-test-fake-key"
         with patch.object(sys, "argv", ["generate_forecast_package.py", "--date", "2026-11-14",
                                         "--provider", "openai", "--allow-openai"]), patch("builtins.print"):
@@ -245,6 +300,13 @@ class PaidExecutionPolicyTests(unittest.TestCase):
         os.environ[PAID_EXECUTION_ENV] = "1"
         with self.assertRaisesRegex(SystemExit, "without --allow-openai"):
             cli.require_openai_safety_confirmation("openai", False)
+        with patch.object(sys, "argv", ["generate_forecast_package.py", "--date", "2026-11-14",
+                                        "--provider", "openai", "--allow-openai"]), patch("builtins.print"):
+            self.assertEqual(cli.main(), 1)
+        self.assertIn("atomic request admission", cli.print_run_summary.call_args.args[0].error_message)
+        self.models.GenerationItem.assert_not_called()
+        self.models.GenerationAttempt.assert_not_called()
+        self.provider.generate.assert_not_called()
 
 
 if __name__ == "__main__":

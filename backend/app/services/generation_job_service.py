@@ -9,16 +9,34 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any, Iterable
 from uuid import uuid4
 
-from paid_execution_policy import require_paid_execution
-from sqlalchemy import event, inspect
+from paid_execution_policy import PAID_PROVIDERS, require_paid_execution
+from paid_admission_policy import require_paid_admission
+from sqlalchemy import event, func, inspect, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Mapper, Session
 
 from .. import db
-from ..models import GenerationJob, GenerationRun
+from ..models import GenerationExecution, GenerationExecutionRun, GenerationJob, GenerationRun
+from .generation_admission_service import (
+    GenerationPackageScope, GenerationScopeBusy, package_scope_lock,
+)
 from ..providers.publication_policy import require_publication_provider
 from ..providers.registry import PROVIDERS
 from .constants import DEFAULT_FORECAST_TYPE, DEFAULT_LOCALE
+from .generation_execution_service import (
+    ExecutionAlreadyStarted,
+    GenerationClaimLost,
+    assert_autonomous_session_clean,
+    claim_execution_id,
+    deployment_mode,
+    record_execution_start,
+    require_execution_activation,
+    unlinked_claim_execution,
+)
+from .generation_lease_policy import (
+    LeaseIdentity, LeasePolicy, LeasePolicyError, captured_lease_identity,
+    initial_lease_timing,
+)
 from .generation_service import (
     get_missing_forecast_signs,
     has_generation_coverage,
@@ -1283,11 +1301,25 @@ def _should_use_skip_locked() -> bool:
     return bind is not None and bind.dialect.name == "postgresql"
 
 
+def _claim_utcnow() -> datetime:
+    """Private clock seam: database wall clock sampled after the claim row lock."""
+    return db.session.scalar(select(func.clock_timestamp())).astimezone(timezone.utc)
+
+
 def claim_next_generation_job(
     *,
     worker_id: str,
     exclude_providers: Iterable[str] | None = None,
+    lease_policy: LeasePolicy | None = None,
 ) -> GenerationJob | None:
+    assert_autonomous_session_clean(db.session())
+    mode = deployment_mode()
+    if not isinstance(worker_id, str) or not worker_id.strip() or len(worker_id) > 128:
+        raise GenerationJobValidationError("worker_id must be a nonempty bounded identifier.")
+    if lease_policy is not None:
+        if not isinstance(lease_policy, LeasePolicy):
+            raise LeasePolicyError("Lease timing requires an explicit validated LeasePolicy.")
+        require_execution_activation()  # No production timing activation.
     query = GenerationJob.query.filter(GenerationJob.status == JOB_STATUS_QUEUED)
 
     normalized_excluded_providers: list[str] = []
@@ -1306,23 +1338,55 @@ def claim_next_generation_job(
     if _should_use_skip_locked():
         query = query.with_for_update(skip_locked=True)
 
-    job = query.first()
+    job = query.populate_existing().first()
     if job is None:
         return None
 
-    now = utcnow()
-    job.status = JOB_STATUS_RUNNING
-    job.locked_at = now
-    job.locked_by = worker_id
-    job.started_at = job.started_at or now
-    job.attempt_count = (job.attempt_count or 0) + 1
+    if "_generation_lease_identity" in vars(job):
+        # A later claim of the same PK must not replace the handle retained by
+        # an older caller through SQLAlchemy's identity map. Its row lock stays
+        # in this transaction while a fresh managed instance is loaded.
+        job_id = job.id
+        db.session.expunge(job)
+        job = db.session.get(GenerationJob, job_id)
 
-    db.session.commit()
+    try:
+        now = _claim_utcnow()
+        job.status = JOB_STATUS_RUNNING
+        job.locked_at = now
+        job.locked_by = worker_id
+        job.started_at = job.started_at or now
+        job.attempt_count = (job.attempt_count or 0) + 1
+        job.lease_epoch += 1
+        timing = initial_lease_timing(lease_policy, now=now) if lease_policy else None
+        job.lease_heartbeat_at = timing.heartbeat_at if timing else None
+        job.lease_expires_at = timing.expires_at if timing else None
+        job.lease_deadline_at = timing.deadline_at if timing else None
+        job.lease_ttl_seconds = timing.ttl_seconds if timing else None
+        job.lease_heartbeat_interval_seconds = timing.interval_seconds if timing else None
+        identity = LeaseIdentity(job.id, worker_id, job.lease_epoch, claim_execution_id(job))
+        # Production claim auditing is retained, but no production ledger start
+        # or transport is activated by having a structurally positive epoch.
+        if mode != "production":
+            db.session.flush()
+            record_execution_start(
+                db.session(), execution_id=identity.execution_id,
+                origin="queue_worker", job_id=job.id, provider=job.provider,
+                target_date=job.target_date, locale=job.locale,
+                forecast_type=job.forecast_type, lease_epoch=identity.epoch,
+            )
+        db.session.commit()
+    except BaseException:
+        db.session.rollback()
+        raise
 
+    # Capture was before commit/expiration; attachment does not refresh columns.
+    job._generation_lease_identity = identity
     return job
 
 
 def close_stale_running_jobs(*, stale_after_minutes: int = 60) -> int:
+    assert_autonomous_session_clean(db.session())
     stale_after_minutes = _validate_int(
         stale_after_minutes,
         default=60,
@@ -1336,8 +1400,16 @@ def close_stale_running_jobs(*, stale_after_minutes: int = 60) -> int:
         GenerationJob.query.filter(
             GenerationJob.status == JOB_STATUS_RUNNING,
             GenerationJob.locked_at < cutoff,
+            GenerationJob.lease_epoch == 0,
+            ~func.lower(func.btrim(GenerationJob.provider)).in_(sorted(PAID_PROVIDERS)),
+            # Even a claim with no run link is durable execution evidence, not
+            # proof that reclaim is safe. Leave managed history for .04/.05.
+            ~select(GenerationExecution.id).where(
+                GenerationExecution.job_id == GenerationJob.id,
+            ).exists(),
         )
         .order_by(GenerationJob.locked_at.asc(), GenerationJob.id.asc())
+        .with_for_update(skip_locked=True)
         .all()
     )
 
@@ -1470,19 +1542,34 @@ def process_claimed_generation_job(
     worker_id: str,
     allow_openai: bool = False,
     stale_after_hours: int = 2,
+    lease_identity: LeaseIdentity | None = None,
 ) -> dict[str, Any]:
-    if job.status != JOB_STATUS_RUNNING:
+    assert_autonomous_session_clean(db.session())
+    identity = lease_identity if lease_identity is not None else captured_lease_identity(job)
+    if not isinstance(identity, LeaseIdentity):
+        raise LeasePolicyError("Worker dispatch requires a captured LeaseIdentity.")
+    if identity.owner != worker_id:
         raise GenerationJobProcessingError(
-            f"Job id={job.id} is not running and cannot be processed."
+            f"Job id={identity.job_id} is locked by another worker."
         )
+    job = _require_current_claim(job, identity)
 
-    if job.locked_by != worker_id:
-        raise GenerationJobProcessingError(
-            f"Job id={job.id} is locked by another worker."
+    claimed_job_id, claimed_attempt_count = identity.job_id, job.attempt_count
+    claimed_execution_id = identity.execution_id
+    claimed_scope = GenerationPackageScope(job.target_date, job.locale, job.forecast_type)
+
+    # Inspect duplicate dispatch BEFORE mutable permission/configuration gates.
+    # Changed paid/local/publication permission is not authority to fail another
+    # invocation's linked execution. This guard never enters the failure writer.
+    if db.session.get(GenerationExecutionRun, claimed_execution_id) is not None:
+        raise ExecutionAlreadyStarted(
+            "This claim already started a run; inspect its state without replay."
         )
 
     try:
         _ensure_provider_can_execute(job, allow_openai=allow_openai)
+        require_execution_activation()
+        unlinked_claim_execution(db.session(), job)
 
         if job.job_type == JOB_TYPE_RETRY_MISSING:
             run = _run_retry_missing_job(job, stale_after_hours=stale_after_hours)
@@ -1509,6 +1596,52 @@ def process_claimed_generation_job(
         job.locked_by = None
         db.session.commit()
 
+    except (ExecutionAlreadyStarted, GenerationClaimLost):
+        # A duplicate dispatch is not a failed new execution. Preserve the job,
+        # its owner/locks/run and audit history for status inspection; no replay.
+        raise
+    except GenerationScopeBusy as exc:
+        db.session.rollback()
+        # This new failure path must not let an expired owner finalize a newer
+        # claim. The captured epoch supplements B's original attempt CAS; this
+        # remains deliberately incomplete fencing of all existing writers.
+        try:
+            db.session.begin()
+            with package_scope_lock(db.session(), scope=claimed_scope):
+                # Another dispatch of this same claim may have linked its run
+                # after our initial unlinked check. Serialize with that commit.
+                if db.session.get(GenerationExecutionRun, claimed_execution_id) is not None:
+                    raise ExecutionAlreadyStarted(
+                        "This claim already started a run; inspect its state without replay."
+                    )
+                result = db.session.execute(update(GenerationJob).where(
+                    GenerationJob.id == claimed_job_id,
+                    GenerationJob.status == JOB_STATUS_RUNNING,
+                    GenerationJob.locked_by == worker_id,
+                    GenerationJob.attempt_count == claimed_attempt_count,
+                    GenerationJob.lease_epoch == identity.epoch,
+                    ~select(GenerationExecutionRun.execution_id).where(
+                        GenerationExecutionRun.execution_id == claimed_execution_id,
+                    ).exists(),
+                ).values(
+                    status=JOB_STATUS_FAILED, run_id=None,
+                    error_message=f"{exc.code}: {exc}", finished_at=utcnow(),
+                    locked_at=None, locked_by=None,
+                ).execution_options(synchronize_session=False))
+            db.session.commit()
+        except GenerationScopeBusy as lock_error:
+            db.session.rollback()
+            raise GenerationJobProcessingError(
+                "Generation admission is still in progress; claim retained for review."
+            ) from lock_error
+        except BaseException:
+            db.session.rollback()
+            raise
+        if result.rowcount != 1:
+            raise GenerationJobProcessingError(
+                "Generation package was busy; job claim ownership changed."
+            ) from exc
+        job = db.session.get(GenerationJob, claimed_job_id, populate_existing=True)
     except Exception as exc:
         db.session.rollback()
         job = db.session.get(GenerationJob, job.id)
@@ -1526,6 +1659,31 @@ def process_claimed_generation_job(
     return serialize_generation_job(job)
 
 
+def _require_current_claim(job: GenerationJob, identity: LeaseIdentity) -> GenerationJob:
+    attached = vars(job).get("_generation_lease_identity")
+    if job.id != identity.job_id or (attached is not None and attached != identity):
+        raise GenerationClaimLost("Supplied job and captured lease identity disagree.")
+    with db.session.no_autoflush:
+        current = db.session.scalar(select(GenerationJob).where(
+            GenerationJob.id == identity.job_id,
+            GenerationJob.status == JOB_STATUS_RUNNING,
+            GenerationJob.locked_by == identity.owner,
+            GenerationJob.lease_epoch == identity.epoch,
+        ).execution_options(populate_existing=True))
+    if current is None or claim_execution_id(current) != identity.execution_id:
+        raise GenerationClaimLost("Job claim ownership changed; inspect current state.")
+    bound_identity = vars(current).get("_generation_lease_identity")
+    if bound_identity is not None and bound_identity != identity:
+        raise GenerationClaimLost("ORM instance retains a different captured claim identity.")
+    if current.lease_expires_at is not None:
+        now = _claim_utcnow()
+        if (now < current.lease_heartbeat_at or now >= current.lease_expires_at
+                or now >= current.lease_deadline_at):
+            raise GenerationClaimLost("Job timed lease is no longer valid; inspect current state.")
+    current._generation_lease_identity = identity
+    return current
+
+
 def _ensure_provider_can_execute(
     job: GenerationJob,
     *,
@@ -1534,6 +1692,7 @@ def _ensure_provider_can_execute(
     require_paid_execution(job.provider)
     require_publication_provider(job.provider)
     if job.provider != "openai":
+        require_paid_admission(job.provider)
         return
 
     if not allow_openai:
@@ -1545,6 +1704,7 @@ def _ensure_provider_can_execute(
         raise GenerationJobProcessingError(
             "OPENAI_API_KEY is missing; cannot process provider=openai job."
         )
+    require_paid_admission(job.provider)
 
 
 def _run_standard_generation_job(
@@ -1561,6 +1721,7 @@ def _run_standard_generation_job(
         signs=job.signs,
         max_attempts=job.max_attempts,
         stale_after_hours=stale_after_hours,
+        execution_id=captured_lease_identity(job).execution_id,
     )
 
 
@@ -1586,6 +1747,7 @@ def _run_retry_missing_job(
         max_attempts=job.max_attempts,
         max_retry_runs=job.max_retry_runs,
         stale_after_hours=stale_after_hours,
+        execution_id=captured_lease_identity(job).execution_id,
     )
 
     # None also means the retry-run cap was reached. Coverage may have changed
