@@ -2,9 +2,11 @@
 
 **Implemented SAFE-001; future architecture is separate.**
 [STAB-015 D1–D8](adr/STAB-015-generation-execution.md) is Accepted (2026-11-14)
-but not implemented. Its worker-only production credentials, async producer
-authorization, atomic request accounting, pause/fencing and production probe ban
-remain backlog work. The current probe behavior below has not silently changed.
+but not fully implemented. Worker-only production credentials, async producer
+authorization, atomic request accounting and pause/fencing remain backlog work.
+STAB-015.08c-A now enforces the [production probe prohibition](production-probe-policy.md)
+in both CLI and direct helper; bounded audited development diagnostics (.08c-B)
+remain pending. This is not completion of .08c or permission for real diagnostics.
 SAFE-001 remains required under the accepted design; enabling it alone cannot
 satisfy the new admission guarantees. Acceptance and the publication SLO do not
 authorize live configuration changes or paid generation.
@@ -39,9 +41,12 @@ identity. Returned source/model metadata cannot grant execution permission.
   row is created. Job creation and existing count-based limits retain their
   existing semantics, including started-job daily accounting.
 - The standalone prompt probe checks before constructing its SDK client and again
-  inside `call_openai`, including direct helper invocations. `--list-profiles`
-  remains read-only and does not require enablement or a key. The probe CLI adds
-  no local flag; its existing API-key requirement remains.
+  inside `call_openai`, including direct helper invocations. A separate process-mode
+  guard denies production even with the paid gate enabled, and denies missing or
+  unrecognized deployment modes. Explicit development/test modes still require
+  SAFE-001; they do not provide the future diagnostic admission/accounting contract.
+  `--list-profiles` returns before dotenv, request defaults or SDK import and
+  requires neither enablement nor a key. No bypass flag was added.
 - The OpenAI adapter checks literal `"openai"` on entry and immediately before
   the SDK request, after obtaining the client. Direct adapter invocation and
   mutation of `provider.name` cannot bypass this boundary. SDK retry ownership
@@ -75,8 +80,11 @@ environment does not change the worker's. New Compose environment values require
 the normal separately authorized container configuration reload/recreation; a
 restart with unchanged container configuration does not import new Compose values.
 Backend, scheduler, and standalone utilities each need their own intended value.
-The existing probe dotenv loader runs at CLI startup without overriding exported
-values; a direct helper call uses the environment already present in its process.
+For generation, the probe dotenv loader runs after CLI parsing without overriding
+exported values; read-only listing skips it. A direct helper call uses the
+environment already present in its process. Both paths enforce the deployment-mode
+guard independently of SAFE-001. CLI options still take precedence over dotenv/
+environment request defaults. Keep real development transport disabled until .08c-B.
 No reload, restart, recreation, scheduler start, or provider call is part of this
 implementation task. Existing published data and public reads are unaffected.
 

@@ -396,18 +396,6 @@ const mainLink = computed(() => ({
   name: 'home',
 }))
 
-function syncFromRoute() {
-  const validation = validateHoroscopeRoute(route.params)
-
-  if (!validation.ok) {
-    resetForecastState()
-    return
-  }
-
-  sign.value = validation.params.sign
-  day.value = validation.params.day
-}
-
 async function replaceRouteIfNeeded() {
   const validation = validateHoroscopeRoute({
     sign: sign.value,
@@ -434,22 +422,7 @@ async function replaceRouteIfNeeded() {
   })
 }
 
-async function loadForecast() {
-  if (routeError.value) {
-    resetForecastState()
-    return
-  }
-
-  const validation = validateHoroscopeRoute({
-    sign: sign.value,
-    day: day.value,
-  })
-
-  if (!validation.ok) {
-    resetForecastState()
-    return
-  }
-
+async function loadForecast(params: { sign: string; day: string }) {
   const localRequestId = ++requestId
 
   isLoading.value = true
@@ -457,8 +430,8 @@ async function loadForecast() {
 
   try {
     const result = await getForecast({
-      sign: validation.params.sign,
-      date: validation.params.day,
+      sign: params.sign,
+      date: params.day,
     })
     if (localRequestId !== requestId) return
     if (result.kind === 'not-published') {
@@ -482,34 +455,32 @@ async function loadForecast() {
 }
 
 watch(
-  () => [route.params.sign, route.params.day],
-  () => {
-    syncFromRoute()
-  }
+  [() => route.params.sign, () => route.params.day],
+  (_, __, onCleanup) => {
+    // Invalidate this request when sign/day changes (including invalid routes)
+    // or the view unmounts. Late success, failure and finally are ignored.
+    onCleanup(() => { requestId += 1 })
+    resetForecastState()
+
+    const validation = validateHoroscopeRoute(route.params)
+    if (!validation.ok) return
+
+    sign.value = validation.params.sign
+    day.value = validation.params.day
+    // The committed route owns loading, even if the models retain these values
+    // across an invalid route. Query/hash-only changes do not reload it.
+    void loadForecast(validation.params)
+  },
+  { immediate: true }
 )
 
 watch(
   [sign, day],
   async () => {
-    if (routeError.value) {
-      resetForecastState()
-      return
-    }
-
-    const validation = validateHoroscopeRoute({
-      sign: sign.value,
-      day: day.value,
-    })
-
-    if (!validation.ok) {
-      resetForecastState()
-      return
-    }
-
+    if (routeError.value) return
+    // Controls only navigate. A superseded replace must never trigger a fetch.
     await replaceRouteIfNeeded()
-    await loadForecast()
-  },
-  { immediate: true }
+  }
 )
 </script>
 
