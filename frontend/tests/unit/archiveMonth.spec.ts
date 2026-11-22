@@ -237,16 +237,23 @@ describe('published archive availability', () => {
     expect(wrapper!.get('[role="status"]').text()).toContain('Choose a highlighted date')
   })
 
-  it('ignores an older sign year list instead of rejecting the current route', async () => {
+  it('accepts another carousel selection while the preceding sign year list is pending', async () => {
     const oldYears = deferred()
-    yearsResponse = url => url.searchParams.get('sign') === 'aries' ? oldYears.promise : response([2026])
+    yearsResponse = url => url.searchParams.get('sign') === 'taurus' ? oldYears.promise : response([2026])
     monthResponse = url => response(monthData(url, [18]))
-    await openMonth()
-    await router.push('/archive/taurus/2026/09')
+    await openMonth('/archive/aries/2026/09?from=reader#calendar')
+    const carousel = wrapper!.getComponent({ name: 'ZodiacCarousel' })
+    carousel.vm.$emit('update:modelValue', 'taurus')
     await flushPromises()
+    expect(router.currentRoute.value.fullPath).toBe('/archive/taurus/2026/09?from=reader#calendar')
+    expect(wrapper!.find('[aria-label="Archive calendar"]').exists()).toBe(false)
+    carousel.vm.$emit('update:modelValue', 'gemini')
+    await flushPromises()
+    expect(router.currentRoute.value.fullPath).toBe('/archive/gemini/2026/09?from=reader#calendar')
+    expect(requests('/api/years').map(url => url.searchParams.get('sign'))).toEqual(['aries', 'taurus', 'gemini'])
     oldYears.resolve(response([2025]))
     await flushPromises()
-    expect(calendarHrefs()).toEqual(['/horoscope/taurus/2026-09-18'])
+    expect(calendarHrefs()).toEqual(['/horoscope/gemini/2026-09-18'])
     expect(wrapper!.text()).not.toContain('Archive unavailable for this year')
   })
 
@@ -270,6 +277,18 @@ describe('published archive availability', () => {
     expect(router.currentRoute.value.fullPath).toBe(ukPath)
     expect(requests('/api/years').map(url => url.searchParams.get('locale'))).toEqual(['en', 'uk'])
     expect(requests('/api/archive/month').map(url => url.searchParams.get('locale'))).toEqual(['en', 'uk'])
+  })
+
+  it('shows the localized year error when the current sign excludes the requested year', async () => {
+    const pending = deferred()
+    yearsResponse = () => pending.promise
+    const path = '/archive/aries/2026/09?lang=uk'
+    await openMonth(path)
+    pending.resolve(response([2025]))
+    await flushPromises()
+    expect(wrapper!.text()).toContain('Архів за цей рік недоступний')
+    expect(wrapper!.findComponent({ name: 'ZodiacCarousel' }).exists()).toBe(false)
+    expect(router.currentRoute.value.fullPath).toBe(path)
   })
 
   it('navigates an available day directly to the canonical forecast page', async () => {

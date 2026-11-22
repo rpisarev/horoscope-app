@@ -86,10 +86,10 @@ def test_build_sitemap_entries_returns_home_forecasts_and_archive_months(app):
 
     assert _paths(entries) == [
         "/",
-        "/horoscope/aries/2026-06-01",
-        "/horoscope/taurus/2026-06-02",
-        "/archive/aries/2026/06",
-        "/archive/taurus/2026/06",
+        "/horoscope/aries/2026-06-01?lang=ru",
+        "/horoscope/taurus/2026-06-02?lang=ru",
+        "/archive/aries/2026/06?lang=ru",
+        "/archive/taurus/2026/06?lang=ru",
     ]
 
     items = _items(entries)
@@ -101,13 +101,13 @@ def test_build_sitemap_entries_returns_home_forecasts_and_archive_months(app):
     }
     assert items[1] == {
         "type": "forecast",
-        "loc": "https://example.com/horoscope/aries/2026-06-01",
-        "path": "/horoscope/aries/2026-06-01",
+        "loc": "https://example.com/horoscope/aries/2026-06-01?lang=ru",
+        "path": "/horoscope/aries/2026-06-01?lang=ru",
         "lastmod": "2026-06-01T12:30:00+00:00",
         "sign_key": "aries",
         "date": "2026-06-01",
     }
-    assert "/archive/aries/2026/06/01" not in _paths(entries)
+    assert "/archive/aries/2026/06/01?lang=ru" not in _paths(entries)
 
 
 def test_build_sitemap_entries_filters_by_date_range():
@@ -124,10 +124,10 @@ def test_build_sitemap_entries_filters_by_date_range():
 
     assert _paths(entries) == [
         "/",
-        "/horoscope/taurus/2026-06-01",
-        "/horoscope/gemini/2026-06-30",
-        "/archive/taurus/2026/06",
-        "/archive/gemini/2026/06",
+        "/horoscope/taurus/2026-06-01?lang=ru",
+        "/horoscope/gemini/2026-06-30?lang=ru",
+        "/archive/taurus/2026/06?lang=ru",
+        "/archive/gemini/2026/06?lang=ru",
     ]
 
 
@@ -140,14 +140,14 @@ def test_build_sitemap_entries_respects_include_flags():
         include_archive_months=False,
     )
 
-    assert _paths(entries) == ["/horoscope/aries/2026-06-01"]
+    assert _paths(entries) == ["/horoscope/aries/2026-06-01?lang=ru"]
 
     entries = build_sitemap_entries(
         site_url="https://example.com",
         include_forecasts=False,
     )
 
-    assert _paths(entries) == ["/", "/archive/aries/2026/06"]
+    assert _paths(entries) == ["/", "/archive/aries/2026/06?lang=ru"]
 
 
 def test_build_sitemap_entries_ignores_inactive_signs():

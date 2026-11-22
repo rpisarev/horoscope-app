@@ -159,6 +159,7 @@ def _build_sitemap_documents_from_request():
     documents = build_sitemap_documents(
         site_url=_public_site_url(),
         entries=sitemap_data["entries"],
+        locale=sitemap_data["locale"],
         chunk_size=_sitemap_chunk_size(),
     )
 

@@ -22,6 +22,29 @@ def forecast_rows():
     return db.session.execute(text('SELECT * FROM forecasts ORDER BY id')).all()
 
 
+def test_legacy_sitemap_links_to_the_russian_only_publication(client):
+    run_import(DEFAULT_DATASET, apply=True)
+    day = '2026-11-21'
+    scope = {'from': day, 'to': day, 'include_home': 0}
+    inventory = client.get('/api/seo/sitemap/urls', query_string=scope).get_json()
+    assert inventory['locale'] == 'ru'
+    paths = [item['path'] for item in inventory['items'] if item['sign_key'] == 'aries']
+    assert paths == ['/horoscope/aries/2026-11-21?lang=ru', '/archive/aries/2026/11?lang=ru']
+
+    params = {'date': day, 'sign': 'aries'}
+    response = client.get('/api/forecast', query_string={**params, 'locale': 'ru'})
+    assert response.status_code == 200
+    publication = response.get_json()
+    assert publication['locale'] == 'ru'
+    assert publication['text'] == load_dataset(DEFAULT_DATASET)['texts']['aries']
+
+    english = client.get('/api/seo/sitemap/urls', query_string={**scope, 'locale': 'en'})
+    assert english.get_json()['items'] == []
+    missing = client.get('/api/forecast', query_string={**params, 'locale': 'en'})
+    assert missing.status_code == 404
+    assert missing.get_json()['error'] == 'forecast_not_published'
+
+
 def test_v2_dry_run_repeat_preserves_rows_and_leaves_history_empty(app):
     run_import(DEFAULT_DATASET, apply=True)
     legacy = forecast_rows()

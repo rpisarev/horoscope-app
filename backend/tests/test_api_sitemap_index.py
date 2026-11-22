@@ -2,6 +2,8 @@ from contextlib import contextmanager
 from datetime import date, datetime, timezone
 from xml.etree import ElementTree as ET
 
+import pytest
+
 from app import db
 from app.models import Forecast
 from app.services import DEFAULT_FORECAST_TYPE, DEFAULT_LOCALE
@@ -152,19 +154,48 @@ def test_split_sitemap_endpoint_returns_requested_chunk(client, app):
 
     assert _sitemap_url_locs(first_response) == [
         "https://example.com/",
-        "https://example.com/horoscope/aries/2026-06-01",
+        "https://example.com/horoscope/aries/2026-06-01?lang=ru",
     ]
     assert _sitemap_url_locs(second_response) == [
-        "https://example.com/horoscope/taurus/2026-06-02",
-        "https://example.com/horoscope/gemini/2026-06-03",
+        "https://example.com/horoscope/taurus/2026-06-02?lang=ru",
+        "https://example.com/horoscope/gemini/2026-06-03?lang=ru",
     ]
     assert _sitemap_url_locs(third_response) == [
-        "https://example.com/archive/aries/2026/06",
-        "https://example.com/archive/taurus/2026/06",
+        "https://example.com/archive/aries/2026/06?lang=ru",
+        "https://example.com/archive/taurus/2026/06?lang=ru",
     ]
     assert _sitemap_url_locs(fourth_response) == [
-        "https://example.com/archive/gemini/2026/06",
+        "https://example.com/archive/gemini/2026/06?lang=ru",
     ]
+
+
+@pytest.mark.parametrize(("locale", "reader_query", "chunk_query"), [
+    ("en", "", "?locale=en"),
+    ("uk", "?lang=uk", "?locale=uk"),
+    ("ru", "?lang=ru", ""),
+])
+def test_index_links_to_the_selected_publication_inventory(client, app, locale, reader_query, chunk_query):
+    _create_forecast(sign_key="aries", target_date=date(2026, 6, 1), locale=locale)
+    site_url = "https://example.com"
+    params = {"locale": locale}
+    with _temporary_config(app, PUBLIC_SITE_URL=site_url, SITEMAP_CHUNK_SIZE=2):
+        response = client.get("/api/seo/sitemap/urls", query_string=params)
+        assert response.status_code == 200
+        items = response.get_json()["items"]
+        paths = ["/", f"/horoscope/aries/2026-06-01{reader_query}", f"/archive/aries/2026/06{reader_query}"]
+        assert [item["path"] for item in items] == paths
+        assert [item["loc"] for item in items] == [site_url + path for path in paths]
+
+        index = client.get("/sitemap-index.xml", query_string=params)
+        assert index.status_code == 200
+        chunks = _sitemap_index_locs(index)
+        assert chunks == [f"{site_url}/sitemaps/sitemap-{n}.xml{chunk_query}" for n in (1, 2)]
+        locations = []
+        for chunk in chunks:
+            response = client.get(chunk)
+            assert response.status_code == 200
+            locations.extend(_sitemap_url_locs(response))
+        assert locations == [item["loc"] for item in items]
 
 
 def test_sitemap_documents_debug_endpoint_returns_document_metadata(client, app):
@@ -251,6 +282,6 @@ def test_sitemap_index_respects_query_filters(client, app):
         "https://example.com/sitemaps/sitemap-1.xml",
     ]
     assert _sitemap_url_locs(first_chunk_response) == [
-        "https://example.com/horoscope/taurus/2026-06-01",
-        "https://example.com/horoscope/gemini/2026-06-30",
+        "https://example.com/horoscope/taurus/2026-06-01?lang=ru",
+        "https://example.com/horoscope/gemini/2026-06-30?lang=ru",
     ]

@@ -432,7 +432,7 @@ Real-data/browser checks and isolated response-fixture simulations are distinct.
 This is disposable evidence, not production routing, cache policy, robots/sitemap
 wiring, durable artifact storage, or a publication freshness guarantee.
 
-[`sitemap_service.py`](../backend/app/services/sitemap_service.py) builds entries from published forecasts joined to enabled signs, with locale/type/date filters and include flags. It emits home, each `/horoscope/{sign}/{ISO-day}`, and each populated `/archive/{sign}/{year}/{MM}` pair. It omits archive-day URLs. Forecast `lastmod` uses the first available timestamp in this order: `published_at`, `updated_at`, `generated_at`, `created_at`. Month entries use the latest of those chosen forecast values.
+[`sitemap_service.py`](../backend/app/services/sitemap_service.py) builds entries from published forecasts joined to enabled signs, with locale/type/date filters and include flags. It emits home, each `/horoscope/{sign}/{ISO-day}`, and each populated `/archive/{sign}/{year}/{MM}` pair. Both the relative and absolute publication URLs append `?lang=uk` or `?lang=ru` for those languages. English publication URLs and the home entry use plain paths. It omits archive-day URLs. Forecast `lastmod` uses the first available timestamp in this order: `published_at`, `updated_at`, `generated_at`, `created_at`. Month entries use the latest of those chosen forecast values.
 
 Flask exposes JSON URL/document inspection under `/api/seo/sitemap/urls` and `/api/seo/sitemap/documents`, flat `/sitemap.xml`, `/sitemap-index.xml`, and numbered `/sitemaps/sitemap-N.xml` chunks. Chunk size defaults to 50,000; public origin defaults to localhost:5173. These handlers do not generate forecasts.
 

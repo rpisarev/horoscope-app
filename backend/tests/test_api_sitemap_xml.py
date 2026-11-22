@@ -92,10 +92,10 @@ def test_sitemap_xml_endpoint_returns_xml_urlset(client, app):
 
     assert _locs(response) == [
         "https://example.com/",
-        "https://example.com/horoscope/aries/2026-06-01",
-        "https://example.com/horoscope/taurus/2026-06-02",
-        "https://example.com/archive/aries/2026/06",
-        "https://example.com/archive/taurus/2026/06",
+        "https://example.com/horoscope/aries/2026-06-01?lang=ru",
+        "https://example.com/horoscope/taurus/2026-06-02?lang=ru",
+        "https://example.com/archive/aries/2026/06?lang=ru",
+        "https://example.com/archive/taurus/2026/06?lang=ru",
     ]
 
     lastmods = [
@@ -123,15 +123,15 @@ def test_sitemap_xml_endpoint_respects_query_params(client, app):
 
     assert response.status_code == 200
     assert _locs(response) == [
-        "https://example.com/horoscope/taurus/2026-06-01",
-        "https://example.com/horoscope/gemini/2026-06-30",
+        "https://example.com/horoscope/taurus/2026-06-01?lang=ru",
+        "https://example.com/horoscope/gemini/2026-06-30?lang=ru",
     ]
 
 
 def test_sitemap_xml_endpoint_escapes_xml_values(client, app):
     _create_forecast(sign_key="aries", target_date=date(2026, 6, 1))
 
-    with _temporary_public_site_url(app, "https://example.com?x=1&y=2"):
+    with _temporary_public_site_url(app, "https://example.com/demo&preview"):
         response = client.get(
             "/sitemap.xml"
             "?include_home=0"
@@ -141,10 +141,10 @@ def test_sitemap_xml_endpoint_escapes_xml_values(client, app):
     assert response.status_code == 200
 
     xml_text = response.data.decode("utf-8")
-    assert "https://example.com?x=1&amp;y=2/horoscope/aries/2026-06-01" in xml_text
+    assert "https://example.com/demo&amp;preview/horoscope/aries/2026-06-01?lang=ru" in xml_text
 
     assert _locs(response) == [
-        "https://example.com?x=1&y=2/horoscope/aries/2026-06-01"
+        "https://example.com/demo&preview/horoscope/aries/2026-06-01?lang=ru"
     ]
 
 
