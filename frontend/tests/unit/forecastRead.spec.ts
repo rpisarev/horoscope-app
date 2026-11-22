@@ -6,7 +6,8 @@ const routing = vi.hoisted(() => ({
   params: {} as Record<string, string>,
   replace: vi.fn().mockResolvedValue(undefined),
 }))
-vi.mock('vue-router', () => ({
+vi.mock('vue-router', async importOriginal => ({
+  ...await importOriginal<typeof import('vue-router')>(),
   useRoute: () => ({ params: routing.params }),
   useRouter: () => ({ replace: routing.replace }),
   RouterLink: { template: '<a><slot /></a>' },
@@ -29,13 +30,13 @@ function response(status: number, payload: unknown) {
 describe('HoroscopeView forecast read', () => {
   it.each([
     [200, { text: 'Published forecast text' }, 'Published forecast text'],
-    [404, { error: 'other_error' }, 'Не удалось загрузить прогноз'],
-    [500, { error: 'forecast_not_published' }, 'Не удалось загрузить прогноз'],
-    [200, { error: 'forecast_not_published' }, 'Не удалось загрузить прогноз'],
+    [404, { error: 'other_error' }, 'Could not load the forecast.'],
+    [500, { error: 'forecast_not_published' }, 'Could not load the forecast.'],
+    [200, { error: 'forecast_not_published' }, 'Could not load the forecast.'],
   ])('renders status %s without a recovery request', async (status, payload, expected) => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
-      if (url === '/api/forecast?sign=aries&date=2026-07-16') return response(Number(status), payload)
+      if (url === '/api/forecast?sign=aries&date=2026-07-16&locale=en') return response(Number(status), payload)
       throw new Error(`Unexpected request: ${url}`)
     }))
     const { default: component } = await import('../../src/views/HoroscopeView.vue')
@@ -43,7 +44,7 @@ describe('HoroscopeView forecast read', () => {
     await flushPromises()
     expect(wrapper.text()).toContain(expected)
     expect(fetch).toHaveBeenCalledTimes(1)
-    expect(fetch).toHaveBeenCalledWith('/api/forecast?sign=aries&date=2026-07-16')
+    expect(fetch).toHaveBeenCalledWith('/api/forecast?sign=aries&date=2026-07-16&locale=en')
     wrapper.unmount()
   })
 

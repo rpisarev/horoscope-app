@@ -1,6 +1,8 @@
+import type { Locale } from '../utils/locale'
+
 interface ArchiveScope {
   sign: string
-  locale: string
+  locale: Locale
   type: string
 }
 
@@ -26,7 +28,9 @@ async function fetchArchiveMonth({ sign, year, month, locale, type }: ArchiveMon
   if (includeLatest) query.set('include_latest', '1')
   const response = await fetch(`/api/archive/month?${query}`)
   if (!response.ok) throw new Error(`archive month status ${response.status}`)
-  return response.json()
+  const payload = await response.json()
+  if (payload?.locale !== undefined && payload.locale !== locale) throw new Error('Unexpected archive month locale')
+  return payload
 }
 
 export async function getArchiveMonthAvailability(scope: ArchiveMonthScope): Promise<ReadonlySet<string>> {

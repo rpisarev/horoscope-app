@@ -65,7 +65,7 @@ function activeText(wrapper: ReturnType<typeof mount>) {
 }
 
 describe('ZodiacCarousel component contract (Swiper double)', () => {
-  it.each(ZODIACS.map(z => [z.key, z.nameRu]))('selects the initial %s sign', (key, name) => {
+  it.each(ZODIACS.map(z => [z.key, z.nameEn]))('selects the initial %s sign', (key, name) => {
     const { wrapper, driver } = mountCarousel(key)
     expect(driver.realIndex).toBe(findIndexByKey(key))
     expect(activeText(wrapper)).toContain(name)
@@ -79,7 +79,7 @@ describe('ZodiacCarousel component contract (Swiper double)', () => {
     expect(props.loop).toBe(true)
     expect(props.centeredSlides).toBe(true)
     expect(props.breakpoints).toEqual({ 0: { slidesPerView: 1 }, 768: { slidesPerView: 1 } })
-    for (const label of ['Prev sign', 'Next sign']) {
+    for (const label of ['Previous sign', 'Next sign']) {
       const button = wrapper.get(`button[aria-label="${label}"]`)
       expect(button.attributes('disabled')).toBeUndefined()
       expect(button.attributes('tabindex')).not.toBe('-1')
@@ -91,26 +91,26 @@ describe('ZodiacCarousel component contract (Swiper double)', () => {
     for (const index of [ZODIACS.length - 1, 0, 1]) {
       slide(index)
       await flushPromises()
-      expect(activeText(wrapper)).toContain(ZODIACS[index].nameRu)
+      expect(activeText(wrapper)).toContain(ZODIACS[index].nameEn)
       expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual([ZODIACS[index].key])
     }
   })
 
   it('delegates mouse activation to Swiper and wraps in each direction', async () => {
     const { wrapper, driver } = mountCarousel('capricorn')
-    await wrapper.get('button[aria-label="Prev sign"]').trigger('click')
+    await wrapper.get('button[aria-label="Previous sign"]').trigger('click')
     expect(driver.slidePrev).toHaveBeenCalledOnce()
-    expect(activeText(wrapper)).toContain(ZODIACS.at(-1)!.nameRu)
+    expect(activeText(wrapper)).toContain(ZODIACS.at(-1)!.nameEn)
     await wrapper.get('button[aria-label="Next sign"]').trigger('click')
     expect(driver.slideNext).toHaveBeenCalledOnce()
-    expect(activeText(wrapper)).toContain(ZODIACS[0].nameRu)
+    expect(activeText(wrapper)).toContain(ZODIACS[0].nameEn)
   })
 
   it('moves programmatically when the parent changes sign without repeated movements', async () => {
     const { wrapper, driver } = mountCarousel()
     await wrapper.setProps({ modelValue: 'ophiuchus' })
     expect(driver.slideToLoop).toHaveBeenCalledExactlyOnceWith(findIndexByKey('ophiuchus'))
-    expect(activeText(wrapper)).toContain('Змееносец')
+    expect(activeText(wrapper)).toContain('Ophiuchus')
     await wrapper.setProps({ modelValue: 'ophiuchus' })
     expect(driver.slideToLoop).toHaveBeenCalledOnce()
   })
@@ -134,11 +134,11 @@ describe('ZodiacCarousel component contract (Swiper double)', () => {
     await flushPromises()
     expect(errors).not.toHaveBeenCalled()
     expect(wrapper.emitted('update:modelValue')).toBeUndefined()
-    expect(activeText(wrapper)).toContain('Овен')
+    expect(activeText(wrapper)).toContain('Aries')
     slide(findIndexByKey('taurus'))
     await flushPromises()
     expect(wrapper.emitted('update:modelValue')).toEqual([['taurus']])
-    expect(activeText(wrapper)).toContain('Телец')
+    expect(activeText(wrapper)).toContain('Taurus')
   })
 })
 
@@ -182,7 +182,7 @@ describe('ZodiacCarousel with a minimal memory-router adapter (Swiper double)', 
     await wrapper.get('button[aria-label="Next sign"]').trigger('click')
     await flushPromises()
     expect(router.currentRoute.value.fullPath).toBe('/horoscope/taurus/2026-11-15')
-    expect(activeText(wrapper)).toContain('Телец')
+    expect(activeText(wrapper)).toContain('Taurus')
   })
 
   it('follows route changes, Back and Forward without resetting the sign', async () => {
@@ -193,25 +193,25 @@ describe('ZodiacCarousel with a minimal memory-router adapter (Swiper double)', 
     router.back()
     await flushPromises()
     expect(router.currentRoute.value.fullPath).toBe('/horoscope/aries/2026-11-15')
-    expect(activeText(wrapper)).toContain('Овен')
+    expect(activeText(wrapper)).toContain('Aries')
     router.forward()
     await flushPromises()
     expect(router.currentRoute.value.fullPath).toBe('/horoscope/leo/2026-11-14')
-    expect(activeText(wrapper)).toContain('Лев')
+    expect(activeText(wrapper)).toContain('Leo')
   })
 
   it('retains the final sign over repeated route navigation and a same-sign day change', async () => {
     const { wrapper, router, driver } = await mountRouteHarness()
-    for (const { key, nameRu } of [...ZODIACS, ...ZODIACS].reverse()) {
+    for (const { key, nameEn } of [...ZODIACS, ...ZODIACS].reverse()) {
       await router.push(`/horoscope/${key}/2026-11-15`)
       await flushPromises()
       expect(driver.realIndex).toBe(findIndexByKey(key))
-      expect(activeText(wrapper)).toContain(nameRu)
+      expect(activeText(wrapper)).toContain(nameEn)
     }
     driver.slideToLoop.mockClear()
     await router.push('/horoscope/capricorn/2026-11-14')
     await flushPromises()
     expect(driver.slideToLoop).not.toHaveBeenCalled()
-    expect(activeText(wrapper)).toContain('Козерог')
+    expect(activeText(wrapper)).toContain('Capricorn')
   })
 })

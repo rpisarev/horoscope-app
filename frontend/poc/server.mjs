@@ -11,7 +11,7 @@ const root = resolve(here, '..')
 const digest = value => createHash('sha256').update(value).digest('hex')
 const escape = value => String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c])
 const json = value => JSON.stringify(value).replace(/</g, '\\u003c')
-const forecastApi = (sign, date) => `/api/forecast?${new URLSearchParams({ sign, date })}`
+const forecastApi = (sign, date) => `/api/forecast?${new URLSearchParams({ sign, date, locale: 'en' })}`
 const monthPath = (sign, date) => `/archive/${sign}/${date.slice(0, 4)}/${date.slice(5, 7)}`
 // Match the archive API consumer: only valid, explicitly available dates render links.
 // Aggregate coverage counts are not used by ArchiveMonth.
@@ -57,7 +57,7 @@ export async function createPoc({ backend = 'http://localhost:8000', fixture = f
     }
     const url = new URL(path, 'http://poc.invalid'), q = url.searchParams
     if (fixture && url.pathname === '/api/meta' && fixtureDate) value.body.business_date = fixtureDate
-    if (fixture && url.pathname === '/api/forecast') {
+    if (fixture && url.pathname === '/api/forecast' && q.get('locale') === 'en') {
       const key = `${q.get('sign')}/${q.get('date')}`
       if (overrides.has(key)) {
         const text = overrides.get(key)
@@ -65,7 +65,7 @@ export async function createPoc({ backend = 'http://localhost:8000', fixture = f
           : { status: 200, body: { text } }
       }
     }
-    if (fixture && url.pathname === '/api/archive/month' && value.status === 200) {
+    if (fixture && url.pathname === '/api/archive/month' && q.get('locale') === 'en' && value.status === 200) {
       for (const day of value.body.days) {
         const key = `${q.get('sign')}/${day.date}`
         if (overrides.has(key)) day.has_forecast = overrides.get(key) !== null
@@ -96,7 +96,7 @@ export async function createPoc({ backend = 'http://localhost:8000', fixture = f
     if (route.kind === 'redirect') return { route, status: 301 }
     const apiPath = route.kind === 'home' ? '/api/meta' : route.kind === 'forecast'
       ? forecastApi(route.sign, route.day)
-      : `/api/archive/month?${new URLSearchParams({ year: String(route.year), month: String(route.month), sign: route.sign, locale: 'ru', type: 'daily' })}`
+      : `/api/archive/month?${new URLSearchParams({ year: String(route.year), month: String(route.month), sign: route.sign, locale: 'en', type: 'daily' })}`
     const response = await api(apiPath)
     // The exact backend absence contract authorizes 404; all other failures fail closed.
     const absent = route.kind === 'forecast' && response.status === 404 && response.body.error === 'forecast_not_published'
@@ -107,7 +107,7 @@ export async function createPoc({ backend = 'http://localhost:8000', fixture = f
     const options = { main, path, capture, apiPath: info.apiPath, kind: info.route.kind, signs: shared.HOME_ZODIACS, fixture }
     return template.replace(/<script type="module"[^>]*><\/script>/, () => `<script id="poc-options" type="application/json">${json(options)}</script><script type="module" src="/__poc/client.js"></script>`)
       .replace('<div id="app"></div>', () => markup || '<div id="app"></div>')
-      .replace('<title>Horoscope App</title>', () => `<title>${escape(info.title || 'Horoscope App')}</title>${info.status === 200 ? `<link rel="canonical" href="${escape(origin + path)}">` : '<meta name="robots" content="noindex">'}`)
+      .replace(/<title>[^<]*<\/title>/, existingTitle => `${info.title ? `<title>${escape(info.title)}</title>` : existingTitle}${info.status === 200 ? `<link rel="canonical" href="${escape(origin + path)}">` : '<meta name="robots" content="noindex">'}`)
   }
   function claim(paths, generation) {
     // A planner may discover a dependency after awaiting Flask. It cannot claim a
@@ -211,7 +211,7 @@ export async function createPoc({ backend = 'http://localhost:8000', fixture = f
       if (path === '/__poc') return send(200, await readFile(resolve(here, 'dashboard.html')), 'text/html; charset=utf-8')
       if (path === '/__poc/client.js') return send(200, await readFile(resolve(here, 'client.js')), 'text/javascript')
       if (path === '/__poc/seed') {
-        const inventory = await api('/api/seo/sitemap/urls')
+        const inventory = await api('/api/seo/sitemap/urls?locale=en')
         if (inventory.status !== 200) throw new Error('Inventory unavailable')
         const forecast = inventory.body.items.find(i => i.path === '/horoscope/gemini/2026-06-26')
         if (!forecast) throw new Error('Known Gemini fixture is not published; choose another fixture explicitly')
@@ -220,7 +220,7 @@ export async function createPoc({ backend = 'http://localhost:8000', fixture = f
       }
       if (path.startsWith('/api/')) {
         // Only public read endpoints required by the unchanged SPA/POC, never admin/generation.
-        if (!['/api/meta', '/api/forecast', '/api/years', '/api/archive/month'].includes(path)) return send(404, '{}')
+        if (!['/api/meta', '/api/signs/meta', '/api/forecast', '/api/years', '/api/archive/month'].includes(path)) return send(404, '{}')
         const result = await api(path + url.search)
         return send(result.status, json(result.body))
       }
@@ -228,6 +228,10 @@ export async function createPoc({ backend = 'http://localhost:8000', fixture = f
         if (!/^\/assets\/[\w.-]+$/.test(path)) return send(404, '')
         const type = path.endsWith('.js') ? 'text/javascript' : path.endsWith('.css') ? 'text/css' : 'image/png'
         try { return send(200, await readFile(resolve(root, 'dist', path.slice(1))), type) } catch { return send(404, '') }
+      }
+      const languages = url.searchParams.getAll('lang')
+      if (languages.length === 1 && ['uk', 'ru'].includes(languages[0])) {
+        return send(404, 'This POC captures English routes only.', 'text/plain; charset=utf-8')
       }
       const generation = generations.get(path), observedArtifact = artifacts.get(path)
       const info = await inspect(path)
@@ -239,7 +243,7 @@ export async function createPoc({ backend = 'http://localhost:8000', fixture = f
       const artifact = artifacts.get(path)
       if (artifact && artifact.info.fingerprint === info.fingerprint) return send(info.status, artifact.html, 'text/html; charset=utf-8')
       if (artifact === observedArtifact) artifacts.delete(path)
-      if (info.status === 404) return send(404, '<!doctype html><title>Not found</title><h1>Прогноз не опубликован или страница не найдена</h1><a href="/">Главная</a>', 'text/html; charset=utf-8')
+      if (info.status === 404) return send(404, '<!doctype html><html lang="en"><title>Page not found</title><h1>Forecast unpublished or page not found</h1><a href="/">Home</a></html>', 'text/html; charset=utf-8')
       return send(503, '<!doctype html><title>POC refresh required</title><h1>Explicit POC capture required</h1>', 'text/html; charset=utf-8')
     } catch (error) { send(503, json({ error: error.message })) }
   })

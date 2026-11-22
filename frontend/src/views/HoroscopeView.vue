@@ -1,8 +1,8 @@
 <template>
   <NotFound
     v-if="routeError"
-    :title="routeError.message"
-    description="Проверьте знак зодиака или дату в адресе страницы."
+    :title="text.routeErrors[routeError.code]"
+    :description="text.checkAddress"
   />
 
   <section v-else class="relative min-h-screen overflow-hidden text-slate-100">
@@ -71,18 +71,17 @@
         <div class="relative z-10 flex items-center justify-between gap-8">
           <div class="max-w-2xl">
             <p class="mb-3 text-[0.68rem] font-semibold uppercase tracking-[0.42em] text-amber-300">
-              Ежедневный прогноз
+              {{ text.dailyForecast }}
             </p>
 
             <h1 class="font-serif text-4xl leading-tight text-slate-50 sm:text-5xl">
-              {{ currentZodiac.nameRu }}
+              {{ signName }}
               <span class="text-amber-200">·</span>
               {{ humanSelectedDate }}
             </h1>
 
             <p class="mt-4 max-w-xl text-sm leading-7 text-slate-300">
-              Выберите знак и день, чтобы прочитать персональный гороскоп.
-              Для прошлых дат можно перейти в архив месяца.
+              {{ text.forecastIntro }}
             </p>
           </div>
 
@@ -98,7 +97,7 @@
                 v-if="currentAssets.illustration"
                 :key="`hero-illustration-${currentSignKey}`"
                 :src="currentAssets.illustration"
-                :alt="currentZodiac.nameRu"
+                :alt="signName"
                 draggable="false"
                 class="relative z-20 h-full w-full object-contain drop-shadow-[0_0_34px_rgba(251,191,36,0.24)]"
               />
@@ -126,7 +125,7 @@
           <div class="flex items-start justify-between gap-4">
             <div>
               <p class="text-[0.62rem] font-semibold uppercase tracking-[0.32em] text-slate-500">
-                День
+                {{ text.day }}
               </p>
 
               <h2 class="mt-1 font-serif text-2xl text-slate-50">
@@ -154,26 +153,26 @@
 
         <div class="pl-5">
           <p class="mb-3 text-[0.68rem] font-semibold uppercase tracking-[0.38em] text-amber-300">
-            Прогноз
+            {{ text.forecast }}
           </p>
 
           <h2 class="font-serif text-2xl text-slate-50">
-            {{ currentZodiac.nameRu }} на {{ humanSelectedDate }}
+            {{ signName }} · {{ humanSelectedDate }}
           </h2>
 
           <div class="mt-5 space-y-4 text-base leading-8 text-slate-200">
             <p v-if="isLoading" class="text-slate-400">
-              — прогноз загружается —
+              {{ text.loadingForecast }}
             </p>
 
-            <template v-else-if="errorText">
-              <p class="text-amber-200">{{ errorText }}</p>
+            <template v-else-if="errorKey">
+              <p class="text-amber-200">{{ text[errorKey] }}</p>
               <RouterLink
                 v-if="latestPublishedDate"
-                :to="{ name: 'horoscope', params: { sign: route.params.sign, day: latestPublishedDate } }"
+                :to="{ name: 'horoscope', params: { sign: route.params.sign, day: latestPublishedDate }, query: localeQuery(locale) }"
                 class="inline-block py-2 font-semibold text-amber-100 underline underline-offset-4 hover:text-amber-200"
               >
-                Открыть последний опубликованный прогноз за <time :datetime="latestPublishedDate">{{ latestPublishedDate }}</time>
+                {{ text.latestForecast }} <time :datetime="latestPublishedDate">{{ formatDate(latestPublishedDate, locale) }}</time>
               </RouterLink>
             </template>
 
@@ -184,7 +183,7 @@
             </template>
 
             <p v-else class="text-slate-400">
-              — прогноз пока пуст —
+              {{ text.emptyForecast }}
             </p>
           </div>
         </div>
@@ -196,14 +195,14 @@
           :to="mainLink"
           class="flex min-h-12 items-center justify-center rounded-2xl border border-slate-600/60 bg-slate-950/40 px-5 text-sm font-semibold text-amber-100 transition hover:border-amber-200/50 hover:bg-amber-200/10"
         >
-          ← Главная
+          ← {{ text.home }}
         </RouterLink>
 
         <RouterLink
           :to="archiveLink"
           class="flex min-h-12 items-center justify-center rounded-2xl border border-amber-200/45 bg-gradient-to-r from-amber-500/80 to-amber-200/80 px-5 text-sm font-bold text-slate-950 shadow-[0_0_34px_rgba(251,191,36,0.18)] transition hover:brightness-110"
         >
-          Открыть архив месяца →
+          {{ text.openArchive }} →
         </RouterLink>
       </nav>
     </main>
@@ -213,14 +212,18 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
+import { useUiText } from '../utils/uiText'
+import { localeQuery, type Locale } from '../utils/locale'
 import { getLatestPublishedDate } from '../api/archive'
 import { getForecast } from '../api/forecast'
 import ZodiacCarousel from '../components/ZodiacCarousel.vue'
 import DaySlider from '../components/DaySlider.vue'
 import NotFound from './NotFound.vue'
 import {
+  formatDate,
   getZodiacByKey,
   prettifyDate,
+  zodiacName,
   ZODIACS,
 } from '../constants/zodiac'
 import {
@@ -335,6 +338,7 @@ const ZODIAC_ASSETS: Record<ZodiacKey, ZodiacAssets> = {
 
 const FALLBACK_SIGN: ZodiacKey = 'capricorn'
 
+const { locale, text } = useUiText()
 const route = useRoute()
 const router = useRouter()
 
@@ -350,7 +354,7 @@ const day = ref(initialRouteValidation.ok ? initialRouteValidation.params.day : 
 
 const forecastText = ref('')
 const isLoading = ref(false)
-const errorText = ref('')
+const errorKey = ref<'missingForecast' | 'forecastError' | null>(null)
 const latestPublishedDate = ref<string | null>(null)
 
 let requestId = 0
@@ -365,7 +369,7 @@ function normalizeSign(value: string): ZodiacKey {
 
 function resetForecastState() {
   forecastText.value = ''
-  errorText.value = ''
+  errorKey.value = null
   latestPublishedDate.value = null
   isLoading.value = false
 }
@@ -378,12 +382,14 @@ const currentZodiac = computed(() => {
   return getZodiacByKey(currentSignKey.value) ?? ZODIACS[0]
 })
 
+const signName = computed(() => zodiacName(currentZodiac.value, locale.value))
+
 const currentAssets = computed(() => {
   return ZODIAC_ASSETS[currentSignKey.value]
 })
 
 const humanSelectedDate = computed(() => {
-  return prettifyDate(day.value)
+  return prettifyDate(day.value, locale.value)
 })
 
 const forecastParagraphs = computed(() => {
@@ -395,6 +401,7 @@ const forecastParagraphs = computed(() => {
 
 const archiveLink = computed(() => ({
   name: 'archive-month',
+  query: localeQuery(locale.value),
   params: {
     sign: currentSignKey.value,
     year: day.value.slice(0, 4),
@@ -404,6 +411,7 @@ const archiveLink = computed(() => ({
 
 const mainLink = computed(() => ({
   name: 'home',
+  query: localeQuery(locale.value),
 }))
 
 async function replaceRouteIfNeeded() {
@@ -425,6 +433,8 @@ async function replaceRouteIfNeeded() {
 
   await router.replace({
     name: 'horoscope',
+    query: { ...route.query, ...localeQuery(locale.value) },
+    hash: route.hash,
     params: {
       sign: validation.params.sign,
       day: validation.params.day,
@@ -432,13 +442,13 @@ async function replaceRouteIfNeeded() {
   })
 }
 
-async function loadLatestPublishedDate(sign: string, day: string, localRequestId: number) {
+async function loadLatestPublishedDate(sign: string, day: string, language: Locale, localRequestId: number) {
   try {
     const date = await getLatestPublishedDate({
       sign,
       year: Number(day.slice(0, 4)),
       month: Number(day.slice(5, 7)),
-      locale: 'ru',
+      locale: language,
       type: 'daily',
     })
     if (localRequestId === requestId) latestPublishedDate.value = date
@@ -447,22 +457,23 @@ async function loadLatestPublishedDate(sign: string, day: string, localRequestId
   }
 }
 
-async function loadForecast(params: { sign: string; day: string }) {
+async function loadForecast(params: { sign: string; day: string }, language: Locale) {
   const localRequestId = ++requestId
 
   isLoading.value = true
-  errorText.value = ''
+  errorKey.value = null
 
   try {
     const result = await getForecast({
       sign: params.sign,
       date: params.day,
+      locale: language,
     })
     if (localRequestId !== requestId) return
     if (result.kind === 'not-published') {
       forecastText.value = ''
-      errorText.value = 'Прогноз ещё не опубликован'
-      void loadLatestPublishedDate(params.sign, params.day, localRequestId)
+      errorKey.value = 'missingForecast'
+      void loadLatestPublishedDate(params.sign, params.day, language, localRequestId)
       return
     }
     forecastText.value = result.text
@@ -472,7 +483,7 @@ async function loadForecast(params: { sign: string; day: string }) {
     console.error('Failed to load forecast', error)
 
     forecastText.value = ''
-    errorText.value = 'Не удалось загрузить прогноз'
+    errorKey.value = 'forecastError'
   } finally {
     if (localRequestId === requestId) {
       isLoading.value = false
@@ -481,9 +492,9 @@ async function loadForecast(params: { sign: string; day: string }) {
 }
 
 watch(
-  [() => route.params.sign, () => route.params.day],
+  [() => route.params.sign, () => route.params.day, locale],
   (_, __, onCleanup) => {
-    // Invalidate this request when sign/day changes (including invalid routes)
+    // Invalidate this request when the sign, day or language changes (including invalid routes)
     // or the view unmounts. Late success, failure and finally are ignored.
     onCleanup(() => { requestId += 1 })
     resetForecastState()
@@ -494,8 +505,8 @@ watch(
     sign.value = validation.params.sign
     day.value = validation.params.day
     // The committed route owns loading, even if the models retain these values
-    // across an invalid route. Query/hash-only changes do not reload it.
-    void loadForecast(validation.params)
+    // across an invalid route. Unrelated query and hash changes keep the current read.
+    void loadForecast(validation.params, locale.value)
   },
   { immediate: true }
 )

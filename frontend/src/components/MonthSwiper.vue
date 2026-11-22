@@ -3,7 +3,7 @@
     <!-- up arrow -->
     <button
       type="button"
-      aria-label="Предыдущий месяц"
+      :aria-label="text.previousMonth"
       @click="slidePrev"
       class="rounded text-xl text-gray-400 hover:text-amber-500
              focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-200"
@@ -33,7 +33,7 @@
     <!-- down arrow -->
     <button
       type="button"
-      aria-label="Следующий месяц"
+      :aria-label="text.nextMonth"
       @click="slideNext"
       class="rounded text-xl text-gray-400 hover:text-amber-500
              focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-200"
@@ -50,10 +50,14 @@ import type { Swiper as SwiperInstance } from 'swiper'
 import { ChevronUp, ChevronDown } from 'lucide-vue-next'
 import 'swiper/css'
 
-const months = [
-  'Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
-  'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь',
-]
+import { useUiText } from '../utils/uiText'
+
+const { locale, text } = useUiText()
+
+const months = computed(() => {
+  const formatter = new Intl.DateTimeFormat(locale.value, { month: 'long', timeZone: 'UTC' })
+  return Array.from({ length: 12 }, (_, i) => formatter.format(new Date(Date.UTC(2000, i, 1))))
+})
 
 const props = defineProps<{
   modelValue: number
@@ -68,7 +72,7 @@ const isSyncing = ref(false)
 
 const initialIndex = computed(() => {
   const idx = props.modelValue - 1
-  return idx >= 0 && idx < months.length ? idx : 0
+  return idx >= 0 && idx < months.value.length ? idx : 0
 })
 
 function releaseSyncFlag() {
@@ -83,7 +87,7 @@ function syncToModel() {
     if (!swiper) return
 
     const idx = props.modelValue - 1
-    if (idx < 0 || idx >= months.length) return
+    if (idx < 0 || idx >= months.value.length) return
     if (swiper.activeIndex === idx) return
 
     isSyncing.value = true

@@ -1,0 +1,420 @@
+{
+  "format": 2,
+  "id": "demo-2026-11-22-v2",
+  "forecast_type": "daily",
+  "window_start": "2026-11-22",
+  "window_end": "2026-11-24",
+  "missing_date": "2026-11-25",
+  "dates": [
+    "2026-11-22",
+    "2026-11-23",
+    "2026-11-24"
+  ],
+  "sign_keys": [
+    "aries",
+    "taurus",
+    "gemini",
+    "cancer",
+    "leo",
+    "virgo",
+    "libra",
+    "scorpio",
+    "sagittarius",
+    "capricorn",
+    "aquarius",
+    "pisces",
+    "ophiuchus"
+  ],
+  "records": [
+    {
+      "target_date": "2026-11-22",
+      "sign_key": "aries",
+      "texts": {
+        "en": "Demo forecast.\n\nAn unfinished sketch may catch your eye today. Add one detail in a different colour and see whether it changes what you want to draw next.",
+        "uk": "Демонстраційний прогноз.\n\nСьогодні вам може впасти в око незакінчений малюнок. Додайте одну деталь іншим кольором і подивіться, чи захочеться вам тепер намалювати щось інше.",
+        "ru": "Демонстрационный прогноз.\n\nСегодня вам может попасться на глаза незаконченный рисунок. Добавьте одну деталь другим цветом и посмотрите, захочется ли вам теперь нарисовать что-то другое."
+      },
+      "source_text_sha256": "9b19dfec427b57e7e7fbf3c9305e4b49e6d89af0071d4fc6f92f33f0dfd2fce5"
+    },
+    {
+      "target_date": "2026-11-22",
+      "sign_key": "taurus",
+      "texts": {
+        "en": "Demo forecast.\n\nA familiar recipe might taste a little different today. Before adding anything, try a spoonful and see which flavour you notice first.",
+        "uk": "Демонстраційний прогноз.\n\nЗнайома страва сьогодні може смакувати трохи інакше. Перш ніж щось додавати, скуштуйте ложечку й зауважте, який смак відчуєте найперше.",
+        "ru": "Демонстрационный прогноз.\n\nЗнакомое блюдо сегодня может показаться немного другим. Прежде чем что-то добавлять, попробуйте ложечку и обратите внимание, какой вкус почувствуете первым."
+      },
+      "source_text_sha256": "1158302906ee880f25ee1e8c86b66b48a6e6fe9a84c839d79eca66ba0b04421e"
+    },
+    {
+      "target_date": "2026-11-22",
+      "sign_key": "gemini",
+      "texts": {
+        "en": "Demo forecast.\n\nSomeone may mention a place you both know. Ask what they remember about it first. Their answer could bring back a detail you had forgotten.",
+        "uk": "Демонстраційний прогноз.\n\nХтось може згадати місце, знайоме вам обом. Запитайте співрозмовника, що йому насамперед запам’яталося. Можливо, відповідь нагадає вам якусь забуту подробицю.",
+        "ru": "Демонстрационный прогноз.\n\nКто-то может упомянуть знакомое вам обоим место. Спросите, что собеседнику запомнилось в первую очередь. Возможно, ответ напомнит вам какую-нибудь забытую подробность."
+      },
+      "source_text_sha256": "a5d4f74067da68afb55588eed2372b1ef428746bc2220af49cd4303f7c8ee06d"
+    },
+    {
+      "target_date": "2026-11-22",
+      "sign_key": "cancer",
+      "texts": {
+        "en": "Demo forecast.\n\nA quiet corner of your home might get better light than you remember. Take your book there for a few pages and see how it feels.",
+        "uk": "Демонстраційний прогноз.\n\nУ затишному куточку вашої оселі може бути світліше, ніж ви пам’ятаєте. Візьміть туди книжку, прочитайте кілька сторінок і подивіться, чи вам там зручно.",
+        "ru": "Демонстрационный прогноз.\n\nВ тихом уголке вашего дома может быть светлее, чем вам помнится. Возьмите туда книгу, прочтите несколько страниц и прислушайтесь к своим ощущениям."
+      },
+      "source_text_sha256": "0b064d21cac7f77cdf414e76bca2ce053e75dbc33c36f0058f6d8d97634eafad"
+    },
+    {
+      "target_date": "2026-11-22",
+      "sign_key": "leo",
+      "texts": {
+        "en": "Demo forecast.\n\nA friend may show you something they have made. Pick out the little detail you like best and tell them exactly what caught your attention.",
+        "uk": "Демонстраційний прогноз.\n\nДруг може показати вам щось зроблене власноруч. Придивіться, яка деталь вам найбільше до вподоби, і скажіть, чим саме вона привернула вашу увагу.",
+        "ru": "Демонстрационный прогноз.\n\nВозможно, друг покажет вам что-нибудь сделанное своими руками. Найдите деталь, которая вам особенно понравилась, и скажите, чем именно она вас заинтересовала."
+      },
+      "source_text_sha256": "9548bb096d9b8704b073a0aafe7d52568636bbd713a2587a6566fb01bec267af"
+    },
+    {
+      "target_date": "2026-11-22",
+      "sign_key": "virgo",
+      "texts": {
+        "en": "Demo forecast.\n\nA drawer might hold the very thing you were about to put on your shopping list. Check one promising spot before you head out.",
+        "uk": "Демонстраційний прогноз.\n\nУ шухляді може знайтися саме та річ, яку ви збиралися внести до списку покупок. Перш ніж виходити, зазирніть туди, де вона найімовірніше лежить.",
+        "ru": "Демонстрационный прогноз.\n\nВ ящике может оказаться как раз та вещь, которую вы собирались добавить в список покупок. Перед выходом загляните туда, где она, скорее всего, лежит."
+      },
+      "source_text_sha256": "85d8a725f389764d2d79cea23b4e7e7ca07043f50b03f62006afe5f26466c7d1"
+    },
+    {
+      "target_date": "2026-11-22",
+      "sign_key": "libra",
+      "texts": {
+        "en": "Demo forecast.\n\nAn invitation may leave one detail open. Suggest a meeting place with a landmark you both know so you can find each other easily.",
+        "uk": "Демонстраційний прогноз.\n\nУ запрошенні може бракувати однієї подробиці. Запропонуйте зустрітися біля знайомого вам обом орієнтира, щоб було легко одне одного знайти.",
+        "ru": "Демонстрационный прогноз.\n\nВ приглашении может не хватать одной детали. Предложите встретиться у знакомого вам обоим ориентира, чтобы было легко найти друг друга."
+      },
+      "source_text_sha256": "b4a91e5e178772ac61a3310abe9b39f9765326d8aa9ca6520b8f8649e3eb2875"
+    },
+    {
+      "target_date": "2026-11-22",
+      "sign_key": "scorpio",
+      "texts": {
+        "en": "Demo forecast.\n\nAn old photograph could start a good conversation. Ask someone in the picture what happened just after the shutter clicked.",
+        "uk": "Демонстраційний прогноз.\n\nСтара світлина може стати початком цікавої розмови. Запитайте когось із людей на ній, що сталося відразу після того, як клацнув затвор.",
+        "ru": "Демонстрационный прогноз.\n\nСтарая фотография может стать поводом для интересного разговора. Спросите кого-нибудь из тех, кто попал в кадр, что случилось сразу после щелчка затвора."
+      },
+      "source_text_sha256": "7cab97121107427cc9101ceb000afa63c9cf98b189dc5d819e3b6dd21532ce82"
+    },
+    {
+      "target_date": "2026-11-22",
+      "sign_key": "sagittarius",
+      "texts": {
+        "en": "Demo forecast.\n\nA different route home might take you past a shop you usually miss. Leave enough time to pause at the window if something catches your eye.",
+        "uk": "Демонстраційний прогноз.\n\nІнша дорога додому може пролягати повз крамницю, якої ви зазвичай не помічаєте. Залиште трохи часу, щоб зупинитися біля вітрини, якщо щось приверне вашу увагу.",
+        "ru": "Демонстрационный прогноз.\n\nДругая дорога домой может привести вас к магазину, которого вы обычно не замечаете. Оставьте немного времени, чтобы задержаться у витрины, если что-то привлечёт ваше внимание."
+      },
+      "source_text_sha256": "fb1a9b7aed96a330ca3860c746150cae7cfc8a00a39a9d68b96509e55bf80b52"
+    },
+    {
+      "target_date": "2026-11-22",
+      "sign_key": "capricorn",
+      "texts": {
+        "en": "Demo forecast.\n\nA small repair might be easier in daylight. Set the pieces on a pale cloth so you can find them again when you reach for a tool.",
+        "uk": "Демонстраційний прогноз.\n\nПри денному світлі дрібний ремонт може піти легше. Розкладіть деталі на світлій тканині, щоб їх було видно, коли потягнетеся по інструмент.",
+        "ru": "Демонстрационный прогноз.\n\nПри дневном свете мелкий ремонт может пойти легче. Разложите детали на светлой ткани, чтобы не потерять их из виду, когда потянетесь за инструментом."
+      },
+      "source_text_sha256": "077c160c090d9df86cfcd105b3ae230c07cf1de2ea2f128e33ac276a66072b88"
+    },
+    {
+      "target_date": "2026-11-22",
+      "sign_key": "aquarius",
+      "texts": {
+        "en": "Demo forecast.\n\nA question in a group chat might have several good answers. Try sharing one thing you have actually tried and leave room for someone else's experience.",
+        "uk": "Демонстраційний прогноз.\n\nНа запитання в спільному чаті може бути кілька слушних відповідей. Розкажіть про щось одне, що ви вже випробували, і дайте іншим поділитися своїм досвідом.",
+        "ru": "Демонстрационный прогноз.\n\nНа вопрос в общем чате может быть несколько хороших ответов. Расскажите об одном способе, который сами испробовали, и дайте остальным поделиться опытом."
+      },
+      "source_text_sha256": "b1064196f05c50943b5bf59c5877114cbb08adf03b91f44af0dd1b0ec201caea"
+    },
+    {
+      "target_date": "2026-11-22",
+      "sign_key": "pisces",
+      "texts": {
+        "en": "Demo forecast.\n\nA song you haven't heard in a while may turn up today. Listen to the last verse before moving on. A line you once overlooked might stay with you.",
+        "uk": "Демонстраційний прогноз.\n\nСьогодні ви можете почути давно забуту пісню. Дослухайте останній куплет. Можливо, вам запам’ятається рядок, на який ви колись не звернули уваги.",
+        "ru": "Демонстрационный прогноз.\n\nСегодня вам может встретиться давно забытая песня. Дослушайте последний куплет. Возможно, вам запомнится строчка, которой вы раньше не замечали."
+      },
+      "source_text_sha256": "069018b2843f0e9098636748d5be1b63818e415b8a5ae039906878bfc6a37abe"
+    },
+    {
+      "target_date": "2026-11-22",
+      "sign_key": "ophiuchus",
+      "texts": {
+        "en": "Demo forecast.\n\nA borrowed book may still have someone's slip of paper inside. Before returning it, ask whether the note is a bookmark they would like to keep.",
+        "uk": "Демонстраційний прогноз.\n\nУ позиченій книжці може залишитися чийсь папірець. Перш ніж повертати книжку, запитайте, чи не правив він за закладку, яку власник хотів би зберегти.",
+        "ru": "Демонстрационный прогноз.\n\nВ книге, которую вы взяли почитать, может остаться чужая записка. Перед тем как вернуть книгу, спросите, не служила ли записка закладкой, которую хозяин хотел бы сохранить."
+      },
+      "source_text_sha256": "db1dc06a6330ce03ea1fe2c6476ebc47c28f86fca25648bdea734e540951afae"
+    },
+    {
+      "target_date": "2026-11-23",
+      "sign_key": "aries",
+      "texts": {
+        "en": "Demo forecast.\n\nA slow start could leave you time to sort the tools for your next task. Put the first one you will need within reach before you begin.",
+        "uk": "Демонстраційний прогноз.\n\nЯкщо день почнеться неквапно, ви встигнете підготувати інструменти для наступної справи. Покладіть під рукою той, що знадобиться першим.",
+        "ru": "Демонстрационный прогноз.\n\nЕсли день начнётся неспешно, вы успеете подготовить инструменты для следующего дела. Положите под рукой тот, который понадобится первым."
+      },
+      "source_text_sha256": "0444ae494b45203e612e70f638da9c0d489973dcef987f527fc834b1e89e1bd3"
+    },
+    {
+      "target_date": "2026-11-23",
+      "sign_key": "taurus",
+      "texts": {
+        "en": "Demo forecast.\n\nYou might find two ways to use the last of an ingredient. Choose the dish you would most like to eat tonight and save the other idea for later.",
+        "uk": "Демонстраційний прогноз.\n\nМожливо, ви придумаєте дві страви із залишків одного продукту. Виберіть ту, якої сьогодні хочеться на вечерю, а іншу ідею залиште на потім.",
+        "ru": "Демонстрационный прогноз.\n\nВозможно, вы придумаете два блюда из остатков одного продукта. Выберите то, которого сегодня хочется на ужин, а вторую идею оставьте на потом."
+      },
+      "source_text_sha256": "f24961b01a9a5e8cedede27ea65e008fbd02bce75dc74eba7de3bfebc9e0af8c"
+    },
+    {
+      "target_date": "2026-11-23",
+      "sign_key": "gemini",
+      "texts": {
+        "en": "Demo forecast.\n\nA message you are drafting may sound different when you read it aloud. Keep the sentence that sounds most like you and build the rest around it.",
+        "uk": "Демонстраційний прогноз.\n\nПовідомлення, яке ви пишете, може зазвучати інакше, якщо прочитати його вголос. Залиште речення, яке найбільше схоже на вашу живу мову, і від нього вибудуйте решту тексту.",
+        "ru": "Демонстрационный прогноз.\n\nСообщение, которое вы пишете, может зазвучать иначе, если прочесть его вслух. Оставьте фразу, которая больше всего похожа на вашу живую речь, и от неё оттолкнитесь, дописывая остальное."
+      },
+      "source_text_sha256": "44ad0fb226182ffad20ccb506603ab595397b7351bd688c2831dd21f0c54fd4e"
+    },
+    {
+      "target_date": "2026-11-23",
+      "sign_key": "cancer",
+      "texts": {
+        "en": "Demo forecast.\n\nAn ordinary cup of tea could become a chance to catch up. If someone joins you, ask about the small part of their day they enjoyed most.",
+        "uk": "Демонстраційний прогноз.\n\nЗвичайне чаювання може стати нагодою обмінятися новинами. Якщо хтось до вас приєднається, запитайте співрозмовника, яка дрібниця сьогодні потішила його найбільше.",
+        "ru": "Демонстрационный прогноз.\n\nЗа обычной чашкой чая может найтись время обменяться новостями. Если кто-то к вам присоединится, спросите, какая мелочь сегодня порадовала собеседника больше всего."
+      },
+      "source_text_sha256": "142cfc5f23dd76d04d3c51da16a66ed48dff5b4d772a81cb796b0ba500ed7fca"
+    },
+    {
+      "target_date": "2026-11-23",
+      "sign_key": "leo",
+      "texts": {
+        "en": "Demo forecast.\n\nSomeone may ask how you learned a trick they admire. Show them your first attempt if you still have it. They might enjoy seeing where you started.",
+        "uk": "Демонстраційний прогноз.\n\nХтось може запитати, як ви опанували прийом, що викликає захоплення. Покажіть свою першу спробу, якщо вона збереглася. Співрозмовнику може бути цікаво побачити, з чого ви починали.",
+        "ru": "Демонстрационный прогноз.\n\nКто-то может спросить, как вы освоили особенно впечатляющий приём. Покажите свою первую попытку, если она сохранилась. Собеседнику может быть интересно увидеть, с чего вы начинали."
+      },
+      "source_text_sha256": "6d70808439c69b436bb934093df517fff8881702300dded247c6c5d68c9c1c20"
+    },
+    {
+      "target_date": "2026-11-23",
+      "sign_key": "virgo",
+      "texts": {
+        "en": "Demo forecast.\n\nAn instruction may be harder to follow than the task itself. Try saying the first step in your own words before moving on to the second.",
+        "uk": "Демонстраційний прогноз.\n\nІнструкція може виявитися складнішою за саму справу. Спробуйте переказати перший крок своїми словами, перш ніж переходити до другого.",
+        "ru": "Демонстрационный прогноз.\n\nИнструкция может оказаться сложнее самого дела. Попробуйте описать первый шаг своими словами, прежде чем переходить ко второму."
+      },
+      "source_text_sha256": "e4e736d2880ca134090e1c286709a1652595cbe751a4ebed93e2308cbf77a454"
+    },
+    {
+      "target_date": "2026-11-23",
+      "sign_key": "libra",
+      "texts": {
+        "en": "Demo forecast.\n\nTwo people may have different ideas for a shared afternoon. Ask what each of you most wants to do. The answers might fit into the same outing.",
+        "uk": "Демонстраційний прогноз.\n\nВаші уявлення про спільний відпочинок по обіді можуть різнитися. Обговоріть, чого кожному з вас хочеться найбільше. Можливо, обидві ідеї вдасться поєднати в одній прогулянці.",
+        "ru": "Демонстрационный прогноз.\n\nВаши планы на совместный отдых после обеда могут различаться. Обсудите, чего каждому из вас хочется больше всего. Возможно, обе идеи удастся совместить в одной прогулке."
+      },
+      "source_text_sha256": "614cd0c0230cc91126ea278c6b7ac26b5081429b582eef5c5707a40f32fc6a8a"
+    },
+    {
+      "target_date": "2026-11-23",
+      "sign_key": "scorpio",
+      "texts": {
+        "en": "Demo forecast.\n\nA note in the margin may change how you read a familiar page. Go back one paragraph and see whether the writer left another clue there.",
+        "uk": "Демонстраційний прогноз.\n\nНотатка на полях може змінити ваше сприйняття знайомої сторінки. Поверніться на абзац назад і подивіться, чи є там ще одна авторська підказка.",
+        "ru": "Демонстрационный прогноз.\n\nЗаметка на полях может изменить ваше восприятие знакомой страницы. Вернитесь на абзац назад и посмотрите, не оставил ли автор там ещё одну подсказку."
+      },
+      "source_text_sha256": "9c249749b87f1c6e5dd13f51326d5bc6fe2f056407178dc414c77de0da76ebe4"
+    },
+    {
+      "target_date": "2026-11-23",
+      "sign_key": "sagittarius",
+      "texts": {
+        "en": "Demo forecast.\n\nA place name on a map might make you curious. Trace the road that leads there and look for a familiar town along the way.",
+        "uk": "Демонстраційний прогноз.\n\nНазва на мапі може вас зацікавити. Простежте дорогу, що веде до цього місця, і пошукайте на ній знайоме містечко.",
+        "ru": "Демонстрационный прогноз.\n\nНазвание на карте может вас заинтересовать. Проследите дорогу, которая ведёт к этому месту, и поищите на ней знакомый городок."
+      },
+      "source_text_sha256": "103d4e225afade62207e1c85c214e20621910bf8c90803ea6de82136415f5760"
+    },
+    {
+      "target_date": "2026-11-23",
+      "sign_key": "capricorn",
+      "texts": {
+        "en": "Demo forecast.\n\nYou may notice that a regular errand takes less time than you thought. Keep the extra few minutes for a pause before your next stop.",
+        "uk": "Демонстраційний прогноз.\n\nМоже виявитися, що звична справа забирає менше часу, ніж ви думали. Перш ніж вирушати далі, залиште ці кілька хвилин собі на перепочинок.",
+        "ru": "Демонстрационный прогноз.\n\nМожет оказаться, что привычное дело занимает меньше времени, чем вы думали. Оставьте эти несколько минут на передышку, прежде чем отправляться дальше."
+      },
+      "source_text_sha256": "de3328b9118ac776b9ee52cc12e3be3b7ed40ed28d71ef67cd00d720f7315004"
+    },
+    {
+      "target_date": "2026-11-23",
+      "sign_key": "aquarius",
+      "texts": {
+        "en": "Demo forecast.\n\nAn idea meant for one project might suit another. Put your two sketches side by side and see whether a detail can move from one to the other.",
+        "uk": "Демонстраційний прогноз.\n\nІдея для одного проєкту може стати в пригоді в іншому. Покладіть два ескізи поруч і подивіться, чи можна перенести якусь деталь з одного в інший.",
+        "ru": "Демонстрационный прогноз.\n\nИдея для одного проекта может пригодиться в другом. Положите два эскиза рядом и посмотрите, можно ли перенести какую-нибудь деталь из одного в другой."
+      },
+      "source_text_sha256": "ed8416ad29be58fff86f174cddda49846f064098fade7248670818ba8f5f6827"
+    },
+    {
+      "target_date": "2026-11-23",
+      "sign_key": "pisces",
+      "texts": {
+        "en": "Demo forecast.\n\nA sound outside might give a quiet afternoon its rhythm. Set your work aside for a moment and see if you can tell where the sound is coming from.",
+        "uk": "Демонстраційний прогноз.\n\nЯкийсь звук надворі може задати ритм тихому пообіддю. Відкладіть на мить свою роботу й прислухайтеся, чи вдасться зрозуміти, звідки він лунає.",
+        "ru": "Демонстрационный прогноз.\n\nКакой-нибудь звук с улицы может задать ритм тихому дню. Отложите на минуту своё занятие и прислушайтесь, удастся ли понять, откуда он доносится."
+      },
+      "source_text_sha256": "8b592c28e109510282ba6e861c5e2f1f58f83273a10d1d00eba760eaec32e6a1"
+    },
+    {
+      "target_date": "2026-11-23",
+      "sign_key": "ophiuchus",
+      "texts": {
+        "en": "Demo forecast.\n\nAn empty space on a shelf may suggest a new arrangement. Move just one object into it and give yourself a day to see if you like it there.",
+        "uk": "Демонстраційний прогноз.\n\nВільне місце на полиці може підказати, як розставити речі по-новому. Переставте туди один предмет і за день придивіться, чи подобається він вам на цьому місці.",
+        "ru": "Демонстрационный прогноз.\n\nПустое место на полке может подсказать, как расставить вещи по-новому. Переставьте туда один предмет и дайте себе день, чтобы понять, нравится ли он вам на новом месте."
+      },
+      "source_text_sha256": "520e9be5ccbcab5635b316a53ffba1bc8359c17e6c5ea18a51cb9485e5cf91a4"
+    },
+    {
+      "target_date": "2026-11-24",
+      "sign_key": "aries",
+      "texts": {
+        "en": "Demo forecast.\n\nA plan you put aside might feel manageable in a smaller form. Choose one part you can finish before lunch and leave the next part for another day.",
+        "uk": "Демонстраційний прогноз.\n\nВідкладений задум може виявитися посильним, якщо взятися лише за його частину. Виберіть те, що встигнете зробити до обіду, а далі продовжите іншим разом.",
+        "ru": "Демонстрационный прогноз.\n\nОтложенный замысел может оказаться вам по силам, если взяться только за его часть. Выберите то, что успеете сделать до обеда, а остальное оставьте на другой день."
+      },
+      "source_text_sha256": "e23687e2f3fc824ef927d361330fe5d4a23ee12b9d9da79bda87e69eb9c3fa2d"
+    },
+    {
+      "target_date": "2026-11-24",
+      "sign_key": "taurus",
+      "texts": {
+        "en": "Demo forecast.\n\nA familiar walk might feel different if you stop at a different bench. Sit for a moment and notice what you can see from this side of the path.",
+        "uk": "Демонстраційний прогноз.\n\nЗнайома прогулянка може відкритися по-новому, якщо зупинитися біля іншої лавки. Присядьте на хвилинку й роздивіться, що видно з цього боку стежки.",
+        "ru": "Демонстрационный прогноз.\n\nЗнакомая прогулка может показаться другой, если остановиться у новой для вас скамейки. Присядьте на минуту и оглядитесь, что видно с этой стороны дорожки."
+      },
+      "source_text_sha256": "1a79079a7e450c6f0b9503c478960b93e1b3e1cffe8dc7019d4851506f765387"
+    },
+    {
+      "target_date": "2026-11-24",
+      "sign_key": "gemini",
+      "texts": {
+        "en": "Demo forecast.\n\nA story may come to mind just after a conversation ends. Write down its opening line so you can share it the next time you meet.",
+        "uk": "Демонстраційний прогноз.\n\nМожливо, ви згадаєте якусь історію, щойно розмова скінчиться. Запишіть її перше речення, щоб наступної зустрічі розповісти решту.",
+        "ru": "Демонстрационный прогноз.\n\nВозможно, вы вспомните какую-то историю сразу после того, как закончится разговор. Запишите её первую фразу, чтобы при следующей встрече рассказать остальное."
+      },
+      "source_text_sha256": "b1ec8343ffe308e27786423ecacc4b7e1958b642e0c2c1c5eacf34d6ea738998"
+    },
+    {
+      "target_date": "2026-11-24",
+      "sign_key": "cancer",
+      "texts": {
+        "en": "Demo forecast.\n\nA familiar scent might remind you of someone's kitchen. If you get in touch, ask which dish they remember making there most often.",
+        "uk": "Демонстраційний прогноз.\n\nЗнайомий запах може нагадати вам чиюсь кухню. Якщо випаде нагода поспілкуватися з її господарями, запитайте, яку страву вони найчастіше там готували.",
+        "ru": "Демонстрационный прогноз.\n\nЗнакомый запах может напомнить вам чью-то кухню. Если выпадет случай пообщаться с её хозяевами, спросите, какое блюдо они чаще всего там готовили."
+      },
+      "source_text_sha256": "01605633f6d213a1f56dd164c207222c6cfecc200119db53c3447de46b3f74b5"
+    },
+    {
+      "target_date": "2026-11-24",
+      "sign_key": "leo",
+      "texts": {
+        "en": "Demo forecast.\n\nA shared task may need someone to make the first move. Offer a simple opening idea, then invite the quietest person to add something of their own.",
+        "uk": "Демонстраційний прогноз.\n\nМожливо, у спільній справі хтось має зробити перший крок. Запропонуйте просту ідею для початку, а тоді попросіть людину, яка поки мовчить, додати щось від себе.",
+        "ru": "Демонстрационный прогноз.\n\nВозможно, в общем деле кому-то предстоит сделать первый шаг. Предложите простую идею для начала, а затем пригласите того, кто пока молчит, добавить что-то своё."
+      },
+      "source_text_sha256": "4c949d3e54d6e08a1e680c6b6bed8e3956ea9591248c153e99812f26d5e8634b"
+    },
+    {
+      "target_date": "2026-11-24",
+      "sign_key": "virgo",
+      "texts": {
+        "en": "Demo forecast.\n\nYou might spot a pattern in the tasks you keep postponing. Look at the shortest one and write down what you would need to get started.",
+        "uk": "Демонстраційний прогноз.\n\nМожливо, ви помітите щось спільне у справах, які раз у раз відкладаєте. Виберіть найкоротшу й запишіть, що вам знадобиться для початку.",
+        "ru": "Демонстрационный прогноз.\n\nВозможно, вы заметите что-то общее в делах, которые раз за разом откладываете. Выберите самое короткое и запишите, что вам потребуется, чтобы к нему приступить."
+      },
+      "source_text_sha256": "0a60299da8f3ea79b15b6456a33a41c7efa8a7a28baf2f14d1c1f865ac463465"
+    },
+    {
+      "target_date": "2026-11-24",
+      "sign_key": "libra",
+      "texts": {
+        "en": "Demo forecast.\n\nChoosing between two colours may be easier beside a window. Look at both samples in daylight and see which one you keep coming back to.",
+        "uk": "Демонстраційний прогноз.\n\nБіля вікна може бути легше вибрати один із двох кольорів. Розгляньте обидва зразки при денному світлі й зауважте, до якого з них раз у раз повертається погляд.",
+        "ru": "Демонстрационный прогноз.\n\nУ окна может быть легче выбрать один из двух цветов. Рассмотрите оба образца при дневном свете и заметьте, к какому из них то и дело возвращается взгляд."
+      },
+      "source_text_sha256": "a819badc71f7fb53f9411aac45d84d6da5544a1b169fef995c2990ea79ee7dbc"
+    },
+    {
+      "target_date": "2026-11-24",
+      "sign_key": "scorpio",
+      "texts": {
+        "en": "Demo forecast.\n\nA question you saved for later might have a simpler answer now. Read the original wording before asking again. One detail may already be clear.",
+        "uk": "Демонстраційний прогноз.\n\nНа запитання, яке ви відклали на потім, тепер може бути легше відповісти. Перш ніж запитувати знову, перечитайте, як ви його сформулювали. Можливо, одна подробиця вже з’ясувалася.",
+        "ru": "Демонстрационный прогноз.\n\nНа вопрос, который вы оставили на потом, теперь может быть проще ответить. Прежде чем спрашивать снова, перечитайте исходную формулировку. Возможно, одна деталь уже прояснилась."
+      },
+      "source_text_sha256": "b70a7db1dccf444618a4c91301f4b4e2dc84ce3ba9ceedb7dcf637e36d05feef"
+    },
+    {
+      "target_date": "2026-11-24",
+      "sign_key": "sagittarius",
+      "texts": {
+        "en": "Demo forecast.\n\nA nearby exhibition might offer more than you have time to see. Pick one room that interests you and give yourself permission to linger there.",
+        "uk": "Демонстраційний прогноз.\n\nМожливо, на виставці неподалік буде стільки всього, що ви не встигнете обійти її всю. Виберіть залу, яка вас зацікавила, і дозвольте собі там затриматися.",
+        "ru": "Демонстрационный прогноз.\n\nВозможно, на выставке поблизости окажется столько всего, что вы не успеете обойти её целиком. Выберите зал, который вас заинтересовал, и позвольте себе там задержаться."
+      },
+      "source_text_sha256": "6c308e956b8f5b2e064f0057c50a206307ab5cec6ba7276269812e33273a676b"
+    },
+    {
+      "target_date": "2026-11-24",
+      "sign_key": "capricorn",
+      "texts": {
+        "en": "Demo forecast.\n\nA list for tomorrow might be easier to use if you put it by the door. Add the one item you often forget while it is still fresh in your mind.",
+        "uk": "Демонстраційний прогноз.\n\nСписком на завтра може бути зручніше скористатися, якщо залишити його біля дверей. Додайте туди річ, яку часто забуваєте, поки ще пам’ятаєте про неї.",
+        "ru": "Демонстрационный прогноз.\n\nСписком на завтра может быть удобнее воспользоваться, если оставить его у двери. Впишите туда вещь, которую часто забываете, пока ещё помните о ней."
+      },
+      "source_text_sha256": "02bccc51152a838e3ae02be2fcad70aea58d451cea0fa69612e775c2fdd1d0ad"
+    },
+    {
+      "target_date": "2026-11-24",
+      "sign_key": "aquarius",
+      "texts": {
+        "en": "Demo forecast.\n\nSomeone may describe a hobby you know little about. Ask what they needed for their very first attempt. The answer might surprise you.",
+        "uk": "Демонстраційний прогноз.\n\nХтось може розповісти про захоплення, з яким ви мало знайомі. Запитайте, що знадобилося для найпершої спроби. Відповідь може вас здивувати.",
+        "ru": "Демонстрационный прогноз.\n\nКто-то может рассказать об увлечении, о котором вы мало знаете. Спросите, что понадобилось для самой первой попытки. Ответ может вас удивить."
+      },
+      "source_text_sha256": "908570a32e12adc06ee1957eea64b7abee9849f21536557abb30d78444616009"
+    },
+    {
+      "target_date": "2026-11-24",
+      "sign_key": "pisces",
+      "texts": {
+        "en": "Demo forecast.\n\nThe sky may change while you are busy indoors. Take a brief look from the same window twice today and notice how the light has shifted.",
+        "uk": "Демонстраційний прогноз.\n\nПоки ви пораєтеся в приміщенні, небо може змінитися. Двічі за день визирніть на хвильку з того самого вікна й зауважте, як змінилося світло.",
+        "ru": "Демонстрационный прогноз.\n\nПока вы заняты делами в помещении, небо может измениться. Дважды за день выгляните ненадолго из одного и того же окна и обратите внимание, как изменился свет."
+      },
+      "source_text_sha256": "92b5f9cafb392668f6f2611ed63df8d876a37e0fb43b013539d8df915b96fb2e"
+    },
+    {
+      "target_date": "2026-11-24",
+      "sign_key": "ophiuchus",
+      "texts": {
+        "en": "Demo forecast.\n\nA half-finished puzzle might look different from the other side of the table. Try a new seat and see whether a piece suddenly fits.",
+        "uk": "Демонстраційний прогноз.\n\nНезавершений пазл може виглядати інакше з протилежного боку столу. Пересядьте й подивіться, чи не знайдеться раптом місце для однієї з деталей.",
+        "ru": "Демонстрационный прогноз.\n\nНезаконченная головоломка может выглядеть иначе с противоположной стороны стола. Пересядьте и посмотрите, не найдётся ли вдруг место для одной из деталей пазла."
+      },
+      "source_text_sha256": "f439cedab9acf8e144283fa31c3e764655bf0d378a9c917a64e05a7b674a325a"
+    }
+  ]
+}

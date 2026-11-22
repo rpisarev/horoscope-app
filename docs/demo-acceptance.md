@@ -1,5 +1,9 @@
 # MVP-A05 acceptance — 2026-11-15
 
+For the later English-first release, see the [multilingual checkpoint](CURRENT_STATE.md#multilingual-mvp-iteration-3)
+and [repeatable three-language browser journeys](multilingual-publishing.md#repeat-the-browser-acceptance-check).
+The measurements below describe the original V1 demonstration.
+
 **READY WITH MANUAL CHECKS.** The implemented private demo passed the automated
 checks below. Physical-phone touch/Safari and public-domain TLS on the later
 approved host remain manual rollout checks. No public deployment was performed.

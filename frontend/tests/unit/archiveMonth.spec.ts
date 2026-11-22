@@ -15,7 +15,7 @@ const response = (payload: unknown, status = 200) => ({ ok: status === 200, stat
 function monthData(url: URL, published: number[] = []) {
   const year = Number(url.searchParams.get('year'))
   const month = Number(url.searchParams.get('month'))
-  return { year, month, locale: 'ru', forecast_type: 'daily', expected_sign_count: 13,
+  return { year, month, locale: 'en', forecast_type: 'daily', expected_sign_count: 13,
     days: Array.from({ length: new Date(Date.UTC(year, month, 0)).getUTCDate() }, (_, index) => ({
       date: `${year}-${String(month).padStart(2, '0')}-${String(index + 1).padStart(2, '0')}`,
       has_forecast: published.includes(index + 1),
@@ -33,7 +33,7 @@ function requests(path: string) {
   return vi.mocked(fetch).mock.calls.map(([url]) => new URL(String(url), 'http://localhost')).filter(url => url.pathname === path)
 }
 function calendarLinks() {
-  return wrapper!.get('[aria-label="Календарь архива"]').findAll('a')
+  return wrapper!.get('[aria-label="Archive calendar"]').findAll('a')
 }
 function calendarHrefs() {
   return calendarLinks().map(link => link.attributes('href'))
@@ -82,12 +82,12 @@ describe('published archive availability', () => {
     ])
     expect(calendarHrefs()).not.toContain('/horoscope/aries/2026-09-16')
     expect(calendarLinks()[1].attributes('aria-current')).toBe('date')
-    expect(wrapper!.get('[role="status"]').text()).toContain('Выберите отмеченную дату')
+    expect(wrapper!.get('[role="status"]').text()).toContain('Choose a highlighted date')
     expect(requests('/api/archive/month')).toHaveLength(1)
     expect(Object.fromEntries(requests('/api/archive/month')[0].searchParams)).toEqual({
-      year: '2026', month: '9', sign: 'aries', locale: 'ru', type: 'daily',
+      year: '2026', month: '9', sign: 'aries', locale: 'en', type: 'daily',
     })
-    expect(Object.fromEntries(requests('/api/years')[0].searchParams)).toEqual({ sign: 'aries', locale: 'ru', type: 'daily' })
+    expect(Object.fromEntries(requests('/api/years')[0].searchParams)).toEqual({ sign: 'aries', locale: 'en', type: 'daily' })
     expect(requests('/api/archive/day')).toHaveLength(0)
   })
 
@@ -95,14 +95,14 @@ describe('published archive availability', () => {
     await openMonth('/archive/taurus/2027/04')
     expect(calendarLinks()).toHaveLength(0)
     const status = wrapper!.get('[role="status"]').text()
-    expect(status).toContain('За апрель 2027 года для Тельца нет опубликованных прогнозов.')
-    expect(status).toContain('Выберите другой месяц или год.')
+    expect(status).toContain('No forecasts have been published for Taurus in April 2027.')
+    expect(status).toContain('Choose another month or year.')
   })
 
   it('suggests another month when the sign has only one available year', async () => {
     yearsResponse = () => response([2026])
     await openMonth()
-    expect(wrapper!.get('[role="status"]').text()).toContain('Выберите другой месяц.')
+    expect(wrapper!.get('[role="status"]').text()).toContain('Choose another month.')
   })
 
   it('keeps unknown availability disabled while the month request is pending', async () => {
@@ -112,8 +112,8 @@ describe('published archive availability', () => {
     await businessDate.refreshBusinessDate()
     await openMonth()
     expect(calendarLinks()).toHaveLength(0)
-    expect(wrapper!.get('[role="status"]').text()).toContain('Загрузка доступных прогнозов')
-    expect(wrapper!.text()).not.toContain('нет опубликованных прогнозов')
+    expect(wrapper!.get('[role="status"]').text()).toContain('Loading available forecasts')
+    expect(wrapper!.text()).not.toContain('No forecasts have been published')
     pending.resolve(response(monthData(query, [17])))
     await flushPromises()
     expect(calendarHrefs()).toEqual(['/horoscope/aries/2026-09-17'])
@@ -124,8 +124,8 @@ describe('published archive availability', () => {
     await businessDate.refreshBusinessDate()
     await openMonth()
     expect(calendarLinks()).toHaveLength(0)
-    expect(wrapper!.get('[role="alert"]').text()).toContain('Не удалось загрузить доступные прогнозы')
-    expect(wrapper!.text()).not.toContain('нет опубликованных прогнозов')
+    expect(wrapper!.get('[role="alert"]').text()).toContain('Could not load available forecasts.')
+    expect(wrapper!.text()).not.toContain('No forecasts have been published')
   })
 
   it('treats a network failure as unavailable, without guessing past-day coverage', async () => {
@@ -143,7 +143,7 @@ describe('published archive availability', () => {
     await openMonth()
     expect(businessDate.todayIso()).toBeNull()
     expect(calendarHrefs()).toEqual(['/horoscope/aries/2026-09-19'])
-    expect(wrapper!.text()).not.toContain('Открыть прогноз на сегодня')
+    expect(wrapper!.text()).not.toContain('Open today’s forecast')
     expect(requests('/api/meta')).toHaveLength(1) // Only the explicit initial metadata attempt.
   })
 
@@ -167,10 +167,10 @@ describe('published archive availability', () => {
       await flushPromises()
     }
     expect(requests('/api/archive/month').map(url => Object.fromEntries(url.searchParams))).toEqual([
-      { sign: 'aries', year: '2026', month: '9', locale: 'ru', type: 'daily' },
-      { sign: 'taurus', year: '2026', month: '9', locale: 'ru', type: 'daily' },
-      { sign: 'taurus', year: '2027', month: '9', locale: 'ru', type: 'daily' },
-      { sign: 'taurus', year: '2027', month: '10', locale: 'ru', type: 'daily' },
+      { sign: 'aries', year: '2026', month: '9', locale: 'en', type: 'daily' },
+      { sign: 'taurus', year: '2026', month: '9', locale: 'en', type: 'daily' },
+      { sign: 'taurus', year: '2027', month: '9', locale: 'en', type: 'daily' },
+      { sign: 'taurus', year: '2027', month: '10', locale: 'en', type: 'daily' },
     ])
     expect(requests('/api/years').map(url => url.searchParams.get('sign'))).toEqual(['aries', 'taurus'])
     expect(requests('/api/meta')).toHaveLength(0)
@@ -193,7 +193,7 @@ describe('published archive availability', () => {
     monthResponse = () => response({ days: [{ date, has_forecast: true }] })
     await openMonth(`/archive/aries/${year}/${Number(month)}`)
     expect(router.currentRoute.value.path).toBe(`/archive/aries/${year}/${month}`)
-    const cells = wrapper!.get('[aria-label="Календарь архива"]').findAll(':scope > span, :scope > a')
+    const cells = wrapper!.get('[aria-label="Archive calendar"]').findAll(':scope > span, :scope > a')
     expect(cells.findIndex(cell => cell.text() === '1')).toBe(leadingCells)
     expect(cells[cells.length - 1].text()).toBe(day)
     expect(calendarHrefs()).toEqual([`/horoscope/aries/${date}`])
@@ -234,7 +234,7 @@ describe('published archive availability', () => {
     await flushPromises()
     expect(calendarHrefs()).toEqual(['/horoscope/taurus/2026-09-18'])
     expect(wrapper!.find('[role="alert"]').exists()).toBe(false)
-    expect(wrapper!.get('[role="status"]').text()).toContain('Выберите отмеченную дату')
+    expect(wrapper!.get('[role="status"]').text()).toContain('Choose a highlighted date')
   })
 
   it('ignores an older sign year list instead of rejecting the current route', async () => {
@@ -247,7 +247,29 @@ describe('published archive availability', () => {
     oldYears.resolve(response([2025]))
     await flushPromises()
     expect(calendarHrefs()).toEqual(['/horoscope/taurus/2026-09-18'])
-    expect(wrapper!.text()).not.toContain('Архив за этот год недоступен')
+    expect(wrapper!.text()).not.toContain('Archive unavailable for this year')
+  })
+
+  it('discards calendar and years responses from a previous locale on the same route', async () => {
+    const oldYears = deferred()
+    const oldMonth = deferred()
+    const ukPath = '/archive/aries/2026/09?lang=uk'
+    yearsResponse = url => url.searchParams.get('locale') === 'en' ? oldYears.promise : response([2026])
+    monthResponse = url => url.searchParams.get('locale') === 'en' ? oldMonth.promise :
+      response({ locale: 'uk', days: [{ date: '2026-09-18', has_forecast: true }] })
+    await openMonth()
+    await router.push(ukPath)
+    await flushPromises()
+    const published = '/horoscope/aries/2026-09-18?lang=uk'
+    expect(wrapper!.find(`a[href="${published}"]`).exists()).toBe(true)
+    oldYears.resolve(response([2025]))
+    oldMonth.resolve(response({ locale: 'en', days: [{ date: '2026-09-19', has_forecast: true }] }))
+    await flushPromises()
+    expect(wrapper!.find(`a[href="${published}"]`).exists()).toBe(true)
+    expect(wrapper!.find('a[href*="2026-09-19"]').exists()).toBe(false)
+    expect(router.currentRoute.value.fullPath).toBe(ukPath)
+    expect(requests('/api/years').map(url => url.searchParams.get('locale'))).toEqual(['en', 'uk'])
+    expect(requests('/api/archive/month').map(url => url.searchParams.get('locale'))).toEqual(['en', 'uk'])
   })
 
   it('navigates an available day directly to the canonical forecast page', async () => {
@@ -265,7 +287,7 @@ describe('published archive availability', () => {
 
   it('keeps contextual 404 for malformed month routes without making archive requests', async () => {
     await openMonth('/archive/not-a-sign/2026/09')
-    expect(wrapper!.text()).toContain('Такой знак не найден')
+    expect(wrapper!.text()).toContain('Zodiac sign not found')
     expect(fetch).not.toHaveBeenCalled()
   })
 })

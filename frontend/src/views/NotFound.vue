@@ -14,20 +14,20 @@
       </p>
 
       <h1 class="font-merienda text-3xl mb-3">
-        {{ title }}
+        {{ title ?? text.notFoundTitle }}
       </h1>
 
-      <p v-if="description" class="font-lato text-white/75 mb-8">
-        {{ description }}
+      <p v-if="description !== ''" class="font-lato text-white/75 mb-8">
+        {{ description ?? text.notFoundDescription }}
       </p>
 
       <RouterLink
-        :to="{ name: 'home' }"
+        :to="{ name: 'home', query: localeQuery(locale) }"
         class="inline-flex items-center justify-center rounded-full
         bg-amber-300 px-6 py-3 font-semibold text-slate-950
         transition hover:bg-amber-200"
       >
-        На главную
+        {{ text.backHome }}
       </RouterLink>
     </section>
     </CosmicGate404>
@@ -38,15 +38,9 @@
 <script setup lang="ts">
 import { RouterLink } from 'vue-router'
 import CosmicGate404 from '../components/CosmicGate404.vue'
+import { useUiText } from '../utils/uiText'
+import { localeQuery } from '../utils/locale'
 
-withDefaults(
-  defineProps<{
-    title?: string
-    description?: string
-  }>(),
-  {
-    title: 'Страница потерялась среди звёзд',
-    description: 'Такого гороскопа не существует или ссылка устарела.',
-  }
-)
+const { locale, text } = useUiText()
+defineProps<{ title?: string; description?: string }>()
 </script>

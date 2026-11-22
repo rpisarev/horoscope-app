@@ -23,6 +23,7 @@ async function openPage(viewport, options = {}) {
   await context.route('**/*', route => {
     const url = new URL(route.request().url())
     if (url.origin !== base.origin) return route.abort()
+    if (url.pathname === '/api/signs/meta') return route.fulfill({ json: { locale: 'en', items: [] } })
     if (url.pathname === '/api/meta') {
       return route.fulfill({ json: { business_date: '2026-11-15', timezone: 'Europe/Kyiv' } })
     }
@@ -140,6 +141,8 @@ test('keyboard focus survives resize; click, Enter and Space retain selection', 
   const { page, context } = await openPage({ width: 1440, height: 900 })
   try {
     await page.keyboard.press('Tab')
+    assert.equal(await page.locator(':focus').getAttribute('id'), 'language-select')
+    await page.keyboard.press('Tab')
     const focusedName = await page.locator(':focus small').textContent()
     assert.equal(focusedName, 'Aries')
     for (const [width, height] of [[320, 568], [390, 844], [768, 1024], [1440, 900]]) {
@@ -206,6 +209,8 @@ test('Wheel and Starfield follow reduced motion on entry and while Home is open'
     }
 
     await page.keyboard.press('Tab')
+    assert.equal(await page.locator(':focus').getAttribute('id'), 'language-select')
+    await page.keyboard.press('Tab')
     assert.equal(await page.locator('.wheel-tooltip-center:visible h3').textContent(), 'Aries')
     await page.keyboard.press('Space')
     await page.waitForURL('**/horoscope/aries/2026-11-15')
@@ -220,10 +225,10 @@ test('archive month and year arrows have names, visible keyboard focus and worki
   try {
     await page.goto(new URL('/archive/aries/2026/11', base).href)
     const controls = [
-      ['Предыдущий год', 'Enter', '2025/11'],
-      ['Следующий год', 'Space', '2026/11'],
-      ['Предыдущий месяц', 'Space', '2026/10'],
-      ['Следующий месяц', 'Enter', '2026/11'],
+      ['Previous year', 'Enter', '2025/11'],
+      ['Next year', 'Space', '2026/11'],
+      ['Previous month', 'Space', '2026/10'],
+      ['Next month', 'Enter', '2026/11'],
     ]
     for (const [name, key, month] of controls) {
       const button = page.getByRole('button', { name, exact: true })

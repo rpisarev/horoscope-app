@@ -3,7 +3,7 @@
     <!-- up arrow -->
     <button
       type="button"
-      aria-label="Предыдущий год"
+      :aria-label="text.previousYear"
       @click="slidePrev"
       class="rounded text-xl text-gray-400 hover:text-amber-500
              focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-200"
@@ -34,7 +34,7 @@
     <!-- down arrow -->
     <button
       type="button"
-      aria-label="Следующий год"
+      :aria-label="text.nextYear"
       @click="slideNext"
       class="rounded text-xl text-gray-400 hover:text-amber-500
              focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-200"
@@ -50,6 +50,10 @@ import { ChevronUp, ChevronDown } from 'lucide-vue-next'
 import { Swiper, SwiperSlide } from 'swiper/vue'
 import type { Swiper as SwiperInstance } from 'swiper'
 import 'swiper/css'
+
+import { useUiText } from '../utils/uiText'
+
+const { text } = useUiText()
 
 const props = defineProps<{
   modelValue: number

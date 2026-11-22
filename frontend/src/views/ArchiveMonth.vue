@@ -1,5 +1,5 @@
 <template>
-  <NotFound v-if="routeError" :title="routeError.message" />
+  <NotFound v-if="routeError" :title="text.routeErrors[routeError.code]" />
 
   <main
     v-else
@@ -23,7 +23,7 @@
     >
       <div class="rounded-3xl border border-white/10 bg-white/10 px-8 py-6 shadow-2xl backdrop-blur">
         <p class="font-lato text-white/75">
-          Загрузка архива...
+          {{ text.loadingArchive }}
         </p>
       </div>
     </section>
@@ -47,11 +47,11 @@
         <div class="relative grid gap-8 md:grid-cols-[1fr_auto] md:items-center">
           <div>
             <p class="mb-3 font-lato text-xs font-bold uppercase tracking-[0.35em] text-amber-300">
-              Архив
+              {{ text.archive }}
             </p>
 
             <h1 class="font-merienda text-4xl leading-tight text-white md:text-5xl">
-              Архив гороскопов
+              {{ text.archiveTitle }}
             </h1>
 
             <p class="mt-3 font-merienda text-2xl text-amber-200">
@@ -59,7 +59,7 @@
             </p>
 
             <p class="mt-4 max-w-2xl font-lato text-base leading-7 text-white/70">
-              Просматривайте дневные прогнозы для {{ zodiacNameGenitive }}.
+              {{ text.archiveIntro(zodiacNameGenitive) }}
             </p>
           </div>
 
@@ -83,7 +83,7 @@
             shadow-inner shadow-white/5"
           >
             <p class="mb-4 text-center font-lato text-xs font-bold uppercase tracking-[0.3em] text-amber-300">
-              Год
+              {{ text.year }}
             </p>
 
             <YearSwiper
@@ -99,7 +99,7 @@
           >
             <div class="mb-6 text-center">
               <p class="font-lato text-xs font-bold uppercase tracking-[0.28em] text-white/40">
-                Календарь архива
+                {{ text.calendar }}
               </p>
 
               <h2 class="mt-2 font-merienda text-3xl text-amber-100">
@@ -107,12 +107,12 @@
               </h2>
             </div>
 
-            <div class="grid grid-cols-7 gap-2" aria-label="Календарь архива" :aria-busy="!selectedAvailability">
+            <div class="grid grid-cols-7 gap-2" :aria-label="text.calendar" :aria-busy="!selectedAvailability">
               <div
-                v-for="d in weekDays"
+                v-for="(d, index) in weekDays"
                 :key="d"
                 class="pb-2 text-center font-lato text-xs font-bold uppercase tracking-[0.18em]"
-                :class="d === 'Сб' || d === 'Вс' ? 'text-amber-300/80' : 'text-white/45'"
+                :class="index >= 5 ? 'text-amber-300/80' : 'text-white/45'"
               >
                 {{ d }}
               </div>
@@ -141,6 +141,7 @@
 
                 <span
                   v-else
+                  :aria-current="day.isToday ? 'date' : undefined"
                   class="relative flex min-h-12 items-center justify-center rounded-2xl border
                   font-lato text-lg font-semibold select-none"
                   :class="[
@@ -159,9 +160,10 @@
 
                   <span
                     v-if="day.isToday"
-                    class="absolute bottom-1 font-lato text-[9px] font-bold uppercase tracking-[0.12em] text-amber-300/80"
+                    class="absolute bottom-1 flex justify-center font-lato text-[9px] font-bold uppercase tracking-[0.12em] text-amber-300/80"
                   >
-                    сегодня
+                    <span class="sr-only sm:not-sr-only">{{ text.today }}</span>
+                    <span aria-hidden="true" class="h-0.5 w-2 rounded-full bg-amber-300 sm:hidden" />
                   </span>
                 </span>
               </template>
@@ -172,16 +174,16 @@
               px-4 py-3 font-lato text-sm leading-6 text-white/65"
             >
               <span class="mr-2 text-amber-300">ⓘ</span>
-              <span v-if="!selectedAvailability" role="status">Загрузка доступных прогнозов…</span>
+              <span v-if="!selectedAvailability" role="status">{{ text.loadingAvailability }}</span>
               <span v-else-if="selectedAvailability.status === 'error'" role="alert">
-                Не удалось загрузить доступные прогнозы. Попробуйте ещё раз позже.
+                {{ text.availabilityError }}
               </span>
               <span v-else-if="hasPublishedDay" role="status">
-                Выберите отмеченную дату, чтобы открыть прогноз для {{ zodiacNameGenitive }}.
+                {{ text.selectDate(zodiacNameGenitive) }}
               </span>
               <span v-else role="status">
-                За {{ monthName }} {{ year }} года для {{ zodiacNameGenitive }} нет опубликованных прогнозов.
-                {{ years.length > 1 ? 'Выберите другой месяц или год.' : 'Выберите другой месяц.' }}
+                {{ text.emptyMonth(monthName, year, zodiacNameGenitive) }}
+                {{ years.length > 1 ? text.chooseMonthYear : text.chooseMonth }}
               </span>
             </div>
 
@@ -192,7 +194,7 @@
             shadow-inner shadow-white/5"
           >
             <p class="mb-4 text-center font-lato text-xs font-bold uppercase tracking-[0.3em] text-amber-300">
-              Месяц
+              {{ text.month }}
             </p>
 
             <MonthSwiper
@@ -211,7 +213,7 @@
           shadow-lg shadow-black/20 transition hover:-translate-y-0.5 hover:border-amber-200/50
           hover:bg-white/10"
         >
-          ← Главная
+          ← {{ text.home }}
         </router-link>
 
         <router-link
@@ -222,7 +224,7 @@
           shadow-[0_0_28px_rgba(251,191,36,0.25)] transition hover:-translate-y-0.5
           hover:bg-amber-200"
         >
-          Открыть прогноз на сегодня →
+          {{ text.openToday }} →
         </router-link>
       </nav>
     </div>
@@ -245,106 +247,39 @@ import {
   routeParamToString,
   validateArchiveMonthRoute,
 } from '../utils/routeValidation'
-import { todayIso } from '../constants/zodiac'
+import { todayIso, getZodiacByKey, zodiacName as localizedName } from '../constants/zodiac'
+import { useUiText } from '../utils/uiText'
+import { localeQuery } from '../utils/locale'
 
 const route = useRoute()
 const router = useRouter()
 
 const years = ref<number[]>([])
 const isYearsLoaded = ref(false)
-const loadedYearsSign = ref('')
+const loadedYearsScope = ref('')
 const monthAvailability = ref<
   | { scope: string; status: 'ready'; dates: ReadonlySet<string> }
   | { scope: string; status: 'error' }
 >()
-const locale = 'ru'
+const { locale, text } = useUiText()
 const forecastType = 'daily'
 let monthRequestId = 0
 let yearsRequestId = 0
-
-const zodiacMeta: Record<string, {
-  name: string
-  genitive: string
-  glyph: string
-}> = {
-  aries: {
-    name: 'Овен',
-    genitive: 'Овна',
-    glyph: '♈',
-  },
-  taurus: {
-    name: 'Телец',
-    genitive: 'Тельца',
-    glyph: '♉',
-  },
-  gemini: {
-    name: 'Близнецы',
-    genitive: 'Близнецов',
-    glyph: '♊',
-  },
-  cancer: {
-    name: 'Рак',
-    genitive: 'Рака',
-    glyph: '♋',
-  },
-  leo: {
-    name: 'Лев',
-    genitive: 'Льва',
-    glyph: '♌',
-  },
-  virgo: {
-    name: 'Дева',
-    genitive: 'Девы',
-    glyph: '♍',
-  },
-  libra: {
-    name: 'Весы',
-    genitive: 'Весов',
-    glyph: '♎',
-  },
-  scorpio: {
-    name: 'Скорпион',
-    genitive: 'Скорпиона',
-    glyph: '♏',
-  },
-  ophiuchus: {
-    name: 'Змееносец',
-    genitive: 'Змееносца',
-    glyph: '⛎',
-  },
-  sagittarius: {
-    name: 'Стрелец',
-    genitive: 'Стрельца',
-    glyph: '♐',
-  },
-  capricorn: {
-    name: 'Козерог',
-    genitive: 'Козерога',
-    glyph: '♑',
-  },
-  aquarius: {
-    name: 'Водолей',
-    genitive: 'Водолея',
-    glyph: '♒',
-  },
-  pisces: {
-    name: 'Рыбы',
-    genitive: 'Рыб',
-    glyph: '♓',
-  },
-}
 
 const requestedMonth = computed(() => validateArchiveMonthRoute(route.params))
 const monthScope = computed(() => {
   if (!requestedMonth.value.ok) return ''
   const { sign, year, month } = requestedMonth.value.params
-  return `${sign}/${year}/${month}`
+  return `${locale.value}/${sign}/${year}/${month}`
 })
+
+const requestedSign = computed(() => requestedMonth.value.ok ? requestedMonth.value.params.sign : '')
+const yearsScope = computed(() => `${locale.value}/${requestedSign.value}`)
 
 const routeValidation = computed(() => validateArchiveMonthRoute(
   route.params,
   years.value,
-  isYearsLoaded.value && loadedYearsSign.value === routeParamToString(route.params.sign)
+  isYearsLoaded.value && loadedYearsScope.value === yearsScope.value
 ))
 
 const routeError = computed(() => (
@@ -380,18 +315,15 @@ const year = ref(getRouteYear())
 const month = ref(getRouteMonth())
 
 const selectedAvailability = computed(() => (
-  monthAvailability.value?.scope === `${sign.value}/${year.value}/${month.value}`
+  monthAvailability.value?.scope === `${locale.value}/${sign.value}/${year.value}/${month.value}`
     ? monthAvailability.value
     : undefined
 ))
 
-const currentZodiacMeta = computed(() => zodiacMeta[sign.value])
-
-const zodiacName = computed(() => currentZodiacMeta.value?.name ?? sign.value)
-
-const zodiacNameGenitive = computed(() => currentZodiacMeta.value?.genitive ?? zodiacName.value)
-
-const zodiacGlyph = computed(() => currentZodiacMeta.value?.glyph ?? '✦')
+const currentZodiac = computed(() => getZodiacByKey(sign.value))
+const zodiacName = computed(() => currentZodiac.value ? localizedName(currentZodiac.value, locale.value) : '')
+const zodiacNameGenitive = computed(() => currentZodiac.value ? localizedName(currentZodiac.value, locale.value, true) : '')
+const zodiacGlyph = computed(() => currentZodiac.value?.glyph ?? '✦')
 
 function capitalize(value: string) {
   return value.charAt(0).toUpperCase() + value.slice(1)
@@ -433,6 +365,8 @@ watch(
 
     router.replace({
       name: 'archive-month',
+      query: { ...route.query, ...localeQuery(locale.value) },
+      hash: route.hash,
       params: {
         sign: nextSign,
         year: nextYear,
@@ -445,44 +379,46 @@ watch(
 
 const yearMonthIso = computed(() => `${String(year.value).padStart(4, '0')}-${pad2(month.value)}`)
 const firstOfMonth = computed(() => new Date(`${yearMonthIso.value}-01T00:00:00Z`))
-const monthFormatter = new Intl.DateTimeFormat('ru', { month: 'long', timeZone: 'UTC' })
-const monthName = computed(() => monthFormatter.format(firstOfMonth.value))
+const monthName = computed(() => firstOfMonth.value.toLocaleDateString(locale.value, { month: 'long', timeZone: 'UTC' }))
 
 const monthTitle = computed(() => capitalize(monthName.value))
 
 const mainLink = computed(() => ({
   name: 'home',
+  query: localeQuery(locale.value),
 }))
 
 const todayForecastLink = computed(() => {
   const today = todayIso()
   return today ? {
     name: 'horoscope',
+    query: localeQuery(locale.value),
     params: { sign: sign.value, day: today },
   } : null
 })
 
 watch(
-  () => requestedMonth.value.ok ? requestedMonth.value.params.sign : '',
-  async selectedSign => {
+  [requestedSign, locale],
+  async ([selectedSign, language]) => {
+    const scope = yearsScope.value
     const localRequestId = ++yearsRequestId
     years.value = []
     isYearsLoaded.value = false
-    loadedYearsSign.value = ''
+    loadedYearsScope.value = ''
     if (!selectedSign) {
       isYearsLoaded.value = true
       return
     }
 
     try {
-      const loadedYears = await getArchiveYears({ sign: selectedSign, locale, type: forecastType })
-      if (localRequestId !== yearsRequestId) return
+      const loadedYears = await getArchiveYears({ sign: selectedSign, locale: language, type: forecastType })
+      if (localRequestId !== yearsRequestId || scope !== yearsScope.value) return
       years.value = loadedYears
     } catch (error) {
-      if (localRequestId === yearsRequestId) console.error('Failed to load years list', error)
+      if (localRequestId === yearsRequestId && scope === yearsScope.value) console.error('Failed to load years list', error)
     } finally {
-      if (localRequestId === yearsRequestId) {
-        loadedYearsSign.value = selectedSign
+      if (localRequestId === yearsRequestId && scope === yearsScope.value) {
+        loadedYearsScope.value = scope
         isYearsLoaded.value = true
         syncRouteToState()
       }
@@ -500,7 +436,7 @@ watch(monthScope, async scope => {
   try {
     const dates = await getArchiveMonthAvailability({
       year: selectedYear, month: selectedMonth, sign: selectedSign,
-      locale, type: forecastType,
+      locale: locale.value, type: forecastType,
     })
     if (localRequestId !== monthRequestId || scope !== monthScope.value) return
     monthAvailability.value = { scope, status: 'ready', dates }
@@ -516,7 +452,11 @@ onUnmounted(() => {
   ++yearsRequestId
 })
 
-const weekDays = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']
+const weekDays = computed(() => {
+  const formatter = new Intl.DateTimeFormat(locale.value, { weekday: 'short', timeZone: 'UTC' })
+  // The archive lays out a Monday-first week in all three languages.
+  return Array.from({ length: 7 }, (_, i) => formatter.format(new Date(Date.UTC(2024, 0, i + 1))))
+})
 
 const calendarDays = computed(() => {
   const firstWeekday = firstOfMonth.value.getUTCDay()
@@ -563,6 +503,7 @@ const calendarDays = computed(() => {
       isWeekend,
       to: {
         name: 'horoscope',
+        query: localeQuery(locale.value),
         params: { sign: sign.value, day: calendarDate },
       },
     })

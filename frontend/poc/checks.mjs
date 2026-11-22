@@ -15,6 +15,8 @@ before(async () => {
     if (failBackend) throw new Error('Isolated backend failure')
     const url = new URL(path, 'http://fixture.invalid')
     if (url.pathname === '/api/meta') return { status: 200, body: { business_date: '2026-09-30', timezone: 'Europe/Kyiv' } }
+    if (url.pathname !== '/api/meta') assert.equal(url.searchParams.get('locale'), 'en')
+    if (url.pathname === '/api/signs/meta') return { status: 200, body: { locale: 'en', items: [] } }
     if (url.pathname === '/api/forecast') return url.searchParams.get('sign') === 'aries'
       ? { status: 404, body: { error: 'forecast_not_published' } }
       : { status: 200, body: { text: 'Original published text' } }
@@ -33,7 +35,7 @@ async function post(path, body = {}) {
 async function capture(jobs) {
   for (const job of jobs) {
     const info = await poc.inspect(job.path)
-    const content = info.status === 404 ? 'Прогноз ещё не опубликован' : info.route.kind === 'forecast' ? info.response.body.text : info.route.kind === 'archive'
+    const content = info.status === 404 ? 'No forecast has been published for this date.' : info.route.kind === 'forecast' ? info.response.body.text : info.route.kind === 'archive'
       ? info.response.body.days.filter(d => d.has_forecast).map(d => `<a href="/horoscope/gemini/${d.date}">${d.date}</a>`).join('')
       : info.response.body.business_date
     await post('capture', { token: job.token, title: job.path, markup: `<div id="app"><h1>${job.path}</h1><p>${content}</p></div>`, businessDate: (await poc.inspect('/')).response.body.business_date, apiResponse: info.response })
@@ -48,8 +50,10 @@ test('published HTTP HTML, canonical, assets and shared Ophiuchus validation', a
   assert.match(response.headers.get('content-type'), /text\/html/)
   assert.match(html, /Original published text/)
   assert.ok(html.includes(`rel="canonical" href="${origin}${forecast}"`))
-  assert.match(html, /<html lang="uk">/)
+  assert.match(html, /<html lang="en">/)
   assert.equal((await get(unrelated)).status, 200)
+  assert.equal((await get('/api/signs/meta?locale=en')).status, 200)
+  assert.equal((await get(forecast + '?lang=uk')).status, 404)
   assert.equal((await get('/__poc/client.js')).status, 200)
 })
 test('unpublished and invalid routes are real 404s; no fallback/clamping', async () => {

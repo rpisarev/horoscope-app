@@ -1,7 +1,7 @@
 # Bounded browser-prerender experiment
 
 This is disposable local evidence, **not production serving**. It captures seven
-selected routes with the real production Vue bundle in a browser. Swiper, views,
+selected English routes with the real production Vue bundle in a browser. Swiper, views,
 router, API modules and business-date helper run unchanged. No new dependencies.
 
 From `frontend/`, with the existing Flask API running:
@@ -13,7 +13,7 @@ npm run poc:serve
 
 Open `http://127.0.0.1:4173/__poc` in a browser and press **Capture selected route
 set**. The dashboard discovers the known published Gemini June 26 fixture and one
-Ophiuchus forecast from Flask's existing sitemap inventory. It also captures Home,
+Ophiuchus forecast from Flask's English sitemap inventory (`locale=en`). It also captures Home,
 Gemini June archive, an unpublished Aries route, an invalid sign and an unknown
 route. It refuses to assume the Gemini fixture exists. Missing Ophiuchus is omitted
 and must be reported rather than fabricated. Nothing enumerates/render-captures
@@ -31,9 +31,11 @@ The server binds loopback only. It has no production authentication or persisten
 those exports in memory for the Node harness. The browser bootstrap loads the
 unchanged built entrypoint, waits for initial API/body/DOM completion with a bounded
 deadline, then serializes the actual Vue root. Forecast/archive templates are not
-duplicated. Home gains a POC-only heading and plain links derived from the shared
-13-sign list and `/api/meta`, because the wheel's current buttons are not no-JS links.
-The existing document language is preserved.
+duplicated. Home gains plain links derived from the shared sign list and
+`/api/meta` so the Wheel targets also have no-JavaScript navigation. Optional
+English sign metadata can be unavailable and the Wheel will still use its local
+labels. Captures use the English document language and unqualified URL paths.
+Direct Ukrainian and Russian snapshot requests are outside this experiment.
 
 Captured forecast/archival HTML gets a route-specific title and self-canonical.
 Dynamic HTML, title and bootstrap metadata are inserted through replacement
@@ -48,7 +50,8 @@ not solved by this adapter.
 
 ## HTTP boundary and authority
 
-Every direct forecast request reads Flask's existing forecast endpoint. HTTP 200
+Every direct forecast request reads Flask's existing forecast endpoint with
+`locale=en`. Archive reads and inventory discovery use the same language. HTTP 200
 authorizes published rendering; only the exact `404 forecast_not_published` response
 authorizes unpublished absence. No provider/source policy is copied. Other backend
 failures become 503. An artifact whose source response changed is discarded; a
@@ -131,7 +134,7 @@ selected-sign publication/withdrawal and content-only updates. To run only these
 node --test --test-name-pattern='regression:' poc/checks.mjs
 ```
 
-Observed proof: real Gemini and Ophiuchus text appeared completely in HTTP HTML;
+Historical verification before the English-default change found real Gemini and Ophiuchus text in HTTP HTML;
 Home had 13 dated links; Gemini June had days 6, 7, 26–29. All status/redirect checks
 passed. Browser startup retained sign/date/content, with working day navigation and
 archive-day navigation. Fixture withdrawal/publication changed forecast plus month;

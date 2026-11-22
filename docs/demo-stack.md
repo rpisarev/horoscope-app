@@ -179,6 +179,10 @@ demo --profile tools run --rm demo-migrate
 demo --profile tools run --rm demo-import
 # After reviewing the plan, explicitly insert only into this isolated instance.
 demo --profile tools run --rm demo-import --apply
+
+# Optional multilingual dataset, on the same approved isolated demo instance.
+demo --profile tools run --rm demo-import --dataset /app/fixtures/demo-2026-11-22-v2.json
+demo --profile tools run --rm demo-import --dataset /app/fixtures/demo-2026-11-22-v2.json --apply
 ```
 
 Import approved curated fixtures through `demo-import` before starting the web

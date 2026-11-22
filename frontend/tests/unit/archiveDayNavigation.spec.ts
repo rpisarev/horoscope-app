@@ -50,16 +50,16 @@ describe('legacy archive-day compatibility', () => {
   })
 
   it.each([
-    ['/archive/not-a-sign/2026/09/18', 'Такой знак не найден'],
-    ['/archive/aries/2026/02/30', 'Такой день не найден'],
-    ['/archive/aries/2026/02/29', 'Такой день не найден'],
-    ['/archive/aries/2026/13/01', 'Такой месяц не найден'],
-    ['/archive/aries/2026/00/01', 'Такой месяц не найден'],
-    ['/archive/aries/2026/09/0', 'Такой день не найден'],
-    ['/archive/aries/2026/09/-1', 'Такой день не найден'],
-    ['/archive/aries/2026/09/018', 'Такой день не найден'],
-    ['/archive/aries/2026/09/18.0', 'Такой день не найден'],
-    ['/archive/aries/bad-year/09/18', 'Архив за этот год недоступен'],
+    ['/archive/not-a-sign/2026/09/18', 'Zodiac sign not found'],
+    ['/archive/aries/2026/02/30', 'Day not found'],
+    ['/archive/aries/2026/02/29', 'Day not found'],
+    ['/archive/aries/2026/13/01', 'Month not found'],
+    ['/archive/aries/2026/00/01', 'Month not found'],
+    ['/archive/aries/2026/09/0', 'Day not found'],
+    ['/archive/aries/2026/09/-1', 'Day not found'],
+    ['/archive/aries/2026/09/018', 'Day not found'],
+    ['/archive/aries/2026/09/18.0', 'Day not found'],
+    ['/archive/aries/bad-year/09/18', 'Archive unavailable for this year'],
   ])('keeps invalid explicit route %s on contextual NotFound', async (path, message) => {
     const replace = vi.spyOn(router, 'replace')
     await router.push(path)
@@ -74,7 +74,7 @@ describe('legacy archive-day compatibility', () => {
   it('validates parameter changes when the same compatibility component is reused', async () => {
     await router.push('/archive/aries/2026/02/30')
     await flushPromises()
-    expect(wrapper.text()).toContain('Такой день не найден')
+    expect(wrapper.text()).toContain('Day not found')
     await router.push('/archive/taurus/2026/09/18')
     await flushPromises()
     expect(router.currentRoute.value.fullPath).toBe('/horoscope/taurus/2026-09-18')
