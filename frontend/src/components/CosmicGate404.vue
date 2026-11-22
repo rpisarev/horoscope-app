@@ -47,7 +47,9 @@ const stars = Array.from({ length: 84 }, (_, index) => ({
 <template>
   <section class="cosmic-gate404">
     <div class="cosmic-gate404__scene" aria-hidden="true">
-      <span v-for="(star, index) in stars" :key="index" class="star" :style="star" />
+      <div class="gate-sky">
+        <span v-for="(star, index) in stars" :key="index" class="star" :style="star" />
+      </div>
       <div class="gate-shell" :class="{ 'is-opening': opening }">
         <div class="gate-plane">
           <div class="aperture-light" />
@@ -72,12 +74,14 @@ const stars = Array.from({ length: 84 }, (_, index) => ({
                 <path d="m-3.8 19.8 7.5-.7 -1.4 1.2 -4.8.6Z" fill="#97b8c6" />
               </g>
             </defs>
-            <g v-for="device in segments" :key="device.placement" class="cosmic-gate404__segment"
-              :transform="device.placement" :style="device.material">
-              <!-- The narrow electrical bridge crosses the open gap to the next unit. -->
-              <path class="coupling" d="m5.5 10.5 3.3 .2 2 -.7 2.3 .5" />
-              <use :href="'#' + deviceId" />
-              <path class="charge-arc" d="m-7.3 10.5 2.9-.9 1.4 1.3 2.1-3.8 1.6.9 .8-2.1 1.5 3.7 2.1-.8 1.3 1.7 2.6.2 2-.9 2.4.6" />
+            <g class="castings">
+              <g v-for="device in segments" :key="device.placement" class="cosmic-gate404__segment"
+                :transform="device.placement" :style="device.material">
+                <!-- The narrow electrical bridge crosses the open gap to the next unit. -->
+                <path class="coupling" d="m5.5 10.5 3.3 .2 2 -.7 2.3 .5" />
+                <use :href="'#' + deviceId" />
+                <path class="charge-arc" d="m-7.3 10.5 2.9-.9 1.4 1.3 2.1-3.8 1.6.9 .8-2.1 1.5 3.7 2.1-.8 1.3 1.7 2.6.2 2-.9 2.4.6" />
+              </g>
             </g>
           </svg>
           <div class="kawoosh"><div class="wave-frames" /></div>
@@ -102,14 +106,15 @@ const stars = Array.from({ length: 84 }, (_, index) => ({
   height: clamp(340px, 56svh, 570px);
   overflow: hidden;
   pointer-events: none;
+}
+.gate-sky {
+  position: absolute;
+  inset: 0;
   background:
-    linear-gradient(#02071070, #02071070),
-    url('../assets/gate-nebula.webp') center / cover,
-    linear-gradient(155deg, #0b1121, #080d1c 71%);
-  /* Keep the edges of the star field continuous with the surrounding page. */
-  mask-image: linear-gradient(to bottom, transparent, black 8%, black 88%, transparent),
-    linear-gradient(to right, transparent, black 10%, black 90%, transparent);
-  mask-composite: intersect;
+    linear-gradient(#070b1960, #070b1960),
+    #070b19 url('../assets/gate-nebula.webp') center / cover;
+  background-blend-mode: normal, lighten;
+  mask-image: radial-gradient(ellipse closest-side, black 35%, #000e 57%, #0007 78%, transparent);
 }
 
 .star { position: absolute; }
@@ -137,18 +142,20 @@ const stars = Array.from({ length: 84 }, (_, index) => ({
   --breach-at: 1.84s;
   --flight: 1.72s;
   --return-at: calc(var(--breach-at) + var(--flight) * .68);
+  --diameter: min(86cqw, 92cqh, 530px);
   position: absolute;
-  width: min(86cqw, 92cqh, 530px);
+  width: var(--diameter);
   aspect-ratio: 1;
   left: 50%;
   top: 50%;
   transform: translate(-50%, -50%);
-  perspective: 1600px;
+  perspective: calc(3.2 * var(--diameter));
 }
 .gate-plane {
   position: absolute;
   inset: 0;
-  transform: rotateY(-10deg) rotateX(5deg) rotateZ(-3deg);
+  /* The roll keeps the projected normal on the existing wave's aperture-to-crest axis. */
+  transform: rotateY(-32deg) rotateX(12deg) rotateZ(-10.9deg);
 }
 .device-ring {
   position: absolute;
@@ -156,6 +163,7 @@ const stars = Array.from({ length: 84 }, (_, index) => ({
   width: 100%;
   height: 100%;
 }
+.castings { filter: drop-shadow(2.5px 1.4px 0 #344856); }
 .coupling, .charge-arc {
   fill: none;
   stroke-linejoin: round;

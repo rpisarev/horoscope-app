@@ -113,6 +113,44 @@ for (const [width, height] of [[320, 568], [568, 320]]) {
   })
 }
 
+// Zero-size landmarks in the membrane's own coordinate system project through
+// the browser's camera, including perspective. Read them in one layout pass.
+async function apertureContours(gate, radii) {
+  return gate.locator(horizon).evaluate((el, radii) => {
+    const count = 80
+    const points = radii.map(radius => Array.from({ length: count }, (_, i) => {
+      const angle = 2 * Math.PI * i / count
+      const point = document.createElement('span')
+      const left = 50 + 50 * radius * Math.cos(angle)
+      const top = 50 + 50 * radius * Math.sin(angle)
+      point.style.cssText = `position:absolute;width:0;height:0;left:${left}%;top:${top}%`
+      el.append(point)
+      return point
+    }))
+    const contours = points.map(row => row.map(point => {
+      const { x, y } = point.getBoundingClientRect()
+      return { x, y }
+    }))
+    points.flat().forEach(point => point.remove())
+    return contours
+  }, radii)
+}
+
+function closestPosition(contour, x, y) {
+  // The contour samples equal angles before projection. Interpolate along its
+  // closest edge to recover the device's angular position in the gate plane.
+  let closest = { distance: Infinity, position: 0 }
+  for (const [i, a] of contour.entries()) {
+    const b = contour[(i + 1) % contour.length]
+    const dx = b.x - a.x
+    const dy = b.y - a.y
+    const t = Math.min(1, Math.max(0, ((x - a.x) * dx + (y - a.y) * dy) / (dx * dx + dy * dy)))
+    const distance = Math.hypot(x - a.x - t * dx, y - a.y - t * dy)
+    if (distance < closest.distance) closest = { distance, position: i + t }
+  }
+  return closest
+}
+
 async function checkAssembledRing(page) {
   const ring = await page.locator(scene).evaluate((el, selector) => {
     const devices = Array.from(el.querySelectorAll(selector))
@@ -124,7 +162,7 @@ async function checkAssembledRing(page) {
       designCount: new Set(designs).size,
     }
   }, segment)
-  assert.ok(ring.segments.length >= 80 && ring.segments.length <= 90, 'Expected 80–90 gate devices')
+  assert.equal(ring.segments.length, 80, 'The assembled gate has 80 devices')
   assert.equal(ring.designCount, 1, 'Every position uses the same device')
   assert.ok(ring.visible, 'Every device is visible')
   for (const box of ring.segments) {
@@ -133,18 +171,31 @@ async function checkAssembledRing(page) {
       box.top >= ring.bounds.top && box.bottom <= ring.bounds.bottom,
       JSON.stringify({ clippedSegment: box, scene: ring.bounds }))
   }
-  const xs = ring.segments.map(box => box.x + box.width / 2)
-  const ys = ring.segments.map(box => box.y + box.height / 2)
-  const width = Math.max(...xs) - Math.min(...xs)
-  const height = Math.max(...ys) - Math.min(...ys)
-  assert.ok(Math.min(width, height) > .9 * Math.max(width, height), 'Ring should be near-circular')
-  const x = Math.min(...xs) + width / 2
-  const y = Math.min(...ys) + height / 2
-  const radii = xs.map((cx, i) => Math.hypot(cx - x, ys[i] - y))
-  assert.ok(Math.min(...radii) > .88 * Math.max(...radii), 'Every device sits on the rim')
+  // A device is centered about half a casting outside the membrane's edge.
+  const [rim] = await apertureContours(page.locator(scene), [1.045])
+  const half = rim.length / 2
+  const diameters = rim.slice(0, half).map((point, i) =>
+    Math.hypot(point.x - rim[i + half].x, point.y - rim[i + half].y))
+  const major = Math.max(...diameters)
+  const minor = Math.min(...diameters)
+  const ratio = minor / major
+  assert.ok(ratio > .78 && ratio < .93, `Expected a moderately oblique aperture (minor/major ${ratio})`)
+  const positions = ring.segments.map(box => {
+    const { distance, position } = closestPosition(rim, box.x + box.width / 2, box.y + box.height / 2)
+    assert.ok(distance < major * .009, `Device center misses the projected aperture rim by ${distance}px`)
+    return position
+  }).sort((a, b) => a - b)
+  const step = rim.length / positions.length
+  positions.forEach((position, i) => {
+    const next = positions[i + 1] ?? positions[0] + rim.length
+    const gap = (next - position) / step
+    assert.ok(gap > .8 && gap < 1.2, `Expected one device per angular step (observed ${gap})`)
+  })
 
   // Sample well inside the aperture, away from the rim lights and surrounding stars.
-  const size = Math.floor(Math.min(width, height) * .45)
+  const x = (Math.min(...rim.map(p => p.x)) + Math.max(...rim.map(p => p.x))) / 2
+  const y = (Math.min(...rim.map(p => p.y)) + Math.max(...rim.map(p => p.y))) / 2
+  const size = Math.floor(minor * .45)
   return { x: Math.round(x - size / 2), y: Math.round(y - size / 2), width: size, height: size }
 }
 
@@ -168,10 +219,11 @@ async function apertureBrightness(page, clip) {
 // fixed throughout the shot, so its DOM bounds cannot measure the water's reach.
 async function paintedFootprint(gate, selector) {
   const sceneBox = await gate.boundingBox()
-  const shell = await gate.locator('.gate-shell').boundingBox()
+  // Express the same rim band and outside clearance in aperture radii.
+  const contours = await apertureContours(gate, [.98, 1.14, 1.21])
   const shown = await gate.screenshot({ scale: 'css' })
   const hidden = await gate.screenshot({ scale: 'css', style: selector + ' { visibility: hidden !important; }' })
-  return gate.evaluate(async (_, { frames, cx, cy, radius }) => {
+  return gate.evaluate(async (_, { frames, contours, sceneBox }) => {
     const [a, b] = await Promise.all(frames.map(async data => {
       const image = new Image()
       image.src = 'data:image/png;base64,' + data
@@ -189,6 +241,15 @@ async function paintedFootprint(gate, selector) {
     let beyondFarRim = 0
     let brightEdge = 0
     const border = Math.min(a.width, a.height) * .035
+    const cx = (Math.min(...contours[1].map(p => p.x)) + Math.max(...contours[1].map(p => p.x))) / 2 - sceneBox.x
+    const ctx = document.createElement('canvas').getContext('2d')
+    const [innerRim, outerRim, clearance] = contours.map(contour => {
+      const path = new Path2D()
+      path.moveTo(contour[0].x - sceneBox.x, contour[0].y - sceneBox.y)
+      for (const { x, y } of contour.slice(1)) path.lineTo(x - sceneBox.x, y - sceneBox.y)
+      path.closePath()
+      return path
+    })
     for (let i = 0; i < a.data.length; i += 4) {
       const delta = Math.max(Math.abs(a.data[i] - b.data[i]), Math.abs(a.data[i + 1] - b.data[i + 1]),
         Math.abs(a.data[i + 2] - b.data[i + 2]))
@@ -197,19 +258,16 @@ async function paintedFootprint(gate, selector) {
       const col = i / 4 % a.width
       const row = Math.floor(i / 4 / a.width)
       if (delta >= 48 && Math.min(col, row, a.width - 1 - col, a.height - 1 - row) < border) brightEdge++
-      const x = col - cx
-      const y = row - cy
-      const distance = Math.hypot(x, y) / radius
-      if (distance > .86 && distance < 1) rim++
-      if (x < 0 && distance > 1.06) beyondRim++
-      if (x >= 0 && distance > 1.06) beyondFarRim++
+      if (!ctx.isPointInPath(innerRim, col, row) && ctx.isPointInPath(outerRim, col, row)) rim++
+      if (!ctx.isPointInPath(clearance, col, row)) {
+        if (col < cx) beyondRim++
+        else beyondFarRim++
+      }
     }
     return { area, rim, beyondRim, beyondFarRim, brightEdge }
   }, {
     frames: [shown.toString('base64'), hidden.toString('base64')],
-    cx: shell.x + shell.width / 2 - sceneBox.x,
-    cy: shell.y + shell.height / 2 - sceneBox.y,
-    radius: shell.width / 2,
+    contours, sceneBox,
   })
 }
 
@@ -306,7 +364,7 @@ test('320px entrance keeps the projecting crest clear of the scene edges', async
 })
 
 for (const [width, height] of [[1440, 900], [320, 568]]) {
-  test(`${width}×${height} shows the entire assembled ring under reduced motion`, async t => {
+  test(`${width}×${height} shows the entire oblique ring around the open membrane under reduced motion`, async t => {
     const page = await openGate(t, unknown, { viewport: { width, height }, reducedMotion: 'reduce' })
     await checkAssembledRing(page)
   })

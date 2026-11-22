@@ -516,8 +516,9 @@ Frontend `ZODIACS` has `key`, `nameEn`, `nameRu`, `glyph`, `start`, and `end`; H
 | Catch-all | `NotFound` with `CosmicGate404`; client-rendered 404 UI, not a proven HTTP 404 response. |
 
 The catch-all and contextual 404 pages share an Ori Supergate made of 80 identical
-devices. It starts fully assembled, with open space inside. The links charge in
-sequence, the membrane opens, and a blue-white wave projects from the aperture.
+devices. The fully assembled ring is seen at an oblique angle, with open space
+inside. The links charge in sequence, the membrane opens, and a blue-white wave
+projects along the ring’s outward normal.
 As the crest recedes, a ripple spreads across the persistent silver-blue surface.
 Enabling reduced motion skips to that surface for the rest of the visit. The localized message
 and Home link sit below the scene in portrait and alongside it in short landscape.
