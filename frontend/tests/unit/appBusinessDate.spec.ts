@@ -26,7 +26,7 @@ describe('application business date lifecycle', () => {
     expect(wrapper.find('[data-testid="view"]').exists()).toBe(true)
     await flushPromises()
     expect(wrapper.find('[role="alert"]').exists()).toBe(true)
-    expect(wrapper.get('button').text()).toBe('Повторить')
+    expect(wrapper.get('button').text()).toBe('Try again')
     expect(wrapper.find('[data-testid="view"]').exists()).toBe(true)
     // Cold convenience redirects may have been cancelled; retry explicitly after initial failure.
     await vi.advanceTimersByTimeAsync(60_000)

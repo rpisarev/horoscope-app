@@ -2,29 +2,49 @@
   <Starfield />
 
   <main class="home relative text-center text-white">
-    <header class="home-intro px-4" lang="ru">
-      <h1 class="font-serif text-2xl font-semibold sm:text-3xl">Гороскоп на сегодня</h1>
-      <p class="mt-1 text-slate-200">Выберите свой знак.</p>
+    <header class="home-intro px-4">
+      <h1 class="font-serif text-2xl font-semibold sm:text-3xl">{{ text.homeTitle }}</h1>
+      <p class="mt-1 text-slate-200">{{ text.chooseSign }}</p>
     </header>
-    <ZodiacWheel class="home-wheel" :zodiacs="HOME_ZODIACS" @select="goToHoroscope" />
+    <ZodiacWheel class="home-wheel" :zodiacs="signs" @select="goToHoroscope" />
   </main>
 </template>
 
-<script setup>
+<script setup lang="ts">
+import { computed, shallowRef, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
 import Starfield from '../components/Starfield.vue'
 import ZodiacWheel from '../components/ZodiacWheel.vue'
-import { HOME_ZODIACS } from '../constants/zodiac'
+import { getSignMetadata } from '../api/signs'
+import { homeZodiacs, type HomeZodiacItem } from '../constants/zodiac'
+import { localeQuery } from '../utils/locale'
+import { useUiText } from '../utils/uiText'
 import { refreshBusinessDate } from '../utils/businessDate'
 
 const router = useRouter()
+const { locale, text } = useUiText()
+const names = shallowRef<ReadonlyMap<string, string>>()
+const signs = computed(() => homeZodiacs(locale.value, names.value))
 
-async function goToHoroscope(zodiac) {
+watch(locale, async (language, _, onCleanup) => {
+  let current = true
+  onCleanup(() => { current = false })
+  names.value = undefined
+  try {
+    const result = await getSignMetadata(language)
+    if (current) names.value = result
+  } catch {
+    // Bundled labels keep every Wheel target usable when metadata is unavailable.
+  }
+}, { immediate: true })
+
+async function goToHoroscope(zodiac: HomeZodiacItem) {
   try {
     const { business_date } = await refreshBusinessDate()
     await router.push({
       name: 'horoscope',
+      query: localeQuery(locale.value),
       params: { sign: zodiac.slug, day: business_date },
     })
   } catch {
@@ -36,7 +56,7 @@ async function goToHoroscope(zodiac) {
 <style scoped>
 .home {
   display: grid;
-  height: 100svh;
+  height: var(--home-height, 100svh);
   min-height: min-content;
   overflow: clip;
   grid-template-rows: minmax(min-content, 1fr) auto minmax(0, 1fr);

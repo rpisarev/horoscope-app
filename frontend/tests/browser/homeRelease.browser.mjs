@@ -19,6 +19,7 @@ before(async () => {
   await page.route('**/*', route => {
     const url = new URL(route.request().url())
     if (url.origin !== base.origin) return route.abort()
+    if (url.pathname === '/api/signs/meta') return route.fulfill({ json: { locale: 'en', items: [] } })
     if (url.pathname === '/api/meta') {
       return route.fulfill({ json: { business_date: '2026-11-15', timezone: 'Europe/Kyiv' } })
     }
@@ -26,8 +27,8 @@ before(async () => {
     return route.continue()
   })
   await page.goto(base.href)
-  await page.getByRole('heading', { level: 1, name: 'Гороскоп на сегодня' }).waitFor()
-  await page.getByText('Выберите свой знак.', { exact: true }).waitFor()
+  await page.getByRole('heading', { level: 1, name: 'Today’s horoscope' }).waitFor()
+  await page.getByText('Choose your sign.', { exact: true }).waitFor()
 })
 after(async () => { await browser?.close() })
 

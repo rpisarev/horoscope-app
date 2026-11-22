@@ -17,13 +17,16 @@
       </p>
 
       <p class="font-lato text-xs text-center tracking-wide mt-2 text-white/75">
-        Click to open horoscope
+        {{ text.openHoroscope }}
       </p>
     </div>
   </transition>
 </template>
 
 <script setup lang="ts">
+import { useUiText } from '../utils/uiText'
+
+const { text } = useUiText()
 defineProps<{
   show: boolean
   sign: string

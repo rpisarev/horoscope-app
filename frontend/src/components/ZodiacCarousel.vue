@@ -1,7 +1,6 @@
 <template>
   <div class="relative select-none">
-    <!-- desktop arrows -->
-    <button class="hidden md:flex absolute left-0 z-10 h-7 items-start pt-1 px-1" @click="prev" aria-label="Prev sign">
+    <button type="button" class="sign-arrow left-0" @click="prev" :aria-label="text.previousSign">
       <ChevronLeft class="w-6 h-6" />
     </button>
 
@@ -16,25 +15,27 @@
       <SwiperSlide v-for="(z,i) in zodiacs" :key="z.key">
         <div :class="['flex flex-col items-center gap-0.5 transition-opacity', i===active? 'opacity-100':'opacity-50']">
           <span class="text-3xl">{{ z.glyph }}</span>
-          <span class="text-sm">{{ z.nameRu }}</span>
-         <small class="text-xs text-gray-400">{{ formatRange(z.start,z.end) }}</small>
+          <span class="text-sm">{{ zodiacName(z, locale) }}</span>
+          <small class="text-xs text-gray-400">{{ formatRange(z.start, z.end, locale) }}</small>
         </div>
       </SwiperSlide>
     </Swiper>
 
-    <button class="hidden md:flex absolute right-0 top-0 z-10 h-7 items-start pt-1 px-1" @click="next" aria-label="Next sign">
+    <button type="button" class="sign-arrow right-0" @click="next" :aria-label="text.nextSign">
       <ChevronRight class="w-6 h-6" />
     </button>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, watch } from 'vue'
 import type { Swiper as SwiperType } from 'swiper'
 import { Swiper, SwiperSlide } from 'swiper/vue'
 import { ChevronLeft, ChevronRight } from 'lucide-vue-next'
-import { ZODIACS, findIndexByKey, formatRange } from '../constants/zodiac'
+import { ZODIACS, findIndexByKey, formatRange, zodiacName } from '../constants/zodiac'
+import { useUiText } from '../utils/uiText'
 
+const { locale, text } = useUiText()
 
 const props = defineProps<{ modelValue: string }>()
 const emit = defineEmits<{ (e:'update:modelValue', v:string):void }>()
@@ -74,4 +75,11 @@ watch(
   }
 )
 </script>
+
+<style scoped>
+.sign-arrow {
+  @apply absolute top-1/2 z-10 flex size-11 -translate-y-1/2 items-center justify-center rounded;
+  @apply focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-200;
+}
+</style>
 

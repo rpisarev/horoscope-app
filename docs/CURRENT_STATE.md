@@ -1,10 +1,43 @@
 # Current Project State
 
-- State updated: 2026-11-22 (MVP product iteration 2; ADR decision date remains 2026-11-14).
+- State updated: 2026-11-22 (multilingual MVP iteration 3).
 - Main working branch: `feature/main-page-start`
 - Historical iteration 4 base: `17fb256ce8f5e651a5d05b4a8911d905585f4e82` (PR #25). Its worktree/runtime observations below describe that earlier iteration, not the current checkout. STAB-015 D1–D8 remain Accepted.
 - Historical iteration 3 base: `4fe11be` (PR #24), incorporating STAB-015.01 and earlier safety fixes. The older verification sections below retain their own evidence and dates.
 - Earlier publication audit baseline: `34623b27bd69d681edf1a3ab8f8aac31bc74cafa` (`Update frontend (#20)`). Results and runtime observations in the historical sections below belong to their recorded checkpoints.
+
+## Multilingual MVP iteration 3
+
+The owner-prepared base was `feature/mvp-multilanguage` at `827ca3b` (PR #29),
+with the same tree as the verified Iteration 2 checkpoint. The reader now opens
+in English. Ukrainian and Russian use `?lang=uk` and `?lang=ru` on the same
+paths. The selector preserves the current sign, date and page. Sign names,
+dates, controls, document metadata and errors follow the selected language.
+Forecast, year, month and latest-publication reads use that exact locale.
+An absent translation keeps the requested date and offers a dated recovery
+link when the same language has a publication. The legacy API default is Russian.
+
+The isolated demo imported 39 English originals and 78 translations for all
+13 enabled signs on November 22–24, 2026. Each translation identifies the
+exact English text by key, version and SHA-256. November 25 is deliberately
+unpublished. Reapplying V2 inserted zero rows. Chrome verified all 117 texts
+and source references and exercised November 21, when only V1 Russian exists.
+The fingerprint of all 260 V1/V2 rows was identical before and after browser
+reads. The eight generation-history and accounting tables stayed empty.
+
+| Integrated verification | Observed result |
+| --- | --- |
+| Offline safety and demo setup | 32 safety and 18 configuration checks passed |
+| Disposable PostgreSQL via STAB-007 | 42 focused and 1,072 full-suite tests passed |
+| Frontend | Locked install, typecheck and production build passed. 162 focused and 257 full-suite unit tests passed with two workers. |
+| Existing English-only POC | 22 checks passed. A separate fixture-backed run captured seven pages and verified eight HTTP responses. |
+| Chrome | 23 layout, control and release checks plus six authenticated Caddy/Flask/PostgreSQL scenarios passed. Keyboard, touch emulation, reduced motion, favicon, refresh and Back/Forward were exercised. No page exceptions in the authenticated journeys. |
+
+Human semantic review of the sample translations and physical-device/Safari
+acceptance remain open. D-LANG-01 defines the future English-source workflow.
+Automatic generation and translation, regeneration/versioning policy and the
+remaining STAB-015 execution prerequisites are deferred. [Publishing contract](multilingual-publishing.md)
+and [demo import procedure](demo-fixtures.md).
 
 ## MVP product iteration 2, 2026-11-22
 

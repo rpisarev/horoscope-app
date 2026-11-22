@@ -23,7 +23,7 @@ describe('forecast API', () => {
     vi.mocked(fetch).mockResolvedValueOnce(json(payload))
     await expect(getForecast(scope)).resolves.toEqual({ kind: 'published', text })
     expect(fetch).toHaveBeenCalledTimes(1)
-    expect(fetch).toHaveBeenCalledWith('/api/forecast?sign=aries&date=2026-09-28')
+    expect(fetch).toHaveBeenCalledWith('/api/forecast?sign=aries&date=2026-09-28&locale=en')
   })
 
   it.each(['Plain text', ''])('preserves non-JSON text %j', async text => {
@@ -34,6 +34,22 @@ describe('forecast API', () => {
   it('recognizes only the unpublished 404 contract', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(json({ error: 'forecast_not_published' }, 404))
     await expect(getForecast(scope)).resolves.toEqual({ kind: 'not-published' })
+  })
+
+  it.each(['en', 'uk', 'ru'] as const)('requests and reads the selected %s edition', async locale => {
+    vi.mocked(fetch).mockResolvedValueOnce(json({ locale, forecast: 'Published' }))
+    await expect(getForecast({ ...scope, locale })).resolves.toEqual({ kind: 'published', text: 'Published' })
+    expect(fetch).toHaveBeenCalledExactlyOnceWith(`/api/forecast?sign=aries&date=2026-09-28&locale=${locale}`)
+  })
+
+  it.each([
+    [200, { locale: 'ru', text: 'Wrong edition' }],
+    [200, { locale: null, forecast: 'Invalid edition' }],
+    [404, { locale: 'ru', error: 'forecast_not_published' }],
+  ] as const)('rejects a mismatched locale at HTTP %s', async (status, payload) => {
+    vi.mocked(fetch).mockResolvedValueOnce(json(payload, status))
+    await expect(getForecast({ ...scope, locale: 'uk' })).rejects.toThrow('Unexpected forecast locale')
+    expect(fetch).toHaveBeenCalledTimes(1)
   })
 
   it.each([

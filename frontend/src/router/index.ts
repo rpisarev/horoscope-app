@@ -6,6 +6,7 @@ import ArchiveForecast from '../views/ArchiveForecast.vue'
 import NotFound from '../views/NotFound.vue'
 
 import { refreshBusinessDate } from '../utils/businessDate'
+import { localeFromQuery, locationWithLocale } from '../utils/locale'
 
 const routes = [
   {
@@ -59,6 +60,10 @@ const router = createRouter({
 })
 
 router.beforeEach(async to => {
+  if (to.query.lang !== undefined && localeFromQuery(to.query.lang) === 'en') {
+    // Redirect before committing, so Back/Forward never gains a redundant entry.
+    return locationWithLocale(to, 'en')
+  }
   const matchedPath = to.matched[to.matched.length - 1]?.path
   const usesToday = matchedPath === '/horoscope' || matchedPath === '/archive'
   if (!usesToday) return

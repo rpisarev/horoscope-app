@@ -50,12 +50,12 @@ describe('ZodiacCarousel with real Swiper in jsdom (not browser smoke)', () => {
     expect(swiper.initialized).toBe(true)
     expect(swiper.params.loop).toBe(true)
     expect(swiper.realIndex).toBe(findIndexByKey(sign))
-    expect(wrapper.get('.opacity-100').text()).toContain(ZODIACS[findIndexByKey(sign)].nameRu)
+    expect(wrapper.get('.opacity-100').text()).toContain(ZODIACS[findIndexByKey(sign)].nameEn)
   })
 
   it('handles real arrow clicks and loop edges', async () => {
     const { wrapper, swiper } = await mountReal('capricorn')
-    await wrapper.get('button[aria-label="Prev sign"]').trigger('click')
+    await wrapper.get('button[aria-label="Previous sign"]').trigger('click')
     await settle()
     expect(swiper.realIndex).toBe(ZODIACS.length - 1)
     expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual(['sagittarius'])
@@ -71,7 +71,7 @@ describe('ZodiacCarousel with real Swiper in jsdom (not browser smoke)', () => {
       await wrapper.setProps({ modelValue: sign })
       await settle()
       expect(swiper.realIndex).toBe(findIndexByKey(sign))
-      expect(wrapper.get('.opacity-100').text()).toContain(ZODIACS[findIndexByKey(sign)].nameRu)
+      expect(wrapper.get('.opacity-100').text()).toContain(ZODIACS[findIndexByKey(sign)].nameEn)
       expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual([sign])
     }
   })

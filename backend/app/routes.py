@@ -26,13 +26,17 @@ bp = Blueprint("api", __name__)
 site_bp = Blueprint("site", __name__)
 
 
-def _localized_sign_name(sign: ZodiacSign, locale: str) -> str:
-    if locale == "uk" and sign.name_uk:
-        return sign.name_uk
-    if locale == "en" and sign.name_en:
-        return sign.name_en
-
-    return sign.name_ru
+def _sign_metadata(sign: ZodiacSign, locale: str) -> dict:
+    requested_name = {"en": sign.name_en, "uk": sign.name_uk}.get(locale)
+    item = {
+        "key": sign.key,
+        "name": requested_name or sign.name_ru,
+        "sort_order": sign.sort_order,
+        "is_active": bool(sign.is_enabled),
+    }
+    if locale in {"en", "uk"} and not requested_name:
+        item["name_locale"] = "ru"
+    return item
 
 
 def _parse_int_arg(name: str, *, min_value: int, max_value: int) -> int:
@@ -314,15 +318,7 @@ def signs_meta():
     return jsonify(
         {
             "locale": locale,
-            "items": [
-                {
-                    "key": sign.key,
-                    "name": _localized_sign_name(sign, locale),
-                    "sort_order": sign.sort_order,
-                    "is_active": bool(sign.is_enabled),
-                }
-                for sign in rows
-            ],
+            "items": [_sign_metadata(sign, locale) for sign in rows],
         }
     )
 

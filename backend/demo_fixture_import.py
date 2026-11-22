@@ -14,6 +14,8 @@ from uuid import UUID
 
 MARKER = 'Демонстраційний текст — не результат AI-генерації'
 DEFAULT_DATASET = Path(__file__).parent / 'fixtures' / 'demo-2026-11-15-v1.json'
+MULTILINGUAL_DATASET = DEFAULT_DATASET.with_name('demo-2026-11-22-v2.json')
+DEMO_TITLES = {'en': 'Demo forecast', 'uk': 'Демонстраційний прогноз', 'ru': 'Демонстрационный прогноз'}
 
 
 class Refused(ValueError):
@@ -94,13 +96,7 @@ def verify_identity(connection, target):
         'Importer has writes outside demo forecasts.')
 
 
-def load_dataset(path):
-    raw = Path(path).read_bytes()
-    require(len(raw) <= 200_000, 'Dataset is too large.')
-    data = json.loads(raw)
-    require(isinstance(data, dict) and data.get('format') == 1, 'Unsupported demo dataset format.')
-    require(re.fullmatch(r'demo-\d{4}-\d{2}-\d{2}-v[1-9]\d*', data.get('id', '')) is not None,
-            'Invalid dataset version.')
+def _validate_v1(data):
     require(data.get('locale') == 'ru' and data.get('forecast_type') == 'daily', 'Unsupported demo scope.')
     start, end = date.fromisoformat(data['window_start']), date.fromisoformat(data['window_end'])
     require(end-start == timedelta(days=6), 'The presentation window must contain seven days.')
@@ -115,38 +111,140 @@ def load_dataset(path):
         require(re.fullmatch(r'[a-z]+', sign) is not None and isinstance(text, str)
                 and MARKER in text and 80 <= len(text) <= 12000, 'Invalid or unmarked demo text.')
     data['parsed_dates'] = sorted(dates)
+
+
+def _distinct_json_keys(pairs):
+    result = {}
+    for key, value in pairs:
+        require(key not in result, 'Duplicate JSON field in dataset.')
+        result[key] = value
+    return result
+
+
+def _iso_date(value):
+    require(isinstance(value, str), 'Invalid fixture date.')
+    try:
+        day = date.fromisoformat(value)
+    except ValueError:
+        raise Refused('Invalid fixture date.') from None
+    require(day.isoformat() == value, 'Fixture dates must use YYYY-MM-DD.')
+    return day
+
+
+def _validate_v2(data):
+    require(set(data) == {'format', 'id', 'forecast_type', 'window_start', 'window_end',
+                          'missing_date', 'dates', 'sign_keys', 'records'},
+            'Unexpected multilingual dataset fields.')
+    require(data['forecast_type'] == 'daily', 'Unsupported demo scope.')
+    start, end = _iso_date(data['window_start']), _iso_date(data['window_end'])
+    days = (end - start).days + 1
+    require(1 <= days <= 31, 'Invalid multilingual presentation window.')
+    require(data['id'].startswith(f'demo-{start.isoformat()}-v') and not data['id'].endswith('-v1'),
+            'Dataset version must identify the multilingual window.')
+    dates = [start + timedelta(days=i) for i in range(days)]
+    require(isinstance(data['dates'], list) and sorted(_iso_date(d) for d in data['dates']) == dates,
+            'Missing, duplicate or out-of-window fixture dates.')
+    require(_iso_date(data['missing_date']) not in dates, 'The deliberate unpublished date must remain absent.')
+    signs = data['sign_keys']
+    require(isinstance(signs, list) and 1 <= len(signs) <= 64
+            and all(isinstance(k, str) and re.fullmatch('[a-z]{1,32}', k) for k in signs)
+            and len(set(signs)) == len(signs), 'Invalid or duplicate fixture sign keys.')
+    require(isinstance(data['records'], list) and len(data['records']) == len(signs) * days,
+            'Missing or extra multilingual forecast records.')
+
+    index = {}
+    seen_bodies = set()
+    for record in data['records']:
+        require(isinstance(record, dict) and set(record) == {'sign_key', 'target_date', 'texts', 'source_text_sha256'},
+                'Invalid multilingual forecast fields.')
+        sign, day = record['sign_key'], _iso_date(record['target_date'])
+        require(sign in signs and day in dates and (sign, day) not in index,
+                'Unknown or duplicate multilingual forecast key.')
+        texts = record['texts']
+        require(isinstance(texts, dict) and texts.keys() == DEMO_TITLES.keys(),
+                'Each forecast must contain exactly en, uk and ru.')
+        for locale, title in DEMO_TITLES.items():
+            text = texts[locale]
+            prefix = title + '.\n\n'
+            require(isinstance(text, str) and text.startswith(prefix) and len(text) <= 12000,
+                    'Invalid text or localized demo marker.')
+            body = text[len(prefix):]
+            body_key = (sign, locale, body)
+            require(body and body == body.strip() and body_key not in seen_bodies
+                    and not re.search(r'[\x00-\x08\x0b-\x1f\x7f\ud800-\udfff]', text),
+                    'Invalid or reused multilingual forecast body.')
+            seen_bodies.add(body_key)
+        require(record['source_text_sha256'] == hashlib.sha256(texts['en'].encode('utf-8')).hexdigest(),
+                'English source text digest mismatch.')
+        index[sign, day] = record
+    data['parsed_dates'] = dates
+    data['record_index'] = index
+
+
+def load_dataset(path):
+    raw = Path(path).read_bytes()
+    require(len(raw) <= 200_000, 'Dataset is too large.')
+    data = json.loads(raw, object_pairs_hook=_distinct_json_keys)
+    require(isinstance(data, dict) and type(data.get('format')) is int and data['format'] in (1, 2),
+            'Unsupported demo dataset format.')
+    require(isinstance(data.get('id'), str) and re.fullmatch(r'demo-\d{4}-\d{2}-\d{2}-v[1-9]\d*', data['id']),
+            'Invalid dataset version.')
+    if data['format'] == 1:
+        _validate_v1(data)
+    else:
+        _validate_v2(data)
     data['digest'] = hashlib.sha256(raw).hexdigest()
     return data
 
 
-def fixture_values(dataset, sign, day):
+def fixture_values(dataset, sign, day, locale='ru'):
     payload = {'demo_dataset': dataset['id'], 'dataset_sha256': dataset['digest'],
                'provenance': 'static-demo-fixture', 'ai_generated': False}
-    return (sign, day, 'ru', 'daily', 'Демонстраційний прогноз', dataset['texts'][sign],
+    if dataset['format'] == 1:
+        require(locale == 'ru', 'Unsupported legacy demo locale.')
+        title, text = 'Демонстраційний прогноз', dataset['texts'][sign]
+    else:
+        record = dataset['record_index'][sign, day]
+        title, text = DEMO_TITLES[locale], record['texts'][locale]
+        payload.update(
+            source_key={'sign_key': sign, 'target_date': day.isoformat(), 'forecast_type': 'daily', 'locale': 'en'},
+            source_version=dataset['id'],
+            source_text_sha256=record['source_text_sha256'],
+            content_role='original' if locale == 'en' else 'translation',
+        )
+    return (sign, day, locale, 'daily', title, text,
             payload, 'published', 'demo-fixture', None, None, None, None)
 
 
 def plan_import(connection, dataset):
     signs = [r[0] for r in connection.execute(
         'SELECT key FROM public.zodiac_signs WHERE is_enabled ORDER BY sort_order LIMIT 65').fetchall()]
-    require(0 < len(signs) <= 64 and set(signs) <= set(dataset['texts']),
+    multilingual = dataset['format'] == 2
+    covered_signs = dataset['sign_keys'] if multilingual else dataset['texts']
+    require(0 < len(signs) <= 64 and set(signs) <= set(covered_signs),
             'Enabled-sign metadata is empty or not covered by this dataset.')
+    locales = list(DEMO_TITLES) if multilingual else ['ru']
+    missing = date.fromisoformat(dataset['missing_date'])
+    check_dates = dataset['parsed_dates'] + ([missing] if multilingual else [])
     rows = connection.execute('SELECT sign_key,target_date,locale,forecast_type,title,text,payload,status,source,'
         'model_name,prompt_version_id,generation_item_id,generated_at,published_at FROM public.forecasts '
-        'WHERE sign_key = ANY(%s) AND target_date = ANY(%s) AND locale=%s AND forecast_type=%s',
-        (signs, dataset['parsed_dates'], 'ru', 'daily')).fetchall()
-    existing = {(r[0], r[1]): r for r in rows}
+        'WHERE sign_key = ANY(%s) AND target_date = ANY(%s) AND locale = ANY(%s) AND forecast_type=%s',
+        (signs, check_dates, locales, 'daily')).fetchall()
+    require(not any(row[1] == missing and row[7] == 'published' for row in rows),
+            'A forecast is already published on the deliberate missing date.')
+    existing = {row[:4]: row for row in rows}
     pending, unchanged = [], 0
     for sign in signs:
         for day in dataset['parsed_dates']:
-            values = fixture_values(dataset, sign, day)
-            previous = existing.get((sign, day))
-            if previous is not None:
-                require(tuple(previous[:13]) == values and previous[13] is not None,
-                        'Conflicting forecast exists; no rows were overwritten.')
-                unchanged += 1
-            else:
-                pending.append(values)
+            for locale in locales:
+                values = fixture_values(dataset, sign, day, locale)
+                previous = existing.get(values[:4])
+                if previous is not None:
+                    require(tuple(previous[:13]) == values and previous[13] is not None,
+                            'Conflicting forecast exists; no rows were overwritten.')
+                    unchanged += 1
+                else:
+                    pending.append(values)
     return pending, unchanged, len(signs)
 
 

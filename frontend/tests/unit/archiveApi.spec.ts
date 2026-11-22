@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { getArchiveYears, getArchiveMonthAvailability, getLatestPublishedDate } from '../../src/api/archive'
 
-const scope = { sign: 'gemini', locale: 'ru', type: 'daily' }
+const scope = { sign: 'gemini', locale: 'ru', type: 'daily' } as const
 const monthScope = { ...scope, year: 2026, month: 6 }
 const json = (payload: unknown, status = 200) => new Response(JSON.stringify(payload), { status })
 
@@ -28,6 +28,12 @@ describe('archive years API', () => {
 })
 
 describe('archive month API', () => {
+  it.each([getArchiveMonthAvailability, getLatestPublishedDate])('rejects metadata from a different edition', async read => {
+    vi.mocked(fetch).mockResolvedValueOnce(json({ locale: 'en', days: [], latest_published_date: '2026-06-26' }))
+    await expect(read(monthScope)).rejects.toThrow('Unexpected archive month locale')
+    expect(fetch).toHaveBeenCalledTimes(1)
+  })
+
   it('returns only strict published flags with real ISO dates, ignoring malformed entries and aggregates', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(json({ days: [
       { date: '2026-06-06', has_forecast: true },

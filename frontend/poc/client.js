@@ -31,9 +31,6 @@ function homeNavigation(app, day) {
   const section = document.createElement('section')
   section.dataset.pocHome = ''
   section.style.cssText = 'position:relative;z-index:50;background:#020617;color:white;padding:1rem'
-  const heading = document.createElement('h1')
-  heading.textContent = 'Horoscope App'
-  section.append(heading)
   const nav = document.createElement('nav')
   for (const sign of options.signs) {
     const link = document.createElement('a')
@@ -58,11 +55,17 @@ try {
   const meta = responses.get('/api/meta')
   if (meta.status !== 200 || !meta.body.business_date) throw new Error('Business metadata unavailable')
   for (const [path, response] of responses) {
+    if (path === '/api/signs/meta?locale=en') continue // Home provides local labels if metadata is unavailable.
     if (response.status !== 200 && !(path.startsWith('/api/forecast?') && response.status === 404 && response.body.error === 'forecast_not_published')) throw new Error(`POC cannot capture failed request ${path}`)
   }
-  if (app.textContent.includes('прогноз загружается') || app.textContent.includes('Не удалось')) throw new Error('POC refuses loading/error capture')
+  const forecastStatus = app.querySelector('article p.text-amber-200, article p.text-slate-400')?.textContent.trim()
+  if (app.querySelector('[role="alert"], [aria-busy="true"]') ||
+      forecastStatus === 'Loading forecast…' || forecastStatus === 'Could not load the forecast.') {
+    throw new Error('POC refuses loading/error capture')
+  }
   homeNavigation(app, meta.body.business_date)
-  const title = (app.querySelector('h1')?.textContent.trim().replace(/\s+/g, ' ') || 'Horoscope App') + (options.kind === 'home' ? '' : ` — ${options.path} — Horoscope App`)
+  const siteTitle = document.title
+  const title = (app.querySelector('h1')?.textContent.trim().replace(/\s+/g, ' ') || siteTitle) + (options.kind === 'home' ? '' : ` — ${options.path} — ${siteTitle}`)
   document.title = title
   app.removeAttribute('style')
   if (hasSnapshot) original.remove()
@@ -77,17 +80,20 @@ try {
     // route after the ordinary SPA navigates. This is not a general meta library.
     const syncHead = () => {
       const path = location.pathname
-      if (path !== '/') app.querySelector('[data-poc-home]')?.remove()
+      const english = document.documentElement.lang === 'en'
+      if (!english || path !== '/') app.querySelector('[data-poc-home]')?.remove()
       else homeNavigation(app, responses.get('/api/meta').body.business_date)
-      document.title = `${app.querySelector('h1')?.textContent.trim().replace(/\s+/g, ' ') || 'Horoscope App'} — ${path}`
-      let published = path === '/'
+      document.title = `${app.querySelector('h1')?.textContent.trim().replace(/\s+/g, ' ') || siteTitle} — ${path}`
+      let published = english && path === '/'
       const forecast = /^\/horoscope\/([^/]+)\/([^/]+)$/.exec(path)
-      if (forecast) published = responses.get(`/api/forecast?${new URLSearchParams({ sign: forecast[1], date: forecast[2] })}`)?.status === 200
+      if (english && forecast) published = responses.get(`/api/forecast?${new URLSearchParams({ sign: forecast[1], date: forecast[2], locale: 'en' })}`)?.status === 200
       const archive = /^\/archive\/([^/]+)\/(\d{4})\/(\d{1,2})$/.exec(path)
-      if (archive) published = [...responses].some(([key, value]) => {
-        const url = new URL(key, location.origin), q = url.searchParams
-        return url.pathname === '/api/archive/month' && q.get('sign') === archive[1] && Number(q.get('year')) === Number(archive[2]) && Number(q.get('month')) === Number(archive[3]) && value.status === 200
-      })
+      if (english && archive) {
+        const query = new URLSearchParams({
+          year: String(Number(archive[2])), month: String(Number(archive[3])), sign: archive[1], locale: 'en', type: 'daily',
+        })
+        published = responses.get(`/api/archive/month?${query}`)?.status === 200
+      }
       let canonical = document.querySelector('link[rel="canonical"]')
       if (published && !pending) {
         if (!canonical) { canonical = document.createElement('link'); canonical.rel = 'canonical'; document.head.append(canonical) }

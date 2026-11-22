@@ -9,8 +9,8 @@ async function get(url) {
   return fetch(url, { redirect: 'manual', signal: AbortSignal.timeout(5000) })
 }
 const meta = await (await get(backend + '/api/meta')).json()
-const signs = await (await get(backend + '/api/signs')).json()
-const inventory = await (await get(backend + '/api/seo/sitemap/urls')).json()
+const signMetadata = await (await get(backend + '/api/signs/meta?locale=en')).json()
+const inventory = await (await get(backend + '/api/seo/sitemap/urls?locale=en')).json()
 const ophiuchus = inventory.items.find(i => i.type === 'forecast' && i.sign_key === 'ophiuchus')
 assert.ok(ophiuchus, 'Live acceptance requires a verified published Ophiuchus fixture')
 const routes = [
@@ -27,23 +27,27 @@ for (const [path, status] of routes) {
   else {
     const dom = new JSDOM(html), document = dom.window.document
     assert.ok(document.querySelector('h1')?.textContent.trim(), path)
-    assert.equal(document.documentElement.lang, 'uk', 'POC preserves existing language')
+    assert.equal(document.documentElement.lang, 'en', 'Bare paths capture the English product')
     if (status === 200) assert.equal(document.querySelector('link[rel="canonical"]')?.href, origin + path)
     if (path.startsWith('/horoscope/') && status === 200) {
       const [, , sign, date] = path.split('/')
-      const forecast = await (await get(backend + `/api/forecast?${new URLSearchParams({ sign, date })}`)).json()
-      assert.ok(document.querySelector('article').textContent.includes(forecast.text), 'Full real backend forecast must exist before JS')
+      const forecast = await (await get(backend + `/api/forecast?${new URLSearchParams({ sign, date, locale: 'en' })}`)).json()
+      const paragraphs = [...document.querySelectorAll('article h2 + div > p')].map(p => p.textContent.trim())
+      assert.deepEqual(paragraphs, forecast.text.split(/\r?\n/).map(p => p.trim()).filter(Boolean),
+        'Full real backend forecast must exist before JS')
     }
     if (path === '/') {
-      assert.equal(signs.length, 13)
-      for (const sign of signs) assert.ok(document.querySelector(`a[href="/horoscope/${sign}/${meta.business_date}"]`), sign)
+      assert.equal(signMetadata.locale, 'en')
+      assert.ok(signMetadata.items.length > 0, 'Active sign metadata is required')
+      for (const { key } of signMetadata.items) assert.ok(document.querySelector(`a[href="/horoscope/${key}/${meta.business_date}"]`), key)
     }
     if (path.startsWith('/archive/')) {
-      const links = [...document.querySelectorAll('[aria-label="Календарь архива"] a')].map(a => a.getAttribute('href'))
-      assert.deepEqual(links, [6, 7, 26, 27, 28, 29].map(d => `/horoscope/gemini/2026-06-${String(d).padStart(2, '0')}`))
+      const links = [...document.querySelectorAll('[aria-label="Archive calendar"] a')].map(a => a.getAttribute('href'))
+      const month = await (await get(backend + '/api/archive/month?year=2026&month=6&sign=gemini&locale=en&type=daily')).json()
+      assert.deepEqual(links, month.days.filter(day => day.has_forecast === true).map(day => `/horoscope/gemini/${day.date}`))
     }
     dom.window.close()
   }
   console.log(JSON.stringify({ path, status, contentType: response.headers.get('content-type'), location: response.headers.get('location'), meaningfulHtml: status !== 301 }))
 }
-console.log('PASS: eight real-data HTTP/initial-HTML checks; no JavaScript executed')
+console.log('PASS: eight HTTP and initial-HTML checks against the selected backend')

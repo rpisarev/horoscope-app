@@ -14,20 +14,20 @@ function deferred<T>() {
 }
 
 const validPath = '/horoscope/aries/2026-07-16'
-const julyLatestRequest = '/api/archive/month?year=2026&month=7&sign=aries&locale=ru&type=daily&include_latest=1'
-const loading = '— прогноз загружается —'
-const unpublished = 'Прогноз ещё не опубликован'
-const loadError = 'Не удалось загрузить прогноз'
+const julyLatestRequest = '/api/archive/month?year=2026&month=7&sign=aries&locale=en&type=daily&include_latest=1'
+const loading = 'Loading forecast…'
+const unpublished = 'No forecast has been published for this date.'
+const loadError = 'Could not load the forecast.'
 const invalidRoutes = [
-  ['/horoscope/unknown/2026-07-16', 'Такой знак не найден'],
-  ['/horoscope/Aries/2026-07-16', 'Такой знак не найден'],
-  ['/horoscope/aries/not-a-date', 'Такой день не найден'],
-  ['/horoscope/aries/2026-7-16', 'Такой день не найден'],
-  ['/horoscope/aries/2026-02-29', 'Такой день не найден'],
-  ['/horoscope/aries/2026-04-31', 'Такой день не найден'],
-  ['/horoscope/aries/2026-13-01', 'Такой день не найден'],
-  ['/horoscope/aries/2026-07-00', 'Такой день не найден'],
-  ['/horoscope/aries/0000-01-01', 'Такой день не найден'],
+  ['/horoscope/unknown/2026-07-16', 'Zodiac sign not found'],
+  ['/horoscope/Aries/2026-07-16', 'Zodiac sign not found'],
+  ['/horoscope/aries/not-a-date', 'Day not found'],
+  ['/horoscope/aries/2026-7-16', 'Day not found'],
+  ['/horoscope/aries/2026-02-29', 'Day not found'],
+  ['/horoscope/aries/2026-04-31', 'Day not found'],
+  ['/horoscope/aries/2026-13-01', 'Day not found'],
+  ['/horoscope/aries/2026-07-00', 'Day not found'],
+  ['/horoscope/aries/0000-01-01', 'Day not found'],
 ]
 
 let router: Router
@@ -45,9 +45,9 @@ beforeEach(async () => {
   requests = []
   vi.stubGlobal('fetch', vi.fn((url: string) => {
     if (url.startsWith('/api/archive/month?')) {
-      expect(url).toMatch(/^\/api\/archive\/month\?year=\d+&month=\d+&sign=[a-z]+&locale=ru&type=daily&include_latest=1$/)
+      expect(url).toMatch(/^\/api\/archive\/month\?year=\d+&month=\d+&sign=[a-z]+&locale=(en|uk|ru)&type=daily&include_latest=1$/)
     } else {
-      expect(url).toMatch(/^\/api\/forecast\?sign=[a-z]+&date=\d{4}-\d{2}-\d{2}$/)
+      expect(url).toMatch(/^\/api\/forecast\?sign=[a-z]+&date=\d{4}-\d{2}-\d{2}&locale=(en|uk|ru)$/)
     }
     const response = deferred<Response>()
     requests.push({ url, response })
@@ -110,9 +110,9 @@ async function settleStale(index: number, outcome: string) {
 function forecastSnapshot(page: ReturnType<typeof mount>) {
   // A hidden or detached DOM alone cannot detect late state writes.
   const state = page.getComponent(HoroscopeView).vm as unknown as {
-    forecastText: string; errorText: string; isLoading: boolean; latestPublishedDate: string | null
+    forecastText: string; errorKey: 'missingForecast' | 'forecastError' | null; isLoading: boolean; latestPublishedDate: string | null
   }
-  return () => ({ text: state.forecastText, error: state.errorText, loading: state.isLoading, latest: state.latestPublishedDate })
+  return () => ({ text: state.forecastText, error: state.errorKey, loading: state.isLoading, latest: state.latestPublishedDate })
 }
 
 describe('HoroscopeView route recovery', () => {
@@ -131,8 +131,8 @@ describe('HoroscopeView route recovery', () => {
     await navigate(validPath)
     expect(page.getComponent(HoroscopeView).vm.$.uid).toBe(viewId)
     expect(requests.map(request => request.url)).toEqual([
-      '/api/forecast?sign=aries&date=2026-07-16',
-      '/api/forecast?sign=aries&date=2026-07-16',
+      '/api/forecast?sign=aries&date=2026-07-16&locale=en',
+      '/api/forecast?sign=aries&date=2026-07-16&locale=en',
     ])
     expect(page.text()).toContain(loading)
     expect(page.text()).not.toContain('Original forecast')
@@ -150,7 +150,7 @@ describe('HoroscopeView route recovery', () => {
 
     await navigate('/horoscope/taurus/2024-02-29')
     expect(requests).toHaveLength(1)
-    expect(requests[0].url).toBe('/api/forecast?sign=taurus&date=2024-02-29')
+    expect(requests[0].url).toBe('/api/forecast?sign=taurus&date=2024-02-29&locale=en')
     await respond(0, 'Valid leap-day forecast')
     expect(page.text()).toContain('Valid leap-day forecast')
   })
@@ -159,10 +159,10 @@ describe('HoroscopeView route recovery', () => {
     const page = await mountRoute()
     const snapshot = forecastSnapshot(page)
     await navigate('/horoscope/aries/2026-02-30')
-    expect(snapshot()).toEqual({ text: '', error: '', loading: false, latest: null })
+    expect(snapshot()).toEqual({ text: '', error: null, loading: false, latest: null })
     await settleStale(0, outcome)
-    expect(snapshot()).toEqual({ text: '', error: '', loading: false, latest: null })
-    expect(page.text()).toContain('Такой день не найден')
+    expect(snapshot()).toEqual({ text: '', error: null, loading: false, latest: null })
+    expect(page.text()).toContain('Day not found')
     expect(consoleError).not.toHaveBeenCalled()
 
     await navigate(validPath)
@@ -205,9 +205,9 @@ describe('HoroscopeView route recovery', () => {
     await navigate('/horoscope/taurus/2026-07-16')
     await navigate('/horoscope/gemini/2026-07-15')
     expect(requests.map(request => request.url)).toEqual([
-      '/api/forecast?sign=aries&date=2026-07-16',
-      '/api/forecast?sign=taurus&date=2026-07-16',
-      '/api/forecast?sign=gemini&date=2026-07-15',
+      '/api/forecast?sign=aries&date=2026-07-16&locale=en',
+      '/api/forecast?sign=taurus&date=2026-07-16&locale=en',
+      '/api/forecast?sign=gemini&date=2026-07-15&locale=en',
     ])
     await respond(2, 'Newest forecast')
     await respond(0, 'Older Aries forecast')
@@ -242,7 +242,7 @@ describe('HoroscopeView route recovery', () => {
     expect(router.currentRoute.value.fullPath).toBe('/horoscope/taurus/2026-07-15')
     expect(replace).toHaveBeenCalledTimes(1)
     expect(requests).toHaveLength(2)
-    expect(requests[1].url).toBe('/api/forecast?sign=taurus&date=2026-07-15')
+    expect(requests[1].url).toBe('/api/forecast?sign=taurus&date=2026-07-15&locale=en')
     signControl.vm.$emit('update:modelValue', 'taurus')
     dayControl.vm.$emit('update:modelValue', '2026-07-15')
     await flushPromises()
@@ -281,7 +281,7 @@ describe('HoroscopeView route recovery', () => {
   it.each([
     [404, unpublished],
     [500, loadError],
-    [200, '— прогноз пока пуст —'],
+    [200, 'This forecast is empty.'],
   ])('preserves status %s after recovery', async (status, expected) => {
     const page = await mountRoute()
     await respond(0, 'Original forecast')
@@ -302,20 +302,21 @@ describe('HoroscopeView route recovery', () => {
     expect(page.text()).toContain('Canonical forecast')
   })
 
-  it.each(['2025-12-31', '0004-02-29'])('offers the published day %s and navigates only when the link is followed', async latest => {
+  it.each([['2025-12-31', 'December 31, 2025'], ['0004-02-29', 'February 29, 4']])('offers the published day %s and navigates only when the link is followed', async (latest, displayDate) => {
     const original = validPath + '?from=calendar#forecast'
     const page = await mountRoute(original)
     const push = vi.spyOn(router, 'push')
     await respond(0, '', 404)
     expect(requests.map(request => request.url)).toEqual([
-      '/api/forecast?sign=aries&date=2026-07-16', julyLatestRequest,
+      '/api/forecast?sign=aries&date=2026-07-16&locale=en', julyLatestRequest,
     ])
     expect(page.get('article').text()).toContain(unpublished)
     expect(page.find('article a').exists()).toBe(false)
 
     await respondLatest(1, latest)
     const link = page.get('article a')
-    expect(link.text()).toContain(latest)
+    expect(link.get('time').attributes('datetime')).toBe(latest)
+    expect(link.get('time').text()).toBe(displayDate)
     expect(link.attributes('href')).toBe(`/horoscope/aries/${latest}`)
     expect(page.get('article').text()).toContain(unpublished)
     expect(page.text()).toContain('2026-07-16')
@@ -328,7 +329,7 @@ describe('HoroscopeView route recovery', () => {
     await link.trigger('click')
     await flushPromises()
     expect(router.currentRoute.value.fullPath).toBe(`/horoscope/aries/${latest}`)
-    expect(requests[2].url).toBe(`/api/forecast?sign=aries&date=${latest}`)
+    expect(requests[2].url).toBe(`/api/forecast?sign=aries&date=${latest}&locale=en`)
     await respond(2, 'Published on the linked day')
     expect(page.get('article').text()).toContain('Published on the linked day')
     expect(page.find('article a').exists()).toBe(false)
@@ -351,10 +352,27 @@ describe('HoroscopeView route recovery', () => {
     await respond(0, '', 404)
     await navigate('/horoscope/taurus/2026-09-03')
     await respond(2, '', 404)
-    expect(requests[3].url).toBe('/api/archive/month?year=2026&month=9&sign=taurus&locale=ru&type=daily&include_latest=1')
+    expect(requests[3].url).toBe('/api/archive/month?year=2026&month=9&sign=taurus&locale=en&type=daily&include_latest=1')
     await respondLatest(3, '2026-08-01')
     await respondLatest(1, '2024-11-20')
     expect(page.get('article a').attributes('href')).toBe('/horoscope/taurus/2026-08-01')
+    expect(requests).toHaveLength(4)
+  })
+
+  it('invalidates both content and recovery requests when only the language changes', async () => {
+    const page = await mountRoute(validPath)
+    await navigate(validPath + '?lang=uk')
+    expect(requests[1].url).toContain('&locale=uk')
+    await respond(1, '', 404)
+    expect(requests[2].url).toContain('locale=uk&type=daily&include_latest=1')
+    await navigate(validPath + '?lang=ru')
+    expect(requests[3].url).toContain('&locale=ru')
+    await respond(3, 'Русский прогноз')
+    await respond(0, 'Old English forecast')
+    await respondLatest(2, '2026-07-14')
+    expect(page.get('article').text()).toContain('Русский прогноз')
+    expect(page.text()).not.toContain('Old English forecast')
+    expect(page.find('article a').exists()).toBe(false)
     expect(requests).toHaveLength(4)
   })
 

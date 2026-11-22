@@ -1,23 +1,37 @@
-# Static demonstration forecasts — MVP-A03
+# Static demonstration forecasts
 
-The [versioned dataset](../backend/fixtures/demo-2026-11-15-v1.json) contains static
-texts, not model output. Every displayed forecast includes **Демонстраційний текст — не результат AI-генерації**.
-The existing API/frontend require no special rendering path.
+Both packaged datasets contain static forecasts with a visible demo marker in the text.
+The importer writes only the signs currently enabled in database metadata. An empty
+enabled set or an enabled sign absent from the selected dataset causes refusal.
 
-`demo-2026-11-15-v1` covers `ru/daily`: 2026-11-15 through 2026-11-21,
-2026-11-14, and archive dates 2025-12-31, 2026-09-30, 2026-10-31.
-2026-11-13 deliberately remains unpublished. Each enabled database sign receives
-11 rows (143 with the seeded 13 enabled signs). Unknown enabled signs or empty
-metadata cause refusal; disabling a sign does not silently create its rows.
+| Dataset | Published daily forecasts | Deliberately unpublished | New rows with all 13 seeded signs enabled |
+| --- | --- | --- | ---: |
+| [V1, CLI default](../backend/fixtures/demo-2026-11-15-v1.json) | Russian, Nov 14–21, 2026 and archive dates Dec 31, 2025, Sep 30 and Oct 31, 2026 | Nov 13, 2026 | 143 |
+| [V2, explicit selection](../backend/fixtures/demo-2026-11-22-v2.json) | English, Ukrainian and Russian, Nov 22–24, 2026 | Nov 25, 2026 in all three locales | 117 |
 
-The presentation window is finite. `/api/meta` and the server clock remain real.
-After 2026-11-21, prepare/review another version with explicit later dates and
-marked text. Import only nonconflicting dates; do not overwrite old datasets,
-change the business date, generate content nightly, or run generation utilities.
-A new version overlapping existing content is intentionally refused. For example,
-the next nonoverlapping dataset can cover 2026-11-22–29: presentation window
-2026-11-23–29 plus its previous day 2026-11-22. Do not reinclude already imported
-archive dates; those rows remain available from the old version.
+V1 retains its original bytes, Russian locale, per-sign text and historical
+Ukrainian marker **Демонстраційний текст — не результат AI-генерації**.
+V2 adds three rows for each enabled sign/day. Each group in the JSON contains a
+distinct English original and Ukrainian and Russian translations of that original.
+Their respective opening lines are **Demo forecast.**, **Демонстраційний прогноз.**
+and **Демонстрационный прогноз.**
+
+Every V2 forecast has its own `(sign_key, target_date, locale, forecast_type)` key.
+Its payload records `content_role` as `original` or `translation`, the dataset ID
+as `source_version`, and the canonical English `source_key`. For example, all
+three Aries rows for Nov 22 refer to
+`{"sign_key":"aries","target_date":"2026-11-22","locale":"en","forecast_type":"daily"}`.
+Their `source_text_sha256` hashes the exact stored English forecast text as UTF-8,
+including its marker, punctuation and two line feeds before the body. The separate
+`dataset_sha256` hashes the entire fixture file. The loader checks each source
+digest, full locale coverage and unique keys before connecting. It checks that
+each sign has a different marked text on each date within a locale.
+A published row on the V2 missing date in the active scope also
+causes preflight to refuse the import.
+
+The two versions can coexist. Importing V2 preserves V1 rows, timestamps and payloads.
+The presentation dates are fixed in each file. The business date still comes from
+`/api/meta`. Future demonstrations can package a reviewed version for new dates.
 
 ## Guarded offline import
 
@@ -26,17 +40,14 @@ fresh-cluster bootstrap and migration. The normal backend role cannot import.
 The wrapper constructs a dedicated URL from the importer secret. It never reads
 host `.env`, generic `DATABASE_URL`, libpq overrides, or OpenAI credentials.
 
-```bash
-# Use the same explicit -p / --env-file / -f demo Compose arguments as setup.
-docker compose ... run --rm --no-deps demo-import
-# Review would_insert, unchanged, dataset/window before authorizing writes.
-docker compose ... run --rm --no-deps demo-import --apply
-# Repeating the same import reports inserted=0, with timestamps/IDs unchanged.
-```
+Using the `demo` shell function defined in the runbook, omit `--dataset` for
+V1. Select V2 by its packaged path on both the preview and the write command.
 
-The packaged version is the default. `--dataset /path/to/reviewed.json` selects a
-new explicit version packaged in an updated tools image. This is not a public
-endpoint or a general import tool for arbitrary production databases.
+```bash
+demo --profile tools run --rm --no-deps demo-import --dataset /app/fixtures/demo-2026-11-22-v2.json
+# After reviewing the dataset, window and expected counts on the approved demo instance
+demo --profile tools run --rm --no-deps demo-import --dataset /app/fixtures/demo-2026-11-22-v2.json --apply
+```
 
 The [loader](../backend/demo_fixture_import.py) checks the explicit URL's fixed
 host/port/database/user and rejects conflicting environment before connecting.
@@ -67,18 +78,17 @@ is unchanged; this restricted offline staging import does not call its lifecycle
 Run mock guards first (no DB/network):
 
 ```bash
-python3 -B -m unittest discover -s backend/safety_tests -p test_demo_fixture_guard.py -v
+python3 -B -m unittest discover -s backend/safety_tests -v
 ```
 
 Only through the [STAB-007 harness](testing-safety.md):
 
 ```bash
-bash scripts/backend-test.sh tests/test_demo_fixtures.py
+bash scripts/backend-test.sh tests/test_demo_fixtures.py tests/test_multilingual_demo_fixtures.py
 ```
 
-Those SQL tests use the harness-owned disposable DB and explicitly mock the
-separate target guard; they do not pretend that `horoscope_test` is a valid demo
-instance. Final integration additionally runs the unpatched CLI guard against the
-separate disposable demo, including actual database roles/marker, dry-run, repeat
-no-op, public JSON/archives and zero generation history. Never use the development
-DB for either positive or negative tests.
+The SQL tests use the harness-owned disposable DB and mock the separate demo
+target guard. They exercise dry-run, conflicts, repeat imports, preservation of
+V1 rows, translation provenance, public reads, archive availability and empty
+generation history. The original V1 demo-stack acceptance used a separate
+disposable demo with the real bootstrap marker and roles.

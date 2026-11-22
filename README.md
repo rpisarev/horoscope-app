@@ -2,6 +2,13 @@
 
 Vue + Flask application for sign-agnostic daily horoscope generation.
 
+The reader opens in English. The language selector switches to Ukrainian or
+Russian on the current page. Localized links keep the same sign and date, for
+example `/horoscope/aries/2026-11-22?lang=uk`. Each forecast and archive
+calendar reflects publications in the selected language. The multilingual demo
+covers November 22–24, 2026. See [publishing policy](docs/multilingual-publishing.md)
+and [offline fixtures](docs/demo-fixtures.md).
+
 A private, read-only demonstration can use the separate [demo stack](docs/demo-stack.md):
 built Vue assets, Caddy HTTPS/Basic Auth, Gunicorn and an isolated PostgreSQL
 database with [marked static fixtures](docs/demo-fixtures.md). It has no scheduler,
@@ -299,7 +306,9 @@ Supported optional query params:
 locale=ru|uk|en
 ```
 
-Only active signs are returned by this public endpoint.
+If an English or Ukrainian name is missing, the item retains its historical
+Russian `name` and identifies it with `name_locale: "ru"`. The reader uses its
+bundled label for the requested language in that case.
 
 ### `GET /api/meta`
 
