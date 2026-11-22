@@ -23,14 +23,23 @@ after(async () => { await browser?.close() })
 async function openGate(t, path, options = {}) {
   const page = await browser.newPage(options)
   const errors = []
+  const blocked = new Set()
   page.on('pageerror', error => errors.push(error.message))
+  page.on('console', message => {
+    if (message.type() !== 'error') return
+    if (blocked.has(message.location().url) && message.text().includes('net::ERR_FAILED')) return
+    errors.push(message.text())
+  })
   t.after(async () => {
     await page.close()
-    assert.deepEqual(errors, [], 'Uncaught errors during the 404 visit or recovery')
+    assert.deepEqual(errors, [], 'Page or console errors during the 404 visit or recovery')
   })
   await page.route('**/*', route => {
     const url = new URL(route.request().url())
-    if (url.origin !== base.origin) return route.abort()
+    if (url.origin !== base.origin) {
+      blocked.add(url.href)
+      return route.abort()
+    }
     if (url.pathname === '/api/meta') {
       return route.fulfill({ json: { business_date: '2026-11-22', timezone: 'Europe/Kyiv' } })
     }
@@ -155,6 +164,147 @@ async function apertureBrightness(page, clip) {
   }, png.toString('base64'))
 }
 
+// Compare the same paused frame with one painted layer hidden. The atlas box is
+// fixed throughout the shot, so its DOM bounds cannot measure the water's reach.
+async function paintedFootprint(gate, selector) {
+  const sceneBox = await gate.boundingBox()
+  const shell = await gate.locator('.gate-shell').boundingBox()
+  const shown = await gate.screenshot({ scale: 'css' })
+  const hidden = await gate.screenshot({ scale: 'css', style: selector + ' { visibility: hidden !important; }' })
+  return gate.evaluate(async (_, { frames, cx, cy, radius }) => {
+    const [a, b] = await Promise.all(frames.map(async data => {
+      const image = new Image()
+      image.src = 'data:image/png;base64,' + data
+      await image.decode()
+      const canvas = document.createElement('canvas')
+      canvas.width = image.width
+      canvas.height = image.height
+      const ctx = canvas.getContext('2d')
+      ctx.drawImage(image, 0, 0)
+      return ctx.getImageData(0, 0, image.width, image.height)
+    }))
+    let area = 0
+    let rim = 0
+    let beyondRim = 0
+    let beyondFarRim = 0
+    let brightEdge = 0
+    const border = Math.min(a.width, a.height) * .035
+    for (let i = 0; i < a.data.length; i += 4) {
+      const delta = Math.max(Math.abs(a.data[i] - b.data[i]), Math.abs(a.data[i + 1] - b.data[i + 1]),
+        Math.abs(a.data[i + 2] - b.data[i + 2]))
+      if (delta < 12) continue
+      area++
+      const col = i / 4 % a.width
+      const row = Math.floor(i / 4 / a.width)
+      if (delta >= 48 && Math.min(col, row, a.width - 1 - col, a.height - 1 - row) < border) brightEdge++
+      const x = col - cx
+      const y = row - cy
+      const distance = Math.hypot(x, y) / radius
+      if (distance > .86 && distance < 1) rim++
+      if (x < 0 && distance > 1.06) beyondRim++
+      if (x >= 0 && distance > 1.06) beyondFarRim++
+    }
+    return { area, rim, beyondRim, beyondFarRim, brightEdge }
+  }, {
+    frames: [shown.toString('base64'), hidden.toString('base64')],
+    cx: shell.x + shell.width / 2 - sceneBox.x,
+    cy: shell.y + shell.height / 2 - sceneBox.y,
+    radius: shell.width / 2,
+  })
+}
+
+const transientLayers = '.kawoosh, .aperture-light, .return-wake'
+
+async function assertTransientsHidden(page) {
+  const visible = await page.locator(transientLayers).evaluateAll(layers => layers
+    .filter(layer => layer.checkVisibility({ opacityProperty: true, visibilityProperty: true }))
+    .map(layer => layer.className))
+  assert.deepEqual(visible, [], 'Opening light, surge and wake have cleared')
+}
+
+async function assertSettledGate(page) {
+  await assertTransientsHidden(page)
+  assert.equal(await page.locator(horizon).evaluate(el => Number(getComputedStyle(el).opacity)), 1,
+    'The membrane stays open')
+  assert.ok(await page.locator(scene).evaluate(el => el.getAnimations({ subtree: true }).every(
+    animation => animation.effect.getTiming().iterations === Infinity)), 'Only ambient motion may remain')
+}
+
+async function pauseOpening(gate) {
+  const animations = await gate.evaluateHandle(el => {
+    const items = el.getAnimations({ subtree: true })
+    items.forEach(animation => animation.pause())
+    return items
+  })
+  const { delay, duration, iterations } = await gate.locator('.kawoosh').evaluate(layer =>
+    layer.getAnimations()[0].effect.getTiming())
+  assert.equal(iterations, 1, 'Opening plays once')
+  async function seek(time) {
+    await animations.evaluate((items, time) => items.forEach(animation => { animation.currentTime = time }), time)
+  }
+  return { delay, duration, seek }
+}
+
+test('rim charge precedes a breach, projecting crest and retracting wake', async t => {
+  const page = await openGate(t, unknown, { viewport: { width: 1440, height: 900 }, reducedMotion: 'no-preference' })
+  const gate = page.locator(scene)
+  const { delay, duration, seek } = await pauseOpening(gate)
+  const clip = await checkAssembledRing(page)
+  const framePosition = () => gate.locator('.wave-frames').evaluate(el => {
+    const style = getComputedStyle(el)
+    return [style.translate, style.transform]
+  })
+  const firstChargedModule = () => gate.locator('.charge-arc').evaluateAll(items =>
+    items.findIndex(el => Number(getComputedStyle(el).opacity) > .25))
+  await seek(delay * .5)
+  const earlyModule = await firstChargedModule()
+  await seek(delay * .8)
+  assert.ok(earlyModule >= 0 && await firstChargedModule() > earlyModule, 'The charge moves around the rim')
+  assert.ok(await gate.locator('.kawoosh').evaluate(el => !el.checkVisibility({ visibilityProperty: true })),
+    'No water projects during charge')
+  const dark = await apertureBrightness(page, clip)
+  assert.equal(await gate.locator(horizon).evaluate(el => Number(getComputedStyle(el).opacity)), 0)
+
+  await seek(delay + duration * .13)
+  assert.ok(await apertureBrightness(page, clip) > dark + 8, 'Water breaks through inside the charged rim')
+  const breach = await paintedFootprint(gate, '.kawoosh')
+  const breachFrame = await framePosition()
+  await seek(delay + duration * .43)
+  const crest = await paintedFootprint(gate, '.kawoosh')
+  const crestFrame = await framePosition()
+  assert.notDeepEqual(crestFrame, breachFrame, 'The water silhouette changes as it advances')
+  const light = await paintedFootprint(gate, '.aperture-light')
+  assert.ok(crest.area > breach.area * 1.1 &&
+    crest.beyondRim > Math.max(100, breach.beyondRim * 2, crest.beyondFarRim * 2),
+    'The painted wave expands and projects beyond the foreground rim: ' + JSON.stringify({ breach, crest }))
+  assert.ok(light.rim > 100, 'The flash reaches the rim: ' + JSON.stringify(light))
+  await seek(delay + duration * .84)
+  const retreat = await paintedFootprint(gate, '.kawoosh')
+  assert.notDeepEqual(await framePosition(), crestFrame, 'The return uses another water shape')
+  // The returning water still covers the aperture. Measure contraction at the
+  // physical rim and outside it, where the crest projected in front of the gate.
+  assert.ok(retreat.rim < crest.rim * .5 && retreat.beyondRim < crest.beyondRim * .5,
+    'The crest draws back into the aperture: ' + JSON.stringify({ crest, retreat }))
+  assert.ok(await gate.locator('.return-wake').evaluate(el => el.checkVisibility({ opacityProperty: true, visibilityProperty: true })),
+    'Retraction disturbs the underlying membrane')
+  await seek(delay + duration + 1000)
+  await assertTransientsHidden(page)
+  assert.ok(await apertureBrightness(page, clip) > dark + 24, 'The settled water remains illuminated')
+})
+
+test('320px entrance keeps the projecting crest clear of the scene edges', async t => {
+  const page = await openGate(t, unknown, { viewport: { width: 320, height: 568 }, reducedMotion: 'no-preference' })
+  const gate = page.locator(scene)
+  const { delay, duration, seek } = await pauseOpening(gate)
+  for (const fraction of [.40, .43, .47]) {
+    await seek(delay + duration * fraction)
+    const crest = await paintedFootprint(gate, '.kawoosh')
+    assert.ok(crest.beyondRim > 100, 'The crest still projects past the physical rim on mobile')
+    assert.ok(crest.brightEdge < crest.area * .002,
+      `Only scattered spray may reach the edge at ${fraction} of the flight: ${JSON.stringify(crest)}`)
+  }
+})
+
 for (const [width, height] of [[1440, 900], [320, 568]]) {
   test(`${width}×${height} shows the entire assembled ring under reduced motion`, async t => {
     const page = await openGate(t, unknown, { viewport: { width, height }, reducedMotion: 'reduce' })
@@ -175,10 +325,11 @@ test('one uninterrupted visit starts assembled and keeps the lit horizon through
       `Original horizon should remain fully visible at ${seconds}s`)
     const lit = await apertureBrightness(page, clip)
     assert.ok(lit > dark + 24, `Aperture should stay lit at ${seconds}s (inactive ${dark}, observed ${lit})`)
+    await assertSettledGate(page)
   }
 })
 
-test('reduced motion shows the assembled gate on entry and follows live preference changes', async t => {
+test('entry with reduced motion stays open as live preferences change', async t => {
   const page = await openGate(t, unknown, { reducedMotion: 'reduce' })
   const gate = page.locator(scene)
   for (const preference of ['reduce', 'no-preference', 'reduce', 'no-preference']) {
@@ -188,6 +339,7 @@ test('reduced motion shows the assembled gate on entry and follows live preferen
       const animations = document.querySelector(scene).getAnimations({ subtree: true })
       return reduced ? !animations.length : animations.some(animation => animation.playState === 'running')
     }, { scene, reduced })
+    await assertSettledGate(page)
     if (reduced) {
       const clip = await checkAssembledRing(page)
       assert.ok(await gate.locator(horizon).evaluate(el =>
@@ -196,11 +348,35 @@ test('reduced motion shows the assembled gate on entry and follows live preferen
       assert.ok(lit > 45, `Reduced motion should show the lit surface immediately (observed ${lit})`)
     }
   }
-  const animations = await gate.evaluateHandle(el => el.getAnimations({ subtree: true }))
-  await page.getByRole('link', { name: 'Back to home' }).click()
-  await page.waitForURL(base.href)
-  await gate.waitFor({ state: 'detached' })
-  assert.ok(await animations.evaluate(items => items.length > 0 && items.every(
-    animation => animation.playState !== 'running' && !document.getAnimations().includes(animation)
-  )))
 })
+
+for (const action of ['reduce motion', 'navigate Home']) {
+  test(`interrupt the opening wave mid-flight to ${action}`, async t => {
+    const page = await openGate(t, unknown, { reducedMotion: 'no-preference' })
+    const gate = page.locator(scene)
+    await page.waitForFunction(() => {
+      const wave = document.querySelector('.kawoosh')
+      const flight = wave.getAnimations()[0]
+      if (!flight || !wave.checkVisibility({ opacityProperty: true, visibilityProperty: true })) return false
+      const { delay, duration } = flight.effect.getTiming()
+      return flight.currentTime >= delay + duration * .35
+    })
+    const animations = await gate.evaluateHandle(el => el.getAnimations({ subtree: true }))
+    if (action === 'navigate Home') {
+      await page.getByRole('link', { name: 'Back to home' }).click()
+      await page.waitForURL(base.href)
+      await gate.waitFor({ state: 'detached' })
+    }
+    else {
+      await page.emulateMedia({ reducedMotion: 'reduce' })
+      await page.waitForFunction(selector => !document.querySelector(selector).getAnimations({ subtree: true }).length, scene)
+      await assertSettledGate(page)
+      await page.emulateMedia({ reducedMotion: 'no-preference' })
+      await page.waitForFunction(selector => document.querySelector(selector).getAnimations({ subtree: true }).length > 0, scene)
+      await assertSettledGate(page)
+    }
+    assert.ok(await animations.evaluate(items => items.length > 0 && items.every(animation =>
+      animation.playState !== 'running' && !document.getAnimations().includes(animation))),
+    'The original opening animations are retired')
+  })
+}

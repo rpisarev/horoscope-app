@@ -1,8 +1,21 @@
 <script setup>
-import { useId } from 'vue'
+import { onBeforeUnmount, onMounted, ref, useId } from 'vue'
 
 const deviceId = useId()
 const SEGMENT_COUNT = 80
+const opening = ref(true)
+let motionPreference
+
+function skipOpeningOnReduce() {
+  if (motionPreference?.matches) opening.value = false
+}
+
+onMounted(() => {
+  motionPreference = window.matchMedia?.('(prefers-reduced-motion: reduce)')
+  skipOpeningOnReduce()
+  motionPreference?.addEventListener('change', skipOpeningOnReduce)
+})
+onBeforeUnmount(() => motionPreference?.removeEventListener('change', skipOpeningOnReduce))
 
 function noise(seed) {
   const value = Math.sin(seed * 12.9898 + 78.233) * 43758.5453
@@ -35,10 +48,12 @@ const stars = Array.from({ length: 84 }, (_, index) => ({
   <section class="cosmic-gate404">
     <div class="cosmic-gate404__scene" aria-hidden="true">
       <span v-for="(star, index) in stars" :key="index" class="star" :style="star" />
-      <div class="gate-shell">
+      <div class="gate-shell" :class="{ 'is-opening': opening }">
         <div class="gate-plane">
+          <div class="aperture-light" />
           <div class="cosmic-gate404__event-horizon">
             <div class="water-phase" />
+            <div class="return-wake" @animationend.self="opening = false" />
           </div>
 
           <svg class="device-ring" viewBox="0 0 512 512" focusable="false">
@@ -65,8 +80,8 @@ const stars = Array.from({ length: 84 }, (_, index) => ({
               <path class="charge-arc" d="m-7.3 10.5 2.9-.9 1.4 1.3 2.1-3.8 1.6.9 .8-2.1 1.5 3.7 2.1-.8 1.3 1.7 2.6.2 2-.9 2.4.6" />
             </g>
           </svg>
+          <div class="kawoosh"><div class="wave-frames" /></div>
         </div>
-        <div class="kawoosh" />
       </div>
     </div>
 
@@ -119,6 +134,9 @@ const stars = Array.from({ length: 84 }, (_, index) => ({
 }
 
 .gate-shell {
+  --breach-at: 1.84s;
+  --flight: 1.72s;
+  --return-at: calc(var(--breach-at) + var(--flight) * .68);
   position: absolute;
   width: min(86cqw, 92cqh, 530px);
   aspect-ratio: 1;
@@ -168,16 +186,25 @@ const stars = Array.from({ length: 84 }, (_, index) => ({
   background: url('../assets/supergate-water-shimmer.webp') center / cover;
   opacity: 0;
 }
-.kawoosh {
+.aperture-light, .return-wake {
   position: absolute;
-  width: 138%;
-  height: 100%;
-  left: -24.5%;
-  top: 0;
-  background: url('../assets/supergate-surge.webp') center / 100% 100% no-repeat;
-  transform-origin: 54% 50%;
+  display: none;
+  border-radius: 50%;
   opacity: 0;
 }
+.aperture-light {
+  inset: 4.5%;
+  background: radial-gradient(closest-side, transparent 78%, #4fa8d51c 89%,
+    #a6ecff9e 94%, #dbfaff 96%, #86d9fd96 97.5%, transparent 100%);
+  box-shadow: 0 0 24px 6px #6bb9ed36;
+}
+.return-wake {
+  inset: 0;
+  background: url('../assets/supergate-water-shimmer.webp') center / cover;
+  mask-image: radial-gradient(closest-side, transparent 60%, #0008 71%, black 79%, transparent 94%);
+  mix-blend-mode: screen;
+}
+.kawoosh { display: none; }
 
 .cosmic-gate404__copy { position: relative; text-align: center; }
 
@@ -199,10 +226,46 @@ const stars = Array.from({ length: 84 }, (_, index) => ({
 /* The assembled devices never move. The base membrane stays active after the
    one-shot incoming wormhole finishes and whenever reduced motion is selected. */
 @media (prefers-reduced-motion: no-preference) {
-  .coupling { animation: energize .58s ease-out var(--charge-delay) backwards; }
-  .charge-arc { animation: arc-over .48s ease-out var(--charge-delay); }
-  .cosmic-gate404__event-horizon { animation: establish 1.15s ease-out 1.88s backwards; }
-  .kawoosh { animation: discharge 1.34s cubic-bezier(.19,.76,.24,1) 1.89s; }
+  .is-opening .coupling { animation: energize .58s ease-out var(--charge-delay) backwards; }
+  .is-opening .charge-arc { animation: arc-over .48s ease-out var(--charge-delay); }
+  .is-opening .aperture-light {
+    display: block;
+    animation: power-spill calc(var(--breach-at) + var(--flight)) ease-in-out;
+  }
+  .is-opening .cosmic-gate404__event-horizon {
+    mask-position: center;
+    mask-repeat: no-repeat;
+    animation: establish .62s ease-out calc(var(--breach-at) + .09s) backwards;
+  }
+  .is-opening .device-ring { animation: reflected-light var(--flight) ease-in-out var(--breach-at); }
+  .is-opening .return-wake {
+    display: block;
+    animation: returning-water .68s ease-out var(--return-at);
+  }
+  /* Each 512×448 frame places the aperture at (308, 251), radius 160. Map that
+     circle onto the gate's 225-unit aperture; only the water moves between frames. */
+  .is-opening .kawoosh {
+    --wave-axis: 60.15625% 56.0268%;
+    position: absolute;
+    display: block;
+    visibility: hidden;
+    overflow: hidden;
+    width: 140.625%;
+    height: 123.046875%;
+    left: -34.5947%;
+    top: -18.9392%;
+    mask-position: var(--wave-axis);
+    mask-repeat: no-repeat;
+    animation: show-wave var(--flight) step-end var(--breach-at),
+      breach-front .38s ease-in var(--breach-at);
+  }
+  .is-opening .wave-frames {
+    width: 600%;
+    height: 600%;
+    background: url('../assets/supergate-wave.webp') 0 0 / 100% 100% no-repeat;
+    animation: frame-column calc(var(--flight) / 6) steps(6, end) var(--breach-at) 6,
+      frame-row var(--flight) steps(6, end) var(--breach-at);
+  }
   .water-phase { animation: ripple 3.8s ease-in-out 3.1s infinite alternate; }
   .star:nth-child(13n) { animation: scintillate 6s ease-in-out infinite alternate; }
   .star:nth-child(26n) { animation-delay: -3s; }
@@ -213,17 +276,36 @@ const stars = Array.from({ length: 84 }, (_, index) => ({
   100% { opacity: .88; stroke-width: 1.45; }
 }
 @keyframes arc-over { 0%, 100% { opacity: 0; } 30% { opacity: 1; } }
-@keyframes establish {
-  0% { opacity: 0; }
-  38% { opacity: .85; }
-  100% { opacity: 1; }
+@keyframes power-spill {
+  0%, 14%, 100% { opacity: 0; }
+  42% { opacity: .16; }
+  54% { opacity: .93; }
+  65% { opacity: .55; }
+  77% { opacity: .85; }
 }
-@keyframes discharge {
-  0% { opacity: 0; transform: scale(.33, .22); }
-  17% { opacity: .76; transform: scale(.83, .73); }
-  42% { opacity: 1; transform: translate(-2.6%, -.8%) scale(1.08, 1.04); }
-  62% { opacity: .93; transform: translate(-3.8%, -.6%) scale(1.12, 1.035); }
-  100% { opacity: 0; transform: scale(.86, .89); }
+@keyframes establish {
+  from, to { mask-image: radial-gradient(ellipse closest-side, black 46%, #000c 62%, transparent 100%); }
+  0% { opacity: 0; mask-size: 3% 1%; }
+  32% { opacity: .8; mask-size: 70% 48%; }
+  100% { opacity: 1; mask-size: 245% 245%; }
+}
+@keyframes reflected-light {
+  0%, 100% { filter: none; }
+  22% { filter: brightness(1.15); }
+  52% { filter: brightness(1.56); }
+}
+@keyframes show-wave { from, to { visibility: visible; } }
+@keyframes breach-front {
+  from, to { mask-image: radial-gradient(ellipse closest-side at var(--wave-axis), black 45%, transparent 100%); }
+  from { mask-size: 4% 2%; }
+  to { mask-size: 265% 265%; }
+}
+@keyframes frame-column { from { translate: 0 0; } to { translate: -100% 0; } }
+@keyframes frame-row { from { transform: translateY(0); } to { transform: translateY(-100%); } }
+@keyframes returning-water {
+  0% { opacity: 0; transform: scale(.42,.36); }
+  36% { opacity: .57; }
+  100% { opacity: 0; transform: scale(1.18,1.14); }
 }
 @keyframes ripple {
   from { opacity: 0; transform: scale(1); }
