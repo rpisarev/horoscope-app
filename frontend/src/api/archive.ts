@@ -14,18 +14,23 @@ export async function getArchiveYears({ sign, locale, type }: ArchiveScope): Pro
 }
 
 function isCalendarDate(value: unknown): value is string {
-  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value) || value.startsWith('0000-')) return false
   const timestamp = Date.parse(`${value}T00:00:00Z`)
   return Number.isFinite(timestamp) && new Date(timestamp).toISOString().slice(0, 10) === value
 }
 
-export async function getArchiveMonthAvailability({
-  sign, year, month, locale, type,
-}: ArchiveScope & { year: number; month: number }): Promise<ReadonlySet<string>> {
+type ArchiveMonthScope = ArchiveScope & { year: number; month: number }
+
+async function fetchArchiveMonth({ sign, year, month, locale, type }: ArchiveMonthScope, includeLatest = false) {
   const query = new URLSearchParams({ year: String(year), month: String(month), sign, locale, type })
+  if (includeLatest) query.set('include_latest', '1')
   const response = await fetch(`/api/archive/month?${query}`)
   if (!response.ok) throw new Error(`archive month status ${response.status}`)
-  const payload = await response.json()
+  return response.json()
+}
+
+export async function getArchiveMonthAvailability(scope: ArchiveMonthScope): Promise<ReadonlySet<string>> {
+  const payload = await fetchArchiveMonth(scope)
   if (!Array.isArray(payload?.days)) throw new Error('Invalid archive month response')
 
   const dates = new Set<string>()
@@ -33,4 +38,11 @@ export async function getArchiveMonthAvailability({
     if (day?.has_forecast === true && isCalendarDate(day.date)) dates.add(day.date)
   }
   return dates
+}
+
+export async function getLatestPublishedDate(scope: ArchiveMonthScope): Promise<string | null> {
+  const payload = await fetchArchiveMonth(scope, true)
+  const date = payload?.latest_published_date
+  if (date === null || isCalendarDate(date)) return date
+  throw new Error('Invalid latest published date')
 }

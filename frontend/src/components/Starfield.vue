@@ -1,6 +1,7 @@
 <template>
   <canvas
     ref="canvas"
+    aria-hidden="true"
     class="fixed inset-0 z-0 pointer-events-none"
   ></canvas>
 </template>
@@ -16,18 +17,8 @@ const minSpeed = 100
 const maxSpeed = 140
 const spawnDelay = 250
 
-// Starfield is mounted only on the Home page, so route navigation unmounts it.
-// The animation uses both requestAnimationFrame and setInterval, which can keep
-// running after navigation if they are not explicitly stopped. If a stale frame
-// or interval tries to draw on a destroyed canvas, it can break the app state
-// during client-side navigation: the route changes, but the next page may look
-// as if its scripts did not initialize until a full page reload.
-//
-// To avoid that, this component keeps all animation handles in module-local
-// variables and guards every async callback with isRunning. onUnmounted() must
-// always stop the loop, clear the interval, remove the resize listener, and
-// release the canvas context.
 let ctx = null
+let motionPreference = null
 let animationFrameId = null
 let spawnIntervalId = null
 let prev = 0
@@ -59,10 +50,22 @@ function seedStars() {
 }
 
 function resize() {
-  if (!canvas.value) return
+  const surface = canvas.value
+  if (!surface) return
 
-  canvas.value.width = window.innerWidth
-  canvas.value.height = window.innerHeight
+  if (stars.length && surface.width && surface.height) {
+    const scaleX = window.innerWidth / surface.width
+    const scaleY = window.innerHeight / surface.height
+    for (const star of stars) {
+      star.x *= scaleX
+      star.y *= scaleY
+    }
+  } else {
+    seedStars()
+  }
+  surface.width = window.innerWidth
+  surface.height = window.innerHeight
+  drawStars(0)
 }
 
 function spawnStar() {
@@ -71,12 +74,7 @@ function spawnStar() {
   stars.push(createStar({ fromLeft: true }))
 }
 
-function tick(now) {
-  if (!isRunning || !ctx) return
-
-  const dt = (now - prev) / 1000
-  prev = now
-
+function drawStars(dt) {
   ctx.fillStyle = '#070b19'
   ctx.fillRect(0, 0, window.innerWidth, window.innerHeight)
 
@@ -94,32 +92,17 @@ function tick(now) {
       ctx.fill()
     }
   }
+}
 
+function tick(now) {
+  if (!isRunning) return
+  drawStars((now - prev) / 1000)
+  prev = now
   animationFrameId = window.requestAnimationFrame(tick)
 }
 
-onMounted(() => {
-  if (!canvas.value) return
-
-  ctx = canvas.value.getContext('2d')
-  if (!ctx) return
-
-  isRunning = true
-  prev = performance.now()
-
-  resize()
-  seedStars()
-
-  window.addEventListener('resize', resize)
-
-  spawnIntervalId = window.setInterval(spawnStar, spawnDelay)
-  animationFrameId = window.requestAnimationFrame(tick)
-})
-
-onUnmounted(() => {
+function stopMotion() {
   isRunning = false
-
-  window.removeEventListener('resize', resize)
 
   if (spawnIntervalId !== null) {
     window.clearInterval(spawnIntervalId)
@@ -130,7 +113,36 @@ onUnmounted(() => {
     window.cancelAnimationFrame(animationFrameId)
     animationFrameId = null
   }
+}
 
+function syncMotion() {
+  if (motionPreference?.matches) {
+    stopMotion()
+    return
+  }
+  if (isRunning) return
+
+  isRunning = true
+  prev = performance.now()
+  spawnIntervalId = window.setInterval(spawnStar, spawnDelay)
+  animationFrameId = window.requestAnimationFrame(tick)
+}
+
+onMounted(() => {
+  ctx = canvas.value?.getContext('2d')
+  if (!ctx) return
+
+  resize()
+  window.addEventListener('resize', resize)
+  motionPreference = window.matchMedia?.('(prefers-reduced-motion: reduce)')
+  motionPreference?.addEventListener('change', syncMotion)
+  syncMotion()
+})
+
+onUnmounted(() => {
+  motionPreference?.removeEventListener('change', syncMotion)
+  window.removeEventListener('resize', resize)
+  stopMotion()
   stars.length = 0
   ctx = null
 })

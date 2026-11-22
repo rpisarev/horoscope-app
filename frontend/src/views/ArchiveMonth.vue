@@ -60,7 +60,6 @@
 
             <p class="mt-4 max-w-2xl font-lato text-base leading-7 text-white/70">
               Просматривайте дневные прогнозы для {{ zodiacNameGenitive }}.
-              Выберите дату в календаре, чтобы открыть архивный прогноз.
             </p>
           </div>
 
@@ -108,7 +107,7 @@
               </h2>
             </div>
 
-            <div class="grid grid-cols-7 gap-2" aria-label="Календарь архива" :aria-busy="isMonthLoading">
+            <div class="grid grid-cols-7 gap-2" aria-label="Календарь архива" :aria-busy="!selectedAvailability">
               <div
                 v-for="d in weekDays"
                 :key="d"
@@ -173,9 +172,17 @@
               px-4 py-3 font-lato text-sm leading-6 text-white/65"
             >
               <span class="mr-2 text-amber-300">ⓘ</span>
-              <span v-if="isMonthLoading" role="status">Загрузка доступных прогнозов…</span>
-              <span v-else-if="monthError" role="alert">{{ monthError }}</span>
-              <span v-else>Доступны дни с опубликованным прогнозом для выбранного знака.</span>
+              <span v-if="!selectedAvailability" role="status">Загрузка доступных прогнозов…</span>
+              <span v-else-if="selectedAvailability.status === 'error'" role="alert">
+                Не удалось загрузить доступные прогнозы. Попробуйте ещё раз позже.
+              </span>
+              <span v-else-if="hasPublishedDay" role="status">
+                Выберите отмеченную дату, чтобы открыть прогноз для {{ zodiacNameGenitive }}.
+              </span>
+              <span v-else role="status">
+                За {{ monthName }} {{ year }} года для {{ zodiacNameGenitive }} нет опубликованных прогнозов.
+                {{ years.length > 1 ? 'Выберите другой месяц или год.' : 'Выберите другой месяц.' }}
+              </span>
             </div>
 
           </section>
@@ -227,8 +234,6 @@ import { ref, computed, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import type { RouteLocationRaw } from 'vue-router'
 import { getArchiveYears, getArchiveMonthAvailability } from '../api/archive'
-import dayjs from 'dayjs'
-import 'dayjs/locale/ru'
 import ZodiacCarousel from '../components/ZodiacCarousel.vue'
 import YearSwiper from '../components/YearSwiper.vue'
 import MonthSwiper from '../components/MonthSwiper.vue'
@@ -248,10 +253,10 @@ const router = useRouter()
 const years = ref<number[]>([])
 const isYearsLoaded = ref(false)
 const loadedYearsSign = ref('')
-const availableDates = ref<ReadonlySet<string>>(new Set())
-const availabilityScope = ref('')
-const isMonthLoading = ref(false)
-const monthError = ref('')
+const monthAvailability = ref<
+  | { scope: string; status: 'ready'; dates: ReadonlySet<string> }
+  | { scope: string; status: 'error' }
+>()
 const locale = 'ru'
 const forecastType = 'daily'
 let monthRequestId = 0
@@ -374,6 +379,12 @@ const sign = ref(getRouteSign())
 const year = ref(getRouteYear())
 const month = ref(getRouteMonth())
 
+const selectedAvailability = computed(() => (
+  monthAvailability.value?.scope === `${sign.value}/${year.value}/${month.value}`
+    ? monthAvailability.value
+    : undefined
+))
+
 const currentZodiacMeta = computed(() => zodiacMeta[sign.value])
 
 const zodiacName = computed(() => currentZodiacMeta.value?.name ?? sign.value)
@@ -409,7 +420,7 @@ watch(
     }
 
     const nextSign = String(s)
-    const nextYear = String(y)
+    const nextYear = String(y).padStart(4, '0')
     const nextMonth = pad2(Number(m))
 
     if (
@@ -432,11 +443,10 @@ watch(
   { immediate: true }
 )
 
-const monthName = computed(() =>
-  dayjs(`${year.value}-${pad2(month.value)}-01`)
-    .locale('ru')
-    .format('MMMM')
-)
+const yearMonthIso = computed(() => `${String(year.value).padStart(4, '0')}-${pad2(month.value)}`)
+const firstOfMonth = computed(() => new Date(`${yearMonthIso.value}-01T00:00:00Z`))
+const monthFormatter = new Intl.DateTimeFormat('ru', { month: 'long', timeZone: 'UTC' })
+const monthName = computed(() => monthFormatter.format(firstOfMonth.value))
 
 const monthTitle = computed(() => capitalize(monthName.value))
 
@@ -483,28 +493,21 @@ watch(
 
 watch(monthScope, async scope => {
   const localRequestId = ++monthRequestId
-  availableDates.value = new Set()
-  availabilityScope.value = ''
-  monthError.value = ''
-  isMonthLoading.value = false
+  monthAvailability.value = undefined
   if (!requestedMonth.value.ok) return
 
   const { sign: selectedSign, year: selectedYear, month: selectedMonth } = requestedMonth.value.params
-  isMonthLoading.value = true
   try {
     const dates = await getArchiveMonthAvailability({
       year: selectedYear, month: selectedMonth, sign: selectedSign,
       locale, type: forecastType,
     })
     if (localRequestId !== monthRequestId || scope !== monthScope.value) return
-    availableDates.value = dates
-    availabilityScope.value = scope
+    monthAvailability.value = { scope, status: 'ready', dates }
   } catch {
     if (localRequestId === monthRequestId && scope === monthScope.value) {
-      monthError.value = 'Не удалось загрузить доступные прогнозы. Попробуйте ещё раз позже.'
+      monthAvailability.value = { scope, status: 'error' }
     }
-  } finally {
-    if (localRequestId === monthRequestId && scope === monthScope.value) isMonthLoading.value = false
   }
 }, { immediate: true })
 
@@ -516,8 +519,10 @@ onUnmounted(() => {
 const weekDays = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']
 
 const calendarDays = computed(() => {
-  const firstDay = dayjs(`${year.value}-${pad2(month.value)}-01`)
-  const daysInMonth = firstDay.daysInMonth()
+  const firstWeekday = firstOfMonth.value.getUTCDay()
+  const lastOfMonth = new Date(firstOfMonth.value)
+  lastOfMonth.setUTCMonth(lastOfMonth.getUTCMonth() + 1, 0)
+  const daysInMonth = lastOfMonth.getUTCDate()
   const today = todayIso()
 
   const items: {
@@ -529,7 +534,7 @@ const calendarDays = computed(() => {
     to: RouteLocationRaw | string
   }[] = []
 
-  const startIdx = (firstDay.day() + 6) % 7
+  const startIdx = (firstWeekday + 6) % 7
 
   for (let i = 0; i < startIdx; i++) {
     items.push({
@@ -543,12 +548,11 @@ const calendarDays = computed(() => {
   }
 
   for (let d = 1; d <= daysInMonth; d++) {
-    const date = dayjs(`${year.value}-${pad2(month.value)}-${pad2(d)}`)
-    const calendarDate = `${year.value}-${pad2(month.value)}-${pad2(d)}`
+    const calendarDate = `${yearMonthIso.value}-${pad2(d)}`
     const isToday = calendarDate === today
-    const active = availabilityScope.value === `${sign.value}/${year.value}/${month.value}`
-      && availableDates.value.has(calendarDate)
-    const weekDay = date.day()
+    const active = selectedAvailability.value?.status === 'ready'
+      && selectedAvailability.value.dates.has(calendarDate)
+    const weekDay = (firstWeekday + d - 1) % 7
     const isWeekend = weekDay === 0 || weekDay === 6
 
     items.push({
@@ -566,4 +570,6 @@ const calendarDays = computed(() => {
 
   return items
 })
+
+const hasPublishedDay = computed(() => calendarDays.value.some(day => day.active))
 </script>

@@ -29,9 +29,10 @@ function response(status: number, payload: unknown) {
 describe('HoroscopeView forecast read', () => {
   it.each([
     [200, { text: 'Published forecast text' }, 'Published forecast text'],
-    [404, { error: 'forecast_not_published', message: 'Forecast is not published' }, 'Прогноз ещё не опубликован'],
-    [500, { error: 'failure' }, 'Не удалось загрузить прогноз'],
-  ])('renders status %s with no metadata or generated substitute', async (status, payload, expected) => {
+    [404, { error: 'other_error' }, 'Не удалось загрузить прогноз'],
+    [500, { error: 'forecast_not_published' }, 'Не удалось загрузить прогноз'],
+    [200, { error: 'forecast_not_published' }, 'Не удалось загрузить прогноз'],
+  ])('renders status %s without a recovery request', async (status, payload, expected) => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
       if (url === '/api/forecast?sign=aries&date=2026-07-16') return response(Number(status), payload)

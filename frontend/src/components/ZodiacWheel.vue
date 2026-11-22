@@ -1,9 +1,9 @@
 <template>
   <div class="zodiac-wheel fixed inset-0 flex items-center justify-center pointer-events-none">
     <div
-      ref="wheel"
       class="wheel-orbit relative animate-spin-slow pointer-events-auto"
       style="transform-origin:50% 50%"
+      :style="{ animationPlayState }"
     >
       <div
         v-for="(z, i) in zodiacs"
@@ -18,8 +18,13 @@
                  focus:outline-none focus:ring-2 focus:ring-amber-200"
           role="button"
           tabindex="0"
-          @mouseenter="enter(i)"
-          @mouseleave="leave"
+          :aria-label="z.name"
+          :aria-description="z.range"
+          :style="{ animationPlayState }"
+          @mouseenter="inspectHover(z)"
+          @mouseleave="hovered = null"
+          @focus="inspectFocus(z)"
+          @blur="focused = null"
           @click="select(z)"
           @keydown.enter.prevent="select(z)"
           @keydown.space.prevent="select(z)"
@@ -29,7 +34,7 @@
 
           <ZodiacTooltip
             class="wheel-tooltip-orbit"
-            :show="active === i"
+            :show="active === z"
             :sign="z.name"
             :range="z.range"
           />
@@ -39,15 +44,15 @@
 
     <ZodiacTooltip
       class="wheel-tooltip-center"
-      :show="active !== null"
-      :sign="zodiacs[active]?.name || ''"
-      :range="zodiacs[active]?.range || ''"
+      :show="!!active"
+      :sign="active?.name || ''"
+      :range="active?.range || ''"
     />
   </div>
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 
 import ZodiacTooltip from './ZodiacTooltip.vue'
 
@@ -60,8 +65,14 @@ const props = defineProps({
 
 const emit = defineEmits(['select'])
 
-const wheel = ref(null)
-const active = ref(null)
+const hovered = ref(null)
+const focused = ref(null)
+const focusIsLatest = ref(false)
+const active = computed(() => {
+  const key = focusIsLatest.value ? focused.value ?? hovered.value : hovered.value ?? focused.value
+  return props.zodiacs.find(z => (z.slug || z.name) === key)
+})
+const animationPlayState = computed(() => active.value ? 'paused' : 'running')
 
 function circleStyle(i) {
   const a = i * 360 / props.zodiacs.length
@@ -71,36 +82,14 @@ function circleStyle(i) {
   }
 }
 
-function setInner(playState) {
-  wheel.value
-    ?.querySelectorAll('.animate-spin-inner, .animate-spin-inner-reverse')
-    .forEach(el => {
-      el.style.animationPlayState = playState
-    })
+function inspectHover(z) {
+  hovered.value = z.slug || z.name
+  focusIsLatest.value = false
 }
 
-function pause() {
-  if (!wheel.value) return
-
-  wheel.value.style.animationPlayState = 'paused'
-  setInner('paused')
-}
-
-function resume() {
-  if (!wheel.value) return
-
-  wheel.value.style.animationPlayState = 'running'
-  setInner('running')
-}
-
-function enter(idx) {
-  active.value = idx
-  pause()
-}
-
-function leave() {
-  active.value = null
-  resume()
+function inspectFocus(z) {
+  focused.value = z.slug || z.name
+  focusIsLatest.value = true
 }
 
 function select(zodiac) {
@@ -134,6 +123,18 @@ function select(zodiac) {
 
 .wheel-tooltip-center {
   display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wheel-orbit,
+  .wheel-sign {
+    animation: none;
+  }
+
+  .zodiac-wheel :deep(.tip-enter-active),
+  .zodiac-wheel :deep(.tip-leave-active) {
+    transition: none;
+  }
 }
 
 @media (max-width: 767px), (max-height: 767px) {

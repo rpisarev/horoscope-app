@@ -69,6 +69,33 @@ describe('ZodiacWheel selection and animation contract', () => {
     expect(document.body.querySelector('.zodiac-wheel')).toBeNull()
   })
 
+  it('shows the latest hovered or focused sign and resumes only after both leave', async () => {
+    const wrapper = mountWheel()
+    const [aries, taurus] = wrapper.findAll('[role="button"]')
+    const detail = () => wrapper.get('.wheel-tooltip-center').text()
+    const playStates = () => wrapper.findAll('.wheel-orbit, .wheel-sign')
+      .map(el => (el.element as HTMLElement).style.animationPlayState)
+
+    await taurus.trigger('mouseenter')
+    await aries.trigger('focus')
+    expect(aries.attributes('aria-label')).toBe(HOME_ZODIACS[0].name)
+    expect(aries.attributes('aria-description')).toBe(HOME_ZODIACS[0].range)
+    expect(detail()).toContain(HOME_ZODIACS[0].range)
+    await aries.trigger('blur')
+    expect(detail()).toContain(HOME_ZODIACS[1].range)
+    await taurus.trigger('mouseleave')
+    await aries.trigger('focus')
+    await taurus.trigger('mouseenter')
+    expect(detail()).toContain(HOME_ZODIACS[1].range)
+    await taurus.trigger('mouseleave')
+    expect(detail()).toContain(HOME_ZODIACS[0].range)
+    expect(new Set(playStates())).toEqual(new Set(['paused']))
+    await aries.trigger('blur')
+    expect(wrapper.find('h3').exists()).toBe(false)
+    expect(new Set(playStates())).toEqual(new Set(['running']))
+    expect(wrapper.emitted('select')).toBeUndefined()
+  })
+
   it('renders an empty input without targets or details', () => {
     const wrapper = mount(ZodiacWheel)
     expect(wrapper.find('[role="button"]').exists()).toBe(false)

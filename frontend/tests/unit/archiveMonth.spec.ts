@@ -82,6 +82,7 @@ describe('published archive availability', () => {
     ])
     expect(calendarHrefs()).not.toContain('/horoscope/aries/2026-09-16')
     expect(calendarLinks()[1].attributes('aria-current')).toBe('date')
+    expect(wrapper!.get('[role="status"]').text()).toContain('Выберите отмеченную дату')
     expect(requests('/api/archive/month')).toHaveLength(1)
     expect(Object.fromEntries(requests('/api/archive/month')[0].searchParams)).toEqual({
       year: '2026', month: '9', sign: 'aries', locale: 'ru', type: 'daily',
@@ -90,11 +91,18 @@ describe('published archive availability', () => {
     expect(requests('/api/archive/day')).toHaveLength(0)
   })
 
-  it('disables every unpublished day, regardless of position or aggregate coverage', async () => {
-    await businessDate.refreshBusinessDate()
-    await openMonth()
+  it('explains an empty selected sign and month even when other signs have coverage', async () => {
+    await openMonth('/archive/taurus/2027/04')
     expect(calendarLinks()).toHaveLength(0)
-    expect(wrapper!.text()).not.toContain('Доступны только прошедшие дни')
+    const status = wrapper!.get('[role="status"]').text()
+    expect(status).toContain('За апрель 2027 года для Тельца нет опубликованных прогнозов.')
+    expect(status).toContain('Выберите другой месяц или год.')
+  })
+
+  it('suggests another month when the sign has only one available year', async () => {
+    yearsResponse = () => response([2026])
+    await openMonth()
+    expect(wrapper!.get('[role="status"]').text()).toContain('Выберите другой месяц.')
   })
 
   it('keeps unknown availability disabled while the month request is pending', async () => {
@@ -105,6 +113,7 @@ describe('published archive availability', () => {
     await openMonth()
     expect(calendarLinks()).toHaveLength(0)
     expect(wrapper!.get('[role="status"]').text()).toContain('Загрузка доступных прогнозов')
+    expect(wrapper!.text()).not.toContain('нет опубликованных прогнозов')
     pending.resolve(response(monthData(query, [17])))
     await flushPromises()
     expect(calendarHrefs()).toEqual(['/horoscope/aries/2026-09-17'])
@@ -116,6 +125,7 @@ describe('published archive availability', () => {
     await openMonth()
     expect(calendarLinks()).toHaveLength(0)
     expect(wrapper!.get('[role="alert"]').text()).toContain('Не удалось загрузить доступные прогнозы')
+    expect(wrapper!.text()).not.toContain('нет опубликованных прогнозов')
   })
 
   it('treats a network failure as unavailable, without guessing past-day coverage', async () => {
@@ -173,6 +183,23 @@ describe('published archive availability', () => {
     expect(requests('/api/archive/month')).toHaveLength(1)
   })
 
+  it.each([
+    ['0999', '02', '28', 4],
+    ['0004', '02', '29', 6],
+    ['0001', '01', '31', 0],
+  ] as const)('preserves the four-digit year %s in the calendar and its published day link', async (year, month, day, leadingCells) => {
+    yearsResponse = () => response([Number(year)])
+    const date = `${year}-${month}-${day}`
+    monthResponse = () => response({ days: [{ date, has_forecast: true }] })
+    await openMonth(`/archive/aries/${year}/${Number(month)}`)
+    expect(router.currentRoute.value.path).toBe(`/archive/aries/${year}/${month}`)
+    const cells = wrapper!.get('[aria-label="Календарь архива"]').findAll(':scope > span, :scope > a')
+    expect(cells.findIndex(cell => cell.text() === '1')).toBe(leadingCells)
+    expect(cells[cells.length - 1].text()).toBe(day)
+    expect(calendarHrefs()).toEqual([`/horoscope/aries/${date}`])
+    expect(requests('/api/archive/month')).toHaveLength(1)
+  })
+
   it('clears previous-sign availability while the next sign is loading', async () => {
     const pending = deferred()
     let nextQuery!: URL
@@ -191,7 +218,7 @@ describe('published archive availability', () => {
     expect(calendarHrefs()).toEqual(['/horoscope/taurus/2026-09-18'])
   })
 
-  it.each(['success', 'failure'])('ignores a stale older month response (%s)', async outcome => {
+  it.each(['populated', 'empty', 'failure'])('ignores a stale older month response (%s)', async outcome => {
     const old = deferred()
     let oldQuery!: URL
     monthResponse = url => {
@@ -202,11 +229,12 @@ describe('published archive availability', () => {
     await router.push('/archive/taurus/2026/09')
     await flushPromises()
     expect(calendarHrefs()).toEqual(['/horoscope/taurus/2026-09-18'])
-    if (outcome === 'success') old.resolve(response(monthData(oldQuery, [17])))
-    else old.reject(new Error('old request failed'))
+    if (outcome === 'failure') old.reject(new Error('old request failed'))
+    else old.resolve(response(monthData(oldQuery, outcome === 'empty' ? [] : [17])))
     await flushPromises()
     expect(calendarHrefs()).toEqual(['/horoscope/taurus/2026-09-18'])
     expect(wrapper!.find('[role="alert"]').exists()).toBe(false)
+    expect(wrapper!.get('[role="status"]').text()).toContain('Выберите отмеченную дату')
   })
 
   it('ignores an older sign year list instead of rejecting the current route', async () => {

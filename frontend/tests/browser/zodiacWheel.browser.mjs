@@ -26,6 +26,8 @@ async function openPage(viewport, options = {}) {
     if (url.pathname === '/api/meta') {
       return route.fulfill({ json: { business_date: '2026-11-15', timezone: 'Europe/Kyiv' } })
     }
+    if (url.pathname === '/api/years') return route.fulfill({ json: [2025, 2026, 2027] })
+    if (url.pathname === '/api/archive/month') return route.fulfill({ json: { days: [] } })
     if (url.pathname.startsWith('/api/')) {
       return route.fulfill({ status: 404, json: { error: 'forecast_not_published' } })
     }
@@ -89,6 +91,9 @@ for (const [width, height] of [[320, 568], [390, 844], [768, 1024], [1440, 900],
       }
       const signs = page.locator('.wheel-sign')
       for (const time of [0, 45000, 90000]) {
+        // Clear the previous hover before jumping the entire orbit to a new time.
+        await page.mouse.move(0, 0)
+        await page.waitForFunction(() => !document.querySelector('.wheel-tooltip-orbit'))
         await page.evaluate(time => {
           document.querySelector('.wheel-orbit').getAnimations({ subtree: true })
             .forEach(animation => { animation.currentTime = time })
@@ -140,6 +145,9 @@ test('keyboard focus survives resize; click, Enter and Space retain selection', 
     for (const [width, height] of [[320, 568], [390, 844], [768, 1024], [1440, 900]]) {
       await page.setViewportSize({ width, height })
       assert.equal(await page.locator(':focus small').textContent(), focusedName)
+      const details = page.locator('.wheel-tooltip-orbit:visible, .wheel-tooltip-center:visible')
+      assert.equal(await details.locator('h3').textContent(), focusedName)
+      assert.equal(await details.locator('p').first().textContent(), await page.locator(':focus').getAttribute('aria-description'))
       const rect = await page.locator(':focus').evaluate(el => el.getBoundingClientRect().toJSON())
       withinViewport(rect, width, height, 2)
       assert.notEqual(await page.locator(':focus').evaluate(el => getComputedStyle(el).boxShadow), 'none')
@@ -171,6 +179,67 @@ test('touch tap selects a sign at 320px', async () => {
     const point = await targetCenter(page.locator('.wheel-sign').filter({ has: page.locator('small', { hasText: /^Sagittarius$/ }) }))
     await page.touchscreen.tap(point.x, point.y)
     await page.waitForURL('**/horoscope/sagittarius/2026-11-15')
+  } finally {
+    await context.close()
+  }
+})
+
+test('Wheel and Starfield follow reduced motion on entry and while Home is open', async () => {
+  const { page, context } = await openPage({ width: 390, height: 844 }, { reducedMotion: 'reduce' })
+  try {
+    for (const preference of ['reduce', 'no-preference', 'reduce']) {
+      await page.emulateMedia({ reducedMotion: preference })
+      const reduced = preference === 'reduce'
+      await page.waitForFunction(reduced =>
+        [...document.querySelectorAll('.wheel-orbit, .wheel-sign')].every(el =>
+          (getComputedStyle(el).animationName === 'none') === reduced
+        ), reduced)
+      const canvasChanged = await page.locator('canvas').evaluate(async canvas => {
+        const frame = () => new Promise(resolve => requestAnimationFrame(resolve))
+        await frame()
+        const before = canvas.toDataURL()
+        await frame()
+        await frame()
+        return canvas.toDataURL() !== before
+      })
+      assert.equal(canvasChanged, !reduced)
+    }
+
+    await page.keyboard.press('Tab')
+    assert.equal(await page.locator('.wheel-tooltip-center:visible h3').textContent(), 'Aries')
+    await page.keyboard.press('Space')
+    await page.waitForURL('**/horoscope/aries/2026-11-15')
+    assert.equal(await page.locator('canvas, .wheel-orbit').count(), 0)
+  } finally {
+    await context.close()
+  }
+})
+
+test('archive month and year arrows have names, visible keyboard focus and working activation', async () => {
+  const { page, context } = await openPage({ width: 390, height: 844 })
+  try {
+    await page.goto(new URL('/archive/aries/2026/11', base).href)
+    const controls = [
+      ['Предыдущий год', 'Enter', '2025/11'],
+      ['Следующий год', 'Space', '2026/11'],
+      ['Предыдущий месяц', 'Space', '2026/10'],
+      ['Следующий месяц', 'Enter', '2026/11'],
+    ]
+    for (const [name, key, month] of controls) {
+      const button = page.getByRole('button', { name, exact: true })
+      await button.waitFor()
+      // Tab through preceding controls as well, including any calendar links.
+      for (let i = 0; i < 50 && !(await button.evaluate(el => el === document.activeElement)); i++) {
+        await page.keyboard.press('Tab')
+      }
+      assert.ok(await button.evaluate(el => el.matches(':focus-visible')))
+      assert.ok(await button.evaluate(el => {
+        const style = getComputedStyle(el)
+        return style.outlineStyle === 'solid' && parseFloat(style.outlineWidth) >= 2
+      }))
+      await page.keyboard.press(key)
+      await page.waitForURL('**/archive/aries/' + month)
+    }
   } finally {
     await context.close()
   }
