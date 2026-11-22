@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { getArchiveYears, getArchiveMonthAvailability } from '../../src/api/archive'
+import { getArchiveYears, getArchiveMonthAvailability, getLatestPublishedDate } from '../../src/api/archive'
 
 const scope = { sign: 'gemini', locale: 'ru', type: 'daily' }
 const monthScope = { ...scope, year: 2026, month: 6 }
@@ -62,6 +62,7 @@ describe('archive month API', () => {
 describe.each([
   ['years', () => getArchiveYears(scope), 'years status 500'],
   ['month', () => getArchiveMonthAvailability(monthScope), 'archive month status 500'],
+  ['latest', () => getLatestPublishedDate(monthScope), 'archive month status 500'],
 ] as const)('archive %s failures', (_, request, message) => {
   it('rejects HTTP failure', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(json({}, 500))
@@ -78,4 +79,21 @@ describe.each([
     vi.mocked(fetch).mockResolvedValueOnce(new Response('{'))
     await expect(request()).rejects.toBeInstanceOf(SyntaxError)
   })
+})
+
+describe('latest published date', () => {
+  it.each([null, '2024-02-29', '2027-01-01'])('reads the scoped all-time result %s', async date => {
+    vi.mocked(fetch).mockResolvedValueOnce(json({
+      days: [{ date: '2026-06-10', has_forecast: true }], latest_published_date: date,
+    }))
+    await expect(getLatestPublishedDate(monthScope)).resolves.toBe(date)
+    expect(fetch).toHaveBeenCalledExactlyOnceWith('/api/archive/month?year=2026&month=6&sign=gemini&locale=ru&type=daily&include_latest=1')
+  })
+
+  it.each([{}, null, { latest_published_date: '2026-02-29' }, { latest_published_date: '0000-01-01' }, { latest_published_date: 20260701 }])(
+    'rejects a missing or malformed field in %j', async payload => {
+      vi.mocked(fetch).mockResolvedValueOnce(json(payload))
+      await expect(getLatestPublishedDate(monthScope)).rejects.toThrow('Invalid latest published date')
+    },
+  )
 })

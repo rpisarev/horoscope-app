@@ -171,7 +171,7 @@ def _active_sign_count() -> int:
 def _month_bounds(year: int, month: int) -> tuple[date, date, int]:
     days_in_month = monthrange(year, month)[1]
     start_date = date(year, month, 1)
-    end_date = start_date + timedelta(days=days_in_month)
+    end_date = date(year, month, days_in_month)
 
     return start_date, end_date, days_in_month
 
@@ -192,7 +192,7 @@ def _published_archive_counts(
         .join(ZodiacSign, Forecast.sign_key == ZodiacSign.key)
         .filter(
             Forecast.target_date >= start_date,
-            Forecast.target_date < end_date,
+            Forecast.target_date <= end_date,
             Forecast.locale == locale,
             Forecast.forecast_type == forecast_type,
             Forecast.status == "published",
@@ -372,6 +372,11 @@ def archive_month():
     locale = request.args.get("locale", DEFAULT_LOCALE)
     forecast_type = request.args.get("type", DEFAULT_FORECAST_TYPE)
     sign = request.args.get("sign")
+    include_latest = request.args.get("include_latest", "0")
+    if include_latest not in {"0", "1"}:
+        abort(400, "Bad include_latest value, expected 0 or 1")
+    if include_latest == "1" and sign is None:
+        abort(400, "Missing required query parameter 'sign'")
     if sign is not None and not ZodiacSign.query.filter_by(key=sign, is_enabled=True).first():
         abort(400, f"Unknown or inactive sign '{sign}'")
     expected_sign_count = _active_sign_count()
@@ -407,16 +412,29 @@ def archive_month():
         for day in days:
             day["has_forecast"] = day["date"] in published_dates
 
-    return jsonify(
-        {
-            "year": year,
-            "month": month,
-            "locale": locale,
-            "forecast_type": forecast_type,
-            "expected_sign_count": expected_sign_count,
-            "days": days,
-        }
-    )
+    result = {
+        "year": year,
+        "month": month,
+        "locale": locale,
+        "forecast_type": forecast_type,
+        "expected_sign_count": expected_sign_count,
+        "days": days,
+    }
+    if include_latest == "1":
+        latest_date = (
+            db.session.query(func.max(Forecast.target_date))
+            .join(ZodiacSign, Forecast.sign_key == ZodiacSign.key)
+            .filter(
+                Forecast.sign_key == sign,
+                Forecast.locale == locale,
+                Forecast.forecast_type == forecast_type,
+                Forecast.status == "published",
+                ZodiacSign.is_enabled.is_(True),
+            )
+            .scalar()
+        )
+        result["latest_published_date"] = latest_date.isoformat() if latest_date else None
+    return jsonify(result)
 
 
 @bp.route("/archive/months")
@@ -427,9 +445,7 @@ def archive_months():
     expected_sign_count = _active_sign_count()
 
     start_date = date(year, 1, 1)
-    end_date = date(year + 1, 1, 1) if year < 9999 else date(9999, 12, 31)
-    if year == 9999:
-        end_date = end_date + timedelta(days=1)
+    end_date = date(year, 12, 31)
 
     counts_by_date = _published_archive_counts(
         start_date=start_date,

@@ -1,10 +1,38 @@
 # Current Project State
 
-- State updated: 2026-11-15 (private demo MVP checkpoint; ADR decision date remains 2026-11-14).
+- State updated: 2026-11-22 (MVP product iteration 2; ADR decision date remains 2026-11-14).
 - Main working branch: `feature/main-page-start`
 - Historical iteration 4 base: `17fb256ce8f5e651a5d05b4a8911d905585f4e82` (PR #25). Its worktree/runtime observations below describe that earlier iteration, not the current checkout. STAB-015 D1–D8 remain Accepted.
 - Historical iteration 3 base: `4fe11be` (PR #24), incorporating STAB-015.01 and earlier safety fixes. The older verification sections below retain their own evidence and dates.
 - Earlier publication audit baseline: `34623b27bd69d681edf1a3ab8f8aac31bc74cafa` (`Update frontend (#20)`). Results and runtime observations in the historical sections below belong to their recorded checkpoints.
+
+## MVP product iteration 2, 2026-11-22
+
+Verified base `6821767` (PR #28). On the demo V1 dataset, opening Aries for
+November 22, 2026 shows the missing-day message and offers November 21 as the
+latest publication. The requested date stays in the heading and URL until the
+reader follows the link. The sign-scoped month endpoint accepts `include_latest=1`
+to look across all published target dates for the requested locale and type,
+including future dates. A null result or a lookup failure leaves archive navigation
+available. A successfully loaded empty calendar identifies the month and sign
+and points to the available month or year controls.
+
+Home explains sign selection and serves a bundled PNG favicon. Wheel focus
+reveals sign details, and the month and year arrow buttons have accessible names
+and keyboard outlines. The Wheel and Starfield follow live reduced-motion changes.
+The introduction and Wheel fit together at 320×568 and 568×320. Short, nearly
+square layouts can scroll vertically to preserve target sizes and tooltip space.
+
+The 29 safety checks passed before the serialized disposable PostgreSQL runs.
+The focused run passed 40 archive/forecast regressions plus a demo response
+capture that verified forecast and generation records across public reads.
+The full backend suite passed 1,064 tests. Locked installation, typecheck, 217
+frontend unit tests, 22 POC checks, the Vite build and the Caddy release image
+build passed. Chrome passed 20 layout, navigation, motion and asset regressions.
+An additional 320px Chrome journey replayed the captured Flask responses against
+the release frontend. It verified the dated link, Back/Forward, published text,
+empty calendar and invalid-route handling with zero page exceptions. Caddy
+served the 64×64 PNG with HTTP 200. Physical devices and Safari remain unverified.
 
 ## Private demo checkpoint — MVP iteration 1, 2026-11-15
 
@@ -427,7 +455,7 @@ Home refreshes `/api/meta` before sign navigation; it does not fetch forecast co
 | `/api/forecast` | Published-only lookup by sign/date/locale/type; `200` with existing aliases, or `404` with `error: forecast_not_published` and `message: Forecast is not published`. Never generates or writes. Existing published stubs still return `200`; invalid input retains `400`. |
 | `/api/years` | Published years, optional sign filter, exact locale/type filters; **no active-sign filter**. Empty filtered results fall back to `2024..business-current-year`. |
 | `/api/archive/day` | Published forecasts for active signs, ordered by sign order, plus coverage for the requested date. Actual sign keys are present in `forecasts`. |
-| `/api/archive/month` | Every calendar day with aggregate `forecast_count`, `missing_count`, `has_full_coverage`. Optional active `sign` adds boolean `has_forecast` per day for that sign/date/locale/type; aggregates remain unchanged. Unknown, empty, or disabled supplied sign returns `400`. |
+| `/api/archive/month` | Every calendar day with aggregate `forecast_count`, `missing_count`, `has_full_coverage`. Optional active `sign` adds boolean `has_forecast` per day for that sign/date/locale/type; aggregates remain unchanged. With `include_latest=1`, an enabled sign is required and the response adds `latest_published_date` (ISO date or null) across all years for that sign, locale and type. Unknown, empty, or disabled supplied sign returns `400`. |
 | `/api/archive/months` | All 12 months with forecast totals, covered/full day totals, and availability/full-month booleans. Aggregate across active signs. |
 
 Archive locale/type are exact database filters, defaulting to `ru`/`daily`, not validated enums. `expected_sign_count` counts enabled `zodiac_signs` at request time; it is not hardcoded to 13. With N active signs, empty/partial/full days have counts 0 / between 0 and N / N; missing is `max(N-count, 0)`. Full coverage requires N > 0. Archive tests verify empty/partial/full summaries, selected-sign published availability, locale/type/status filtering, and dynamic coverage after enabling only one or two signs. Without `sign`, response keys and semantics remain unchanged.

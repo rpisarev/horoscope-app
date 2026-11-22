@@ -229,6 +229,68 @@ def test_archive_month_sign_availability_supplements_aggregate_contract(client):
     } == aggregate
 
 
+def test_archive_month_latest_is_opt_in_and_scoped_across_years(client):
+    _create_forecast(sign_key="aries", target_date=date(2025, 12, 31))
+    _create_forecast(sign_key="aries", target_date=date(2024, 8, 1))
+    _create_forecast(sign_key="taurus", target_date=date(2026, 9, 18))
+    _create_forecast(sign_key="aries", target_date=date(2027, 1, 1), status="draft")
+    _create_forecast(sign_key="aries", target_date=date(2027, 2, 1), locale="uk")
+    _create_forecast(sign_key="aries", target_date=date(2027, 3, 1), forecast_type="weekly")
+    url = "/api/archive/month?year=2026&month=9&sign=aries"
+
+    ordinary = client.get(url).get_json()
+    assert "latest_published_date" not in ordinary
+    assert client.get(url + "&include_latest=0").get_json() == ordinary
+    response = client.get(url + "&include_latest=1")
+    assert response.status_code == 200
+    assert response.get_json() == {**ordinary, "latest_published_date": "2025-12-31"}
+    assert ordinary["days"][17]["forecast_count"] == 1
+    assert not any(day["has_forecast"] for day in ordinary["days"])
+
+    for scope, expected_date in [("locale=uk", "2027-02-01"), ("type=weekly", "2027-03-01")]:
+        response = client.get(f"{url}&include_latest=1&{scope}")
+        assert response.get_json()["latest_published_date"] == expected_date
+
+
+def test_archive_month_latest_includes_future_published_dates(client, monkeypatch):
+    monkeypatch.setattr("app.routes.business_today", lambda: date(2026, 9, 15))
+    _create_forecast(sign_key="aries", target_date=date(2026, 9, 15))
+    _create_forecast(sign_key="aries", target_date=date(2027, 1, 1))
+    response = client.get("/api/archive/month?year=2026&month=9&sign=aries&include_latest=1")
+    assert response.status_code == 200
+    assert response.get_json()["latest_published_date"] == "2027-01-01"
+    assert response.get_json()["days"][14]["has_forecast"] is True
+
+
+def test_archive_month_latest_and_day_coverage_at_max_date(client):
+    _create_forecast(sign_key="aries", target_date=date.max)
+    response = client.get("/api/archive/month?year=9999&month=12&sign=aries&include_latest=1")
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data["latest_published_date"] == "9999-12-31"
+    assert data["days"][-1]["date"] == "9999-12-31"
+    assert data["days"][-1]["has_forecast"] is True
+    assert data["days"][-1]["forecast_count"] == 1
+
+
+def test_archive_month_latest_is_null_with_no_published_content(client):
+    response = client.get("/api/archive/month?year=2026&month=9&sign=aries&include_latest=1")
+    assert response.status_code == 200
+    assert response.get_json()["latest_published_date"] is None
+
+
+@pytest.mark.parametrize("sign", ["", "&sign=", "&sign=unknown"])
+def test_archive_month_latest_requires_valid_sign(client, sign):
+    response = client.get(f"/api/archive/month?year=2026&month=9&include_latest=1{sign}")
+    assert response.status_code == 400
+
+
+@pytest.mark.parametrize("value", ["", "true", "2"])
+def test_archive_month_rejects_unsupported_latest_value(client, value):
+    response = client.get(f"/api/archive/month?year=2026&month=9&sign=aries&include_latest={value}")
+    assert response.status_code == 400
+
+
 @pytest.mark.parametrize("status", ["draft", "failed", "archived"])
 def test_archive_month_selected_sign_must_be_published(client, status):
     _create_forecast(sign_key="aries", target_date=date(2026, 9, 18), status=status)
@@ -272,9 +334,10 @@ def test_archive_month_rejects_disabled_sign_even_with_published_forecast(client
     try:
         sign.is_enabled = False
         db.session.commit()
-        response = client.get("/api/archive/month?year=2026&month=9&sign=aries")
-        assert response.status_code == 400
-        assert "Unknown or inactive sign" in response.get_data(as_text=True)
+        for latest in ("", "&include_latest=1"):
+            response = client.get(f"/api/archive/month?year=2026&month=9&sign=aries{latest}")
+            assert response.status_code == 400
+            assert "Unknown or inactive sign" in response.get_data(as_text=True)
     finally:
         sign.is_enabled = was_enabled
         db.session.commit()

@@ -14,6 +14,7 @@ function deferred<T>() {
 }
 
 const validPath = '/horoscope/aries/2026-07-16'
+const julyLatestRequest = '/api/archive/month?year=2026&month=7&sign=aries&locale=ru&type=daily&include_latest=1'
 const loading = '— прогноз загружается —'
 const unpublished = 'Прогноз ещё не опубликован'
 const loadError = 'Не удалось загрузить прогноз'
@@ -26,6 +27,7 @@ const invalidRoutes = [
   ['/horoscope/aries/2026-04-31', 'Такой день не найден'],
   ['/horoscope/aries/2026-13-01', 'Такой день не найден'],
   ['/horoscope/aries/2026-07-00', 'Такой день не найден'],
+  ['/horoscope/aries/0000-01-01', 'Такой день не найден'],
 ]
 
 let router: Router
@@ -42,8 +44,11 @@ beforeEach(async () => {
   consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
   requests = []
   vi.stubGlobal('fetch', vi.fn((url: string) => {
-    // No metadata, providers, or network calls: every forecast is explicitly settled by the test.
-    expect(url).toMatch(/^\/api\/forecast\?sign=[a-z]+&date=\d{4}-\d{2}-\d{2}$/)
+    if (url.startsWith('/api/archive/month?')) {
+      expect(url).toMatch(/^\/api\/archive\/month\?year=\d+&month=\d+&sign=[a-z]+&locale=ru&type=daily&include_latest=1$/)
+    } else {
+      expect(url).toMatch(/^\/api\/forecast\?sign=[a-z]+&date=\d{4}-\d{2}-\d{2}$/)
+    }
     const response = deferred<Response>()
     requests.push({ url, response })
     return response.promise
@@ -88,6 +93,11 @@ async function respond(index: number, text: string, status = 200) {
   await flushPromises()
 }
 
+async function respondLatest(index: number, date: string | null, status = 200) {
+  requests[index].response.resolve(Response.json({ latest_published_date: date }, { status }))
+  await flushPromises()
+}
+
 async function settleStale(index: number, outcome: string) {
   if (outcome === 'reject') {
     requests[index].response.reject(new Error('stale request failed'))
@@ -100,9 +110,9 @@ async function settleStale(index: number, outcome: string) {
 function forecastSnapshot(page: ReturnType<typeof mount>) {
   // A hidden or detached DOM alone cannot detect late state writes.
   const state = page.getComponent(HoroscopeView).vm as unknown as {
-    forecastText: string; errorText: string; isLoading: boolean
+    forecastText: string; errorText: string; isLoading: boolean; latestPublishedDate: string | null
   }
-  return () => ({ text: state.forecastText, error: state.errorText, loading: state.isLoading })
+  return () => ({ text: state.forecastText, error: state.errorText, loading: state.isLoading, latest: state.latestPublishedDate })
 }
 
 describe('HoroscopeView route recovery', () => {
@@ -149,9 +159,9 @@ describe('HoroscopeView route recovery', () => {
     const page = await mountRoute()
     const snapshot = forecastSnapshot(page)
     await navigate('/horoscope/aries/2026-02-30')
-    expect(snapshot()).toEqual({ text: '', error: '', loading: false })
+    expect(snapshot()).toEqual({ text: '', error: '', loading: false, latest: null })
     await settleStale(0, outcome)
-    expect(snapshot()).toEqual({ text: '', error: '', loading: false })
+    expect(snapshot()).toEqual({ text: '', error: '', loading: false, latest: null })
     expect(page.text()).toContain('Такой день не найден')
     expect(consoleError).not.toHaveBeenCalled()
 
@@ -290,6 +300,74 @@ describe('HoroscopeView route recovery', () => {
     expect(requests).toHaveLength(1)
     await respond(0, 'Canonical forecast')
     expect(page.text()).toContain('Canonical forecast')
+  })
+
+  it.each(['2025-12-31', '0004-02-29'])('offers the published day %s and navigates only when the link is followed', async latest => {
+    const original = validPath + '?from=calendar#forecast'
+    const page = await mountRoute(original)
+    const push = vi.spyOn(router, 'push')
+    await respond(0, '', 404)
+    expect(requests.map(request => request.url)).toEqual([
+      '/api/forecast?sign=aries&date=2026-07-16', julyLatestRequest,
+    ])
+    expect(page.get('article').text()).toContain(unpublished)
+    expect(page.find('article a').exists()).toBe(false)
+
+    await respondLatest(1, latest)
+    const link = page.get('article a')
+    expect(link.text()).toContain(latest)
+    expect(link.attributes('href')).toBe(`/horoscope/aries/${latest}`)
+    expect(page.get('article').text()).toContain(unpublished)
+    expect(page.text()).toContain('2026-07-16')
+    expect(page.get('a[href="/archive/aries/2026/07"]').exists()).toBe(true)
+    expect(router.currentRoute.value.fullPath).toBe(original)
+    expect(push).not.toHaveBeenCalled()
+    expect(replace).not.toHaveBeenCalled()
+    expect(requests).toHaveLength(2)
+
+    await link.trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.fullPath).toBe(`/horoscope/aries/${latest}`)
+    expect(requests[2].url).toBe(`/api/forecast?sign=aries&date=${latest}`)
+    await respond(2, 'Published on the linked day')
+    expect(page.get('article').text()).toContain('Published on the linked day')
+    expect(page.find('article a').exists()).toBe(false)
+    expect(requests).toHaveLength(3)
+  })
+
+  it.each([200, 500])('keeps the missing state and archive when the lookup returns no date (HTTP %s)', async status => {
+    const page = await mountRoute()
+    await respond(0, '', 404)
+    await respondLatest(1, null, status)
+    expect(page.get('article').text()).toContain(unpublished)
+    expect(page.find('article a').exists()).toBe(false)
+    expect(page.get('a[href="/archive/aries/2026/07"]').exists()).toBe(true)
+    expect(requests).toHaveLength(2)
+    expect(router.currentRoute.value.fullPath).toBe(validPath)
+  })
+
+  it('ignores a superseded archive lookup after another sign and day have loaded', async () => {
+    const page = await mountRoute()
+    await respond(0, '', 404)
+    await navigate('/horoscope/taurus/2026-09-03')
+    await respond(2, '', 404)
+    expect(requests[3].url).toBe('/api/archive/month?year=2026&month=9&sign=taurus&locale=ru&type=daily&include_latest=1')
+    await respondLatest(3, '2026-08-01')
+    await respondLatest(1, '2024-11-20')
+    expect(page.get('article a').attributes('href')).toBe('/horoscope/taurus/2026-08-01')
+    expect(requests).toHaveLength(4)
+  })
+
+  it.each(['/horoscope/aries/2026-02-30', '/'])('ignores a pending archive lookup after leaving for %s', async path => {
+    const page = await mountRoute()
+    const snapshot = forecastSnapshot(page)
+    await respond(0, '', 404)
+    await navigate(path)
+    const retired = snapshot()
+    await respondLatest(1, '2024-11-20')
+    expect(snapshot()).toEqual(retired)
+    expect(page.find('article a').exists()).toBe(false)
+    expect(requests).toHaveLength(2)
   })
 
   it.each(['success', 'reject', '404'])('invalidates pending %s on unmount', async outcome => {

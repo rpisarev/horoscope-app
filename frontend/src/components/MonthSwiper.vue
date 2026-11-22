@@ -2,10 +2,13 @@
   <div class="relative flex flex-col items-center">
     <!-- up arrow -->
     <button
+      type="button"
+      aria-label="Предыдущий месяц"
       @click="slidePrev"
-      class="text-xl text-gray-400 hover:text-amber-500 focus:outline-none"
+      class="rounded text-xl text-gray-400 hover:text-amber-500
+             focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-200"
     >
-      <ChevronUp class="w-6 h-6" />
+      <ChevronUp class="w-6 h-6" aria-hidden="true" />
     </button>
 
     <swiper
@@ -29,10 +32,13 @@
 
     <!-- down arrow -->
     <button
+      type="button"
+      aria-label="Следующий месяц"
       @click="slideNext"
-      class="text-xl text-gray-400 hover:text-amber-500 focus:outline-none"
+      class="rounded text-xl text-gray-400 hover:text-amber-500
+             focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-200"
     >
-      <ChevronDown class="w-6 h-6" />
+      <ChevronDown class="w-6 h-6" aria-hidden="true" />
     </button>
   </div>
 </template>

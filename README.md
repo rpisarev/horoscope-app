@@ -444,6 +444,14 @@ Returns per-day coverage for a calendar month.
 
 Without `sign`, the aggregate response below is unchanged. Optional `sign=<sign_key>` adds a boolean `has_forecast` to every day: true only for that enabled sign's published forecast matching the date, locale, and type. Aggregate fields still describe all enabled signs; `expected_sign_count` is computed from the database. Unknown or disabled signs return `400`.
 
+For a dated recovery link, pass `sign=<sign_key>&include_latest=1`. The response
+also includes `latest_published_date`, the greatest published target date for
+that enabled sign, locale and forecast type across all months and years. It can
+be a future date. The value is an ISO calendar date or `null` if the scope has
+no published forecasts. The requested year and month still determine `days`.
+Omitting the flag or passing `0` leaves the field out. Unsupported flag values
+and latest requests without an enabled sign return HTTP 400.
+
 Example:
 
 ```bash

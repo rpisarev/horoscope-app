@@ -166,9 +166,16 @@
               — прогноз загружается —
             </p>
 
-            <p v-else-if="errorText" class="text-amber-200">
-              {{ errorText }}
-            </p>
+            <template v-else-if="errorText">
+              <p class="text-amber-200">{{ errorText }}</p>
+              <RouterLink
+                v-if="latestPublishedDate"
+                :to="{ name: 'horoscope', params: { sign: route.params.sign, day: latestPublishedDate } }"
+                class="inline-block py-2 font-semibold text-amber-100 underline underline-offset-4 hover:text-amber-200"
+              >
+                Открыть последний опубликованный прогноз за <time :datetime="latestPublishedDate">{{ latestPublishedDate }}</time>
+              </RouterLink>
+            </template>
 
             <template v-else-if="forecastParagraphs.length">
               <p v-for="(paragraph, index) in forecastParagraphs" :key="index">
@@ -206,6 +213,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
+import { getLatestPublishedDate } from '../api/archive'
 import { getForecast } from '../api/forecast'
 import ZodiacCarousel from '../components/ZodiacCarousel.vue'
 import DaySlider from '../components/DaySlider.vue'
@@ -343,6 +351,7 @@ const day = ref(initialRouteValidation.ok ? initialRouteValidation.params.day : 
 const forecastText = ref('')
 const isLoading = ref(false)
 const errorText = ref('')
+const latestPublishedDate = ref<string | null>(null)
 
 let requestId = 0
 
@@ -357,6 +366,7 @@ function normalizeSign(value: string): ZodiacKey {
 function resetForecastState() {
   forecastText.value = ''
   errorText.value = ''
+  latestPublishedDate.value = null
   isLoading.value = false
 }
 
@@ -422,6 +432,21 @@ async function replaceRouteIfNeeded() {
   })
 }
 
+async function loadLatestPublishedDate(sign: string, day: string, localRequestId: number) {
+  try {
+    const date = await getLatestPublishedDate({
+      sign,
+      year: Number(day.slice(0, 4)),
+      month: Number(day.slice(5, 7)),
+      locale: 'ru',
+      type: 'daily',
+    })
+    if (localRequestId === requestId) latestPublishedDate.value = date
+  } catch {
+    // The missing-day message and archive link remain usable if the optional lookup fails.
+  }
+}
+
 async function loadForecast(params: { sign: string; day: string }) {
   const localRequestId = ++requestId
 
@@ -437,6 +462,7 @@ async function loadForecast(params: { sign: string; day: string }) {
     if (result.kind === 'not-published') {
       forecastText.value = ''
       errorText.value = 'Прогноз ещё не опубликован'
+      void loadLatestPublishedDate(params.sign, params.day, localRequestId)
       return
     }
     forecastText.value = result.text
