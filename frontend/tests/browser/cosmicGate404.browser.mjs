@@ -7,6 +7,8 @@ const base = new URL(process.env.WHEEL_BASE_URL || 'http://127.0.0.1:54104')
 assert.equal(base.hostname, '127.0.0.1')
 assert.notEqual(base.port, '5173')
 const scene = '.cosmic-gate404__scene'
+const horizon = '.cosmic-gate404__event-horizon'
+const segment = '.cosmic-gate404__segment'
 const unknown = '/lost-orbit'
 let browser
 
@@ -102,24 +104,79 @@ for (const [width, height] of [[320, 568], [568, 320]]) {
   })
 }
 
+async function checkAssembledRing(page) {
+  const ring = await page.locator(scene).evaluate((el, selector) => {
+    const devices = Array.from(el.querySelectorAll(selector))
+    const designs = devices.map(device => [device.getAttribute('class'), device.getAttribute('href'), device.innerHTML].join('|'))
+    return {
+      bounds: el.getBoundingClientRect().toJSON(),
+      segments: devices.map(device => device.getBoundingClientRect().toJSON()),
+      visible: devices.every(device => device.checkVisibility({ opacityProperty: true, visibilityProperty: true })),
+      designCount: new Set(designs).size,
+    }
+  }, segment)
+  assert.ok(ring.segments.length >= 80 && ring.segments.length <= 90, 'Expected 80–90 gate devices')
+  assert.equal(ring.designCount, 1, 'Every position uses the same device')
+  assert.ok(ring.visible, 'Every device is visible')
+  for (const box of ring.segments) {
+    assert.ok(box.width > 0 && box.height > 0)
+    assert.ok(box.left >= ring.bounds.left && box.right <= ring.bounds.right &&
+      box.top >= ring.bounds.top && box.bottom <= ring.bounds.bottom,
+      JSON.stringify({ clippedSegment: box, scene: ring.bounds }))
+  }
+  const xs = ring.segments.map(box => box.x + box.width / 2)
+  const ys = ring.segments.map(box => box.y + box.height / 2)
+  const width = Math.max(...xs) - Math.min(...xs)
+  const height = Math.max(...ys) - Math.min(...ys)
+  assert.ok(Math.min(width, height) > .9 * Math.max(width, height), 'Ring should be near-circular')
+  const x = Math.min(...xs) + width / 2
+  const y = Math.min(...ys) + height / 2
+  const radii = xs.map((cx, i) => Math.hypot(cx - x, ys[i] - y))
+  assert.ok(Math.min(...radii) > .88 * Math.max(...radii), 'Every device sits on the rim')
+
+  // Sample well inside the aperture, away from the rim lights and surrounding stars.
+  const size = Math.floor(Math.min(width, height) * .45)
+  return { x: Math.round(x - size / 2), y: Math.round(y - size / 2), width: size, height: size }
+}
+
+async function apertureBrightness(page, clip) {
+  const png = await page.screenshot({ clip, scale: 'css' })
+  return page.evaluate(async base64 => {
+    const image = new Image()
+    image.src = 'data:image/png;base64,' + base64
+    await image.decode()
+    const canvas = document.createElement('canvas')
+    canvas.width = canvas.height = 1
+    const ctx = canvas.getContext('2d')
+    ctx.imageSmoothingQuality = 'high'
+    ctx.drawImage(image, 0, 0, 1, 1)
+    const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data
+    return .2126 * r + .7152 * g + .0722 * b
+  }, png.toString('base64'))
+}
+
 for (const [width, height] of [[1440, 900], [320, 568]]) {
   test(`${width}×${height} shows the entire assembled ring under reduced motion`, async t => {
     const page = await openGate(t, unknown, { viewport: { width, height }, reducedMotion: 'reduce' })
-    const ring = await page.locator(scene).evaluate(scene => {
-      const bounds = scene.getBoundingClientRect().toJSON()
-      const segments = Array.from(scene.querySelectorAll('.cosmic-gate404__segment'),
-        element => element.getBoundingClientRect().toJSON())
-      return { bounds, segments }
-    })
-    assert.ok(ring.segments.length > 0)
-    for (const segment of ring.segments) {
-      assert.ok(segment.width > 0 && segment.height > 0)
-      assert.ok(segment.left >= ring.bounds.left && segment.right <= ring.bounds.right &&
-        segment.top >= ring.bounds.top && segment.bottom <= ring.bounds.bottom,
-        JSON.stringify({ clippedSegment: segment, scene: ring.bounds }))
-    }
+    await checkAssembledRing(page)
   })
 }
+
+test('one uninterrupted visit starts assembled and keeps the lit horizon through 30 seconds', async t => {
+  const page = await openGate(t, unknown, { reducedMotion: 'no-preference' })
+  const start = await page.evaluate(() => performance.now())
+  const original = await page.locator(horizon).elementHandle()
+  assert.equal(await original.evaluate(el => Number(getComputedStyle(el).opacity)), 0, 'Aperture starts inactive')
+  const clip = await checkAssembledRing(page)
+  const dark = await apertureBrightness(page, clip)
+  for (const seconds of [10, 11, 20, 30]) {
+    await page.waitForFunction(deadline => performance.now() >= deadline, start + seconds * 1000)
+    assert.ok(await original.evaluate(el => el.isConnected && Number(getComputedStyle(el).opacity) >= .95),
+      `Original horizon should remain fully visible at ${seconds}s`)
+    const lit = await apertureBrightness(page, clip)
+    assert.ok(lit > dark + 24, `Aperture should stay lit at ${seconds}s (inactive ${dark}, observed ${lit})`)
+  }
+})
 
 test('reduced motion shows the assembled gate on entry and follows live preference changes', async t => {
   const page = await openGate(t, unknown, { reducedMotion: 'reduce' })
@@ -132,12 +189,11 @@ test('reduced motion shows the assembled gate on entry and follows live preferen
       return reduced ? !animations.length : animations.some(animation => animation.playState === 'running')
     }, { scene, reduced })
     if (reduced) {
-      for (const part of ['.cosmic-gate404__event-horizon', '.cosmic-gate404__segment']) {
-        const visible = await gate.locator(part).evaluateAll(elements =>
-          elements.length > 0 && elements.every(el => el.checkVisibility({ opacityProperty: true, visibilityProperty: true }))
-        )
-        assert.ok(visible, `Static gate must show ${part}`)
-      }
+      const clip = await checkAssembledRing(page)
+      assert.ok(await gate.locator(horizon).evaluate(el =>
+        el.checkVisibility({ opacityProperty: true, visibilityProperty: true }) && Number(getComputedStyle(el).opacity) >= .95))
+      const lit = await apertureBrightness(page, clip)
+      assert.ok(lit > 45, `Reduced motion should show the lit surface immediately (observed ${lit})`)
     }
   }
   const animations = await gate.evaluateHandle(el => el.getAnimations({ subtree: true }))

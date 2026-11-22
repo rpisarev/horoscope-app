@@ -515,9 +515,10 @@ Frontend `ZODIACS` has `key`, `nameEn`, `nameRu`, `glyph`, `start`, and `end`; H
 | `/archive/:sign/:year/:month/:day` | `ArchiveForecast` compatibility shim: validate explicit sign/date, then `router.replace` to `/horoscope/:sign/:YYYY-MM-DD`, preserving query/hash. Invalid sign/date renders contextual NotFound without fallback/clamping. |
 | Catch-all | `NotFound` with `CosmicGate404`; client-rendered 404 UI, not a proven HTTP 404 response. |
 
-The catch-all and contextual 404 pages share a 56-plate gate. Its CSS entrance
-assembles the housing and lights the aperture around a locally rendered WebP.
-Reduced motion displays the assembled gate immediately. The localized message
+The catch-all and contextual 404 pages share an Ori Supergate made of 80 identical
+devices. It starts fully assembled, with open space inside. The electrical links
+light in sequence before a blue-white opening surge reveals a persistent, rippling
+silver-blue surface. Reduced motion displays the active gate immediately. The localized message
 and Home link sit below the scene in portrait and alongside it in short landscape.
 
 `HoroscopeView` is the forecast-content page. It calls `/api/forecast?sign=…&date=…`, accepts legacy/new text aliases, splits paragraphs, manages loading/errors, and uses request IDs to reject superseded responses. The exact unpublished `404` shows “Прогноз ещё не опубликован”; other failures show a generic load error and empty successful content shows an empty message. `ArchiveForecast` no longer fetches metadata, years, or forecasts, nor duplicates forecast rendering/assets. Valid one- or two-digit legacy month/day values are padded for the canonical URL; malformed or impossible explicit dates are rejected.
