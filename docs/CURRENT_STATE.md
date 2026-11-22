@@ -17,6 +17,10 @@ Forecast, year, month and latest-publication reads use that exact locale.
 An absent translation keeps the requested date and offers a dated recovery
 link when the same language has a publication. The legacy API default is Russian.
 
+The publication inventory now includes the reader language in Russian and
+Ukrainian forecast and archive links. On the archive page, the sign carousel
+keeps keyboard focus while the selected sign's years and dates load.
+
 The isolated demo imported 39 English originals and 78 translations for all
 13 enabled signs on November 22–24, 2026. Each translation identifies the
 exact English text by key, version and SHA-256. November 25 is deliberately

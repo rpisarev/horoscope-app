@@ -572,6 +572,10 @@ Canonical URL policy:
 /archive/{sign}/{YYYY}/{MM}/{DD}          intentionally not included to avoid duplicate day URLs
 ```
 
+English forecast and archive links use the plain path. For Ukrainian and Russian
+publications, both `path` and `loc` include `?lang=uk` or `?lang=ru`. The home
+entry remains `/`.
+
 Common optional query params:
 
 ```text
@@ -618,16 +622,16 @@ Response shape:
     },
     {
       "type": "forecast",
-      "loc": "https://example.com/horoscope/aries/2026-06-01",
-      "path": "/horoscope/aries/2026-06-01",
+      "loc": "https://example.com/horoscope/aries/2026-06-01?lang=ru",
+      "path": "/horoscope/aries/2026-06-01?lang=ru",
       "lastmod": "2026-06-01T10:15:00+00:00",
       "sign_key": "aries",
       "date": "2026-06-01"
     },
     {
       "type": "archive_month",
-      "loc": "https://example.com/archive/aries/2026/06",
-      "path": "/archive/aries/2026/06",
+      "loc": "https://example.com/archive/aries/2026/06?lang=ru",
+      "path": "/archive/aries/2026/06?lang=ru",
       "lastmod": "2026-06-01T10:15:00+00:00",
       "sign_key": "aries",
       "year": 2026,
@@ -656,6 +660,7 @@ curl -s "http://localhost:8000/sitemap.xml?from=2026-06-01&to=2026-06-30&include
 ### `GET /sitemap-index.xml`
 
 Returns an XML sitemap index pointing to split sitemap chunks under `/sitemaps/`.
+An English or Ukrainian index carries its `locale` into those chunk URLs.
 
 Example:
 

@@ -17,6 +17,8 @@
       <div class="absolute bottom-0 left-0 right-0 h-56 bg-gradient-to-t from-black/35 to-transparent" />
     </div>
 
+    <ZodiacCarousel v-model="sign" class="z-10 mx-auto mb-8 max-w-6xl" />
+
     <section
       v-if="!isYearsLoaded"
       class="relative z-10 mx-auto flex min-h-[60vh] max-w-3xl items-center justify-center text-center"
@@ -29,8 +31,6 @@
     </section>
 
     <div v-else class="relative z-10 mx-auto flex max-w-6xl flex-col gap-8">
-      <ZodiacCarousel v-model="sign" />
-
       <section
         class="relative overflow-hidden rounded-[2rem] border border-amber-200/25
         bg-slate-950/55 p-6 shadow-2xl shadow-black/30 backdrop-blur md:p-8"
@@ -347,7 +347,8 @@ watch(
 watch(
   [sign, year, month, isYearsLoaded],
   ([s, y, m]) => {
-    if (!isYearsLoaded.value || routeError.value) {
+    // The sign control stays available while its scoped years request is pending.
+    if (routeError.value || (!isYearsLoaded.value && s === requestedSign.value)) {
       return
     }
 

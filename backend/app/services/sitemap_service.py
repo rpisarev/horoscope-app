@@ -1,9 +1,11 @@
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from typing import Any
+from urllib.parse import urlencode
 from xml.etree import ElementTree as ET
 
 from app.models import Forecast, ZodiacSign
+from .constants import DEFAULT_LOCALE
 
 
 SITEMAP_NAMESPACE = "http://www.sitemaps.org/schemas/sitemap/0.9"
@@ -74,7 +76,7 @@ def normalize_site_url(site_url: str) -> str:
 def build_sitemap_entries(
     *,
     site_url: str,
-    locale: str = "ru",
+    locale: str = DEFAULT_LOCALE,
     forecast_type: str = "daily",
     date_from: date | None = None,
     date_to: date | None = None,
@@ -86,6 +88,7 @@ def build_sitemap_entries(
         raise ValueError("date_from must be less than or equal to date_to.")
 
     normalized_site_url = normalize_site_url(site_url)
+    publication_query = f"?lang={locale}" if locale in {"ru", "uk"} else ""
     entries: list[SitemapEntry] = []
 
     if include_home:
@@ -110,6 +113,7 @@ def build_sitemap_entries(
             _forecast_entries(
                 site_url=normalized_site_url,
                 forecasts=forecasts,
+                publication_query=publication_query,
             )
         )
 
@@ -118,6 +122,7 @@ def build_sitemap_entries(
             _archive_month_entries(
                 site_url=normalized_site_url,
                 forecasts=forecasts,
+                publication_query=publication_query,
             )
         )
 
@@ -128,18 +133,21 @@ def build_sitemap_documents(
     *,
     site_url: str,
     entries: list[SitemapEntry],
+    locale: str = DEFAULT_LOCALE,
     chunk_size: int = DEFAULT_SITEMAP_CHUNK_SIZE,
 ) -> list[SitemapDocument]:
     if chunk_size < 1:
         raise ValueError("chunk_size must be greater than zero.")
 
     normalized_site_url = normalize_site_url(site_url)
+    # Chunk URLs select the backend inventory. Their default locale is Russian.
+    query = "" if locale == DEFAULT_LOCALE else "?" + urlencode({"locale": locale})
     documents: list[SitemapDocument] = []
 
     for index, start in enumerate(range(0, len(entries), chunk_size), start=1):
         chunk = entries[start : start + chunk_size]
         name = f"sitemap-{index}.xml"
-        path = f"/sitemaps/{name}"
+        path = f"/sitemaps/{name}{query}"
 
         documents.append(
             SitemapDocument(
@@ -233,12 +241,13 @@ def _forecast_entries(
     *,
     site_url: str,
     forecasts: list[Forecast],
+    publication_query: str,
 ) -> list[SitemapEntry]:
     entries: list[SitemapEntry] = []
 
     for forecast in forecasts:
         target_date = forecast.target_date.isoformat()
-        path = f"/horoscope/{forecast.sign_key}/{target_date}"
+        path = f"/horoscope/{forecast.sign_key}/{target_date}{publication_query}"
 
         entries.append(
             SitemapEntry(
@@ -258,6 +267,7 @@ def _archive_month_entries(
     *,
     site_url: str,
     forecasts: list[Forecast],
+    publication_query: str,
 ) -> list[SitemapEntry]:
     archive_months: dict[tuple[str, int, int], datetime | None] = {}
     sign_sort_order: dict[str, int] = {}
@@ -288,7 +298,7 @@ def _archive_month_entries(
         ),
     ):
         month_path_part = f"{month:02d}"
-        path = f"/archive/{sign_key}/{year}/{month_path_part}"
+        path = f"/archive/{sign_key}/{year}/{month_path_part}{publication_query}"
 
         entries.append(
             SitemapEntry(
