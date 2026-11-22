@@ -515,6 +515,11 @@ Frontend `ZODIACS` has `key`, `nameEn`, `nameRu`, `glyph`, `start`, and `end`; H
 | `/archive/:sign/:year/:month/:day` | `ArchiveForecast` compatibility shim: validate explicit sign/date, then `router.replace` to `/horoscope/:sign/:YYYY-MM-DD`, preserving query/hash. Invalid sign/date renders contextual NotFound without fallback/clamping. |
 | Catch-all | `NotFound` with `CosmicGate404`; client-rendered 404 UI, not a proven HTTP 404 response. |
 
+The catch-all and contextual 404 pages share a 56-plate gate. Its CSS entrance
+assembles the housing and lights the aperture around a locally rendered WebP.
+Reduced motion displays the assembled gate immediately. The localized message
+and Home link sit below the scene in portrait and alongside it in short landscape.
+
 `HoroscopeView` is the forecast-content page. It calls `/api/forecast?sign=…&date=…`, accepts legacy/new text aliases, splits paragraphs, manages loading/errors, and uses request IDs to reject superseded responses. The exact unpublished `404` shows “Прогноз ещё не опубликован”; other failures show a generic load error and empty successful content shows an empty message. `ArchiveForecast` no longer fetches metadata, years, or forecasts, nor duplicates forecast rendering/assets. Valid one- or two-digit legacy month/day values are padded for the canonical URL; malformed or impossible explicit dates are rejected.
 
 `ArchiveMonth` requests `/api/years?sign=…&locale=ru&type=daily` when the selected sign changes and one `/api/archive/month?year=…&month=…&sign=…&locale=ru&type=daily` per sign/year/month scope. Only `has_forecast=true` days link directly to `/horoscope/:sign/:date`, whether past, today, or future. Loading/error states disable all days; there is no past-date fallback or per-day fetch. Request IDs and a scope check reject stale month responses; sign-scoped year requests also reject stale responses. Explicit month availability loads without `/api/meta`; business date only supplies today highlighting/linking. Existing year-list validation/fallback behavior remains, and `/api/archive/day` and `/api/archive/months` remain unused by the frontend.
